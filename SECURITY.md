@@ -10,10 +10,14 @@ Report suspected vulnerabilities privately to the repository owner. Do not inclu
 
 - Gateway binds to loopback and requires a transient launcher-provided token.
 - Direct credentials are resolved from approved references and never committed.
-- Managed bridges retain OAuth and lifecycle ownership.
+- Project-owned OAuth credentials live outside Git in a `0700` directory with `0600` files, atomic replacement, generation CAS, backup, and recovery. SQLite stores handles and metadata only.
+- Import from another client store is explicit and read-only by default. Shared-store interoperability requires provider-specific locking and recovery tests.
+- Managed bridges may retain OAuth and lifecycle ownership when selected for a provider.
+- Management and data boundaries bind loopback only. Management requires authentication, Origin/CSRF checks, and versioned mutations.
 - Global Claude/Codex configuration is not persisted by normal launch flows.
 - Foreign port owners are never signaled.
 - Prompt and response bodies are not logged by default.
+- Account pools filter eligibility before selection and cannot rotate after the first response byte or tool event.
 
 See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and the accepted ADRs for trust boundaries.
 
@@ -23,4 +27,3 @@ See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and the accepted ADRs for tru
 2. Rotate the exposed credential through its owner/provider.
 3. Remove the capture path and extend privacy tests.
 4. Review repository history and generated artifacts before resuming.
-

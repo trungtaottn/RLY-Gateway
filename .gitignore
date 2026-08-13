@@ -11,9 +11,6 @@ gateway.config.toml
 gateway.live.toml
 .*local*
 
-#AGENTS
-AGENTS.md
-CLAUDE.md
-docs
+# Local execution plans
 plans
 tests

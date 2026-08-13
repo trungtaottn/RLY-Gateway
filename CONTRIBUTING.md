@@ -1,11 +1,13 @@
 # Contributing To Agent Gateway
 
+Before work, follow [AGENTS.md](./AGENTS.md) and route the task through the [requirements pack](./docs/requirements/README.md). Requirement or behavior changes must preserve IDs, update RTM/acceptance evidence, and reconcile the owning authority before completion.
+
 This repository is initially personal, but all changes should be reviewable and publishable without exposing private machine state.
 
 ## Before changing code
 
-1. Read [SPEC.md](./docs/SPEC.md) and the relevant ADRs.
-2. Check [TASKLIST.md](./docs/TASKLIST.md) and the active plan phase.
+1. Route the task through the [requirements pack](./docs/requirements/README.md), [SPEC.md](./docs/SPEC.md), and relevant ADRs.
+2. Check [TASKLIST.md](./docs/TASKLIST.md), RTM/acceptance IDs, and the active plan phase.
 3. Confirm the work is committed scope; otherwise place it in [BACKLOG.md](./docs/BACKLOG.md).
 4. Inspect current provider/protocol compatibility evidence.
 5. Never paste or commit credentials, real prompts, responses, account identity, or private provider payloads.
@@ -37,7 +39,7 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 - Never signal a process based only on port occupancy.
 - Never use existing protected ports `10100`, `8317`, or `17870` for this project.
 - Never persist global Claude/Codex configuration in normal launch paths.
-- Never read another client credential store.
+- Credential import/interoperability may read another client store only when explicitly requested by the owner and governed by the credential broker contract.
 - Never retry after response bytes or a tool event have been emitted.
 - Live tests are opt-in and must not log real content.
 
@@ -55,13 +57,14 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 
 | Change | Update |
 | --- | --- |
-| Product behavior or scope | `docs/SPEC.md` |
+| Product behavior or scope | Owning requirements document, `docs/SPEC.md`, and RTM |
 | Current committed work | `docs/TASKLIST.md` and active plan |
 | Uncommitted future idea | `docs/BACKLOG.md` |
 | Milestone sequence | `docs/ROADMAP.md` |
 | Durable architecture | `docs/ARCHITECTURE.md` and ADR when needed |
 | Runtime/tool policy | `docs/TECH-STACK.md` |
 | Provider/protocol compatibility | compatibility docs introduced by their implementation phase |
+| Verified requirement | RTM evidence, Acceptance Test Cases if scenario changed, TASKLIST and active phase |
 
 Do not duplicate detailed phase steps into evergreen docs.
 
