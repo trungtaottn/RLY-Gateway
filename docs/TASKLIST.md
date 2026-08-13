@@ -46,9 +46,9 @@ Code/live-provider compatibility.
 - [x] Accept self-owned control plane, OAuth credentials, explicit import, and account pools.
 - [x] Supersede the bridge-only credential restriction.
 - [x] Define request-time eligibility, selection, and immutable EffectiveRoute.
-- [ ] Pin exact source artifacts, hashes, licenses, and module adaptation matrix.
-- [ ] Prove CLIProxy Plus provenance separately from CCS.
-- [ ] Create sanitized compatibility fixtures for copied behavior.
+- [x] Pin exact source artifacts, hashes, licenses, and module adaptation matrix.
+- [x] Prove CLIProxy Plus provenance separately from CCS.
+- [x] Create sanitized compatibility fixtures for copied behavior.
 
 ## Later committed V1 milestones
 
@@ -69,4 +69,4 @@ Code/live-provider compatibility.
 
 ## Unresolved questions
 
-- Exact CLIProxy Plus source/license pin and first UI scope remain open in the active plan.
+- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy; first UI scope remains open.

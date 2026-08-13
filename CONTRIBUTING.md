@@ -32,7 +32,7 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 - Do not commit unless explicitly approved by the repository owner.
 - Never rewrite or discard unrelated local work.
 - Do not add an upstream remote merely because code was studied or adapted.
-- Record copied or substantially adapted MIT code in `docs/provenance.md` before commit.
+- Record copied or substantially adapted MIT code in `docs/provenance.md` and the adaptation matrix before commit. Retain the original notice in-file or in `docs/third-party-notices.md`.
 
 ## Safety rules
 

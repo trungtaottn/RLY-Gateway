@@ -94,4 +94,4 @@ Contract and integration script names already exist and intentionally allow zero
 
 ## License
 
-MIT. Adapted upstream code, when introduced, must be recorded in `docs/provenance.md` with its original notice and pinned source revision.
+MIT. Adapted upstream code, when introduced, must be recorded in [`docs/provenance.md`](./docs/provenance.md) with its original notice, pinned artifact hash, and a row in the [adaptation matrix](./docs/source-adaptation-matrix.md).
