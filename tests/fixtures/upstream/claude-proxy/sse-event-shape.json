@@ -1,0 +1,12 @@
+{
+  "artifactId": "claude-proxy-6c21df81",
+  "kind": "anthropic-sse-shape",
+  "events": [
+    { "type": "message_start", "hasPayloadText": false },
+    { "type": "content_block_start", "block": "text" },
+    { "type": "content_block_delta", "delta": "text_delta", "text": "redacted fixture text" },
+    { "type": "content_block_stop" },
+    { "type": "message_delta", "stopReason": "end_turn" },
+    { "type": "message_stop" }
+  ]
+}

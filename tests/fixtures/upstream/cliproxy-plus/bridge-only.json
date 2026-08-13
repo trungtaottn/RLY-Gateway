@@ -1,0 +1,13 @@
+{
+  "artifactId": "cliproxy-plus-7.2.127-3",
+  "kind": "bridge-oracle-only",
+  "copyAllowed": false,
+  "vendorBinary": false,
+  "use": "attested-managed-bridge-or-oracle",
+  "protectedPorts": [10100, 8317, 17870],
+  "notes": [
+    "MIT license independently proven",
+    "release module marked dirty so source tree is not a copy pin",
+    "do not start or signal the existing proxy process"
+  ]
+}

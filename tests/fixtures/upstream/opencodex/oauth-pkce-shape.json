@@ -1,0 +1,19 @@
+{
+  "artifactId": "opencodex-2.11.1",
+  "kind": "oauth-pkce-callback-shape",
+  "redirect": "http://127.0.0.1:17873/callback",
+  "state": {
+    "value": "state-fixture-not-secret",
+    "singleUse": true,
+    "expires": true
+  },
+  "pkce": {
+    "method": "S256",
+    "verifierPresent": true,
+    "challengePresent": true
+  },
+  "errors": {
+    "bodyBounded": true,
+    "tokensLogged": false
+  }
+}

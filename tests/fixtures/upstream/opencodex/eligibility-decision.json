@@ -1,0 +1,33 @@
+{
+  "artifactId": "opencodex-2.11.1",
+  "kind": "eligibility-then-strategy",
+  "policyRevision": "pol-fixture-7",
+  "requestId": "req-fixture-1",
+  "candidates": [
+    {
+      "accountPseudonym": "acct-fixture-001",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "accountPseudonym": "acct-fixture-002",
+      "eligible": false,
+      "reasons": ["paused"]
+    },
+    {
+      "accountPseudonym": "acct-fixture-003",
+      "eligible": false,
+      "reasons": ["cooling"]
+    }
+  ],
+  "strategy": "round-robin",
+  "selected": {
+    "accountPseudonym": "acct-fixture-001",
+    "credentialGeneration": 3
+  },
+  "effectiveRoute": {
+    "immutableAfterBind": true,
+    "rotateAfterFirstByte": false,
+    "rotateAfterToolEvent": false
+  }
+}

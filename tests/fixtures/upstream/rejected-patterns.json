@@ -1,0 +1,25 @@
+{
+  "kind": "rejected-upstream-patterns",
+  "patterns": [
+    {
+      "id": "kill-by-port",
+      "allowed": false,
+      "replacement": "attested-ownership-or-fail-closed"
+    },
+    {
+      "id": "silent-import",
+      "allowed": false,
+      "replacement": "explicit-read-only-import"
+    },
+    {
+      "id": "default-shared-store-writes",
+      "allowed": false,
+      "replacement": "project-owned-canonical-store"
+    },
+    {
+      "id": "post-output-retry",
+      "allowed": false,
+      "replacement": "bounded-pre-output-rotation-only"
+    }
+  ]
+}
