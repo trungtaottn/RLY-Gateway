@@ -14,6 +14,12 @@ export type CanonicalTool = {
   inputSchema: Record<string, unknown>;
 };
 
+export type CanonicalToolChoice =
+  | { type: "auto" | "any" | "none" }
+  | { type: "tool"; name: string };
+
+export type CanonicalMessage = Readonly<{ role: "user" | "assistant"; content: readonly CanonicalContent[] }>;
+
 export type CanonicalRequest = Readonly<{
   id: string;
   source: Readonly<{
@@ -26,7 +32,9 @@ export type CanonicalRequest = Readonly<{
   modelRole: ModelRole;
   system: readonly CanonicalContent[];
   input: readonly CanonicalContent[];
+  messages: readonly CanonicalMessage[];
   tools: readonly CanonicalTool[];
+  toolChoice?: CanonicalToolChoice;
   stream: boolean;
   inference: Readonly<{
     maxOutputTokens?: number;
@@ -35,5 +43,8 @@ export type CanonicalRequest = Readonly<{
     stopSequences?: readonly string[];
     thinking?: "disabled" | "enabled" | "adaptive";
   }>;
+  metadata: Readonly<{
+    beta?: readonly string[];
+    cacheControl?: readonly Readonly<{ scope: "system" | "message"; index: number }> [];
+  }>;
 }>;
-
