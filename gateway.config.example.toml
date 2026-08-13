@@ -1,0 +1,16 @@
+schemaVersion = 1
+
+[gateway]
+host = "127.0.0.1"
+port = 17871
+logLevel = "info"
+
+[routes.primary]
+provider = "openrouter"
+model = "replace-with-a-verified-model-id"
+credential = "env:OPENROUTER_API_KEY"
+
+[routes.fast]
+provider = "openrouter"
+model = "replace-with-a-verified-fast-model-id"
+credential = "env:OPENROUTER_API_KEY"
