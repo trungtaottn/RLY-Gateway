@@ -1,6 +1,10 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { GatewayConfig } from "../config/schema.js";
+import { createDirectRouteResolver } from "../providers/direct/direct-upstream.js";
+import { registerAnthropicMessagesRoute } from "../routes/anthropic-messages-route.js";
+import { registerAnthropicDirectCountTokensRoute } from "../routes/anthropic-direct-count-tokens-route.js";
 
 export type GatewayServerOptions = Readonly<{
   host: "127.0.0.1";
@@ -8,6 +12,8 @@ export type GatewayServerOptions = Readonly<{
   authToken: string;
   instanceId: string;
   configFingerprint: string;
+  config?: GatewayConfig;
+  environment?: NodeJS.ProcessEnv;
   leases?: GatewayLeaseRegistry;
 }>;
 
@@ -22,6 +28,16 @@ const leaseParamsSchema = z.object({ leaseId: z.uuid() });
 function isAuthorized(header: string | undefined, token: string): boolean {
   if (!header?.startsWith("Bearer ")) return false;
   const actual = createHash("sha256").update(header.slice("Bearer ".length)).digest();
+  const expected = createHash("sha256").update(token).digest();
+  return timingSafeEqual(actual, expected);
+}
+
+function isGatewayRequestAuthorized(headers: Readonly<{ authorization?: string | undefined; "x-api-key"?: string | string[] | undefined }>, token: string): boolean {
+  if (isAuthorized(headers.authorization, token)) return true;
+  const key = headers["x-api-key"];
+  const candidate = Array.isArray(key) ? key[0] : key;
+  if (candidate === undefined) return false;
+  const actual = createHash("sha256").update(candidate).digest();
   const expected = createHash("sha256").update(token).digest();
   return timingSafeEqual(actual, expected);
 }
@@ -42,11 +58,23 @@ export function createIdentityProof(
 export function createGatewayServer(options: GatewayServerOptions): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
   app.get("/healthz", () => ({ ok: true }));
+  if (options.config && Object.keys(options.config.routes).length > 0) {
+    const resolveRoute = createDirectRouteResolver(options.config, options.configFingerprint, options.environment);
+    registerAnthropicMessagesRoute(app, {
+      configFingerprint: options.configFingerprint,
+      resolveRoute,
+    });
+    registerAnthropicDirectCountTokensRoute(app, resolveRoute);
+    app.addHook("onRequest", async (request, reply) => {
+      if (!request.url.startsWith("/v1/") || isGatewayRequestAuthorized(request.headers, options.authToken)) return;
+      await reply.code(401).send({ type: "error", error: { type: "authentication_error", message: "Gateway request is unauthorized" } });
+    });
+  }
   app.get("/readyz", async (request, reply) => {
     if (!isAuthorized(request.headers.authorization, options.authToken)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
-    return { ready: true, routes: 0 };
+    return { ready: true, routes: Object.keys(options.config?.routes ?? {}).length };
   });
   app.post<{ Params: { leaseId: string } }>("/leases/:leaseId", async (request, reply) => {
     if (!isAuthorized(request.headers.authorization, options.authToken)) {

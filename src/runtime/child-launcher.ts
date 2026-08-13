@@ -1,8 +1,13 @@
 import { spawn } from "node:child_process";
+import { rm } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ShutdownController } from "./shutdown-controller.js";
 
 const CLAUDE_BASE_URL_VARIABLE = "ANTHROPIC_BASE_URL";
 const CLAUDE_AUTH_TOKEN_VARIABLE = "ANTHROPIC_AUTH_TOKEN";
+const CLAUDE_CONFIG_DIRECTORY_VARIABLE = "CLAUDE_CONFIG_DIR";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 
 export type ChildExit = Readonly<{ code: number | null; signal: NodeJS.Signals | null }>;
@@ -39,6 +44,14 @@ export type LaunchClaudeOptions = Readonly<{
   shutdownTimeoutMs?: number;
 }>;
 
+/** Claude documents this print-mode flag; do not depend on undocumented state-directory variables. */
+function sessionIsolatedArgs(args: readonly string[]): readonly string[] {
+  const printMode = args.includes("-p") || args.includes("--print");
+  return printMode && !args.includes("--no-session-persistence")
+    ? [...args, "--no-session-persistence"]
+    : args;
+}
+
 function spawnChild(
   executable: string,
   args: readonly string[],
@@ -65,11 +78,13 @@ export function createClaudeChildEnvironment(
   environment: Readonly<NodeJS.ProcessEnv>,
   gatewayBaseUrl: string,
   authToken: string,
+  configDirectory?: string,
 ): NodeJS.ProcessEnv {
   const childEnvironment: NodeJS.ProcessEnv = {
     ...environment,
     [CLAUDE_BASE_URL_VARIABLE]: gatewayBaseUrl,
     [CLAUDE_AUTH_TOKEN_VARIABLE]: authToken,
+    ...(configDirectory === undefined ? {} : { [CLAUDE_CONFIG_DIRECTORY_VARIABLE]: configDirectory }),
   };
   delete childEnvironment["ANTHROPIC_API_KEY"];
   return childEnvironment;
@@ -98,16 +113,24 @@ function installSignalForwarding(
 /** Runs Claude in the foreground with gateway configuration scoped solely to the child. */
 export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildExit> {
   const currentEnvironment = process["env"];
+  const configDirectory = mkdtempSync(join(tmpdir(), "agent-gateway-claude-"));
   const environment = createClaudeChildEnvironment(
     options.environment ?? currentEnvironment,
     options.gatewayBaseUrl,
     options.authToken,
+    configDirectory,
   );
-  const child = (options.spawner ?? spawnChild)(options.executable ?? "claude", options.args, {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: environment,
-    stdio: "inherit",
-  });
+  let child: ChildProcessLike;
+  try {
+    child = (options.spawner ?? spawnChild)(options.executable ?? "claude", sessionIsolatedArgs(options.args), {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      env: environment,
+      stdio: "inherit",
+    });
+  } catch (error) {
+    await rm(configDirectory, { recursive: true, force: true });
+    throw error;
+  }
   const exit = waitForChildExit(child);
   let stopSignal: NodeJS.Signals = "SIGTERM";
   const controller = new ShutdownController({
@@ -129,5 +152,6 @@ export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildE
   } finally {
     removeSignalForwarding();
     options.abortSignal?.removeEventListener("abort", cancel);
+    await rm(configDirectory, { recursive: true, force: true });
   }
 }

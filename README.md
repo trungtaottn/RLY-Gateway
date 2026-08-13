@@ -4,7 +4,9 @@ Personal, protocol-preserving gateway for coding-agent harnesses. Claude Code is
 
 ## Project status
 
-The foundation and safe local lifecycle are complete. Claude Messages routing, provider adapters, and full Claude protocol support remain future work; see [TASKLIST](./docs/TASKLIST.md).
+The foundation, Anthropic Messages boundary, and direct-provider runtime route
+are implemented. A route is not Claude-ready until its opt-in live smoke is
+recorded; see [TASKLIST](./docs/TASKLIST.md).
 
 ## Start here
 
@@ -66,7 +68,9 @@ pnpm dev run claude -- --help
 
 `run claude` starts or reuses only the deterministic, attested local gateway, then launches Claude with gateway settings scoped to that child process. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration without exposing sensitive validation details. There is no ownership-bypassing `serve` command.
 
-The lifecycle server currently provides only foundation health, attestation, and lease behavior. Claude Messages endpoints and provider adapters arrive in later milestones.
+With configured direct routes, the lifecycle server also exposes authenticated
+Anthropic Messages and token-count endpoints. Routes are explicit `primary`,
+`fast`, and `reasoning` mappings; the gateway never auto-selects a model.
 
 ## Verification
 

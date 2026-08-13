@@ -261,6 +261,7 @@ async function acquireGatewayOnce(options: AcquireGatewayOptions): Promise<Gatew
       authToken: secretValue,
       instanceId,
       configFingerprint,
+      config: options.config,
       leases: registry,
     });
     appHolder.app = app;
@@ -271,6 +272,7 @@ async function acquireGatewayOnce(options: AcquireGatewayOptions): Promise<Gatew
         authToken: secretValue,
         instanceId,
         configFingerprint,
+        config: options.config,
         leases: registry,
       });
       await store.writeInstanceSecret(secretValue);

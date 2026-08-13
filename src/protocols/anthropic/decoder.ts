@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
-import type { CanonicalContent, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
+import type { CanonicalContent, CanonicalMessage, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
 
 const cacheControl = z.object({ type: z.literal("ephemeral") }).optional();
 const textBlock = z.object({ type: z.literal("text"), text: z.string(), cache_control: cacheControl });
@@ -14,7 +14,7 @@ const contentBlock = z.discriminatedUnion("type", [textBlock, imageBlock, toolUs
 const content = z.union([z.string(), z.array(contentBlock)]);
 const tool = z.object({ name: z.string().min(1), description: z.string().optional(), input_schema: z.record(z.string(), z.unknown()) });
 const rawSchema = z.object({
-  model: z.string().min(1), max_tokens: z.number().int().positive(), messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content })),
+  model: z.string().min(1), max_tokens: z.number().int().positive(), messages: z.array(z.object({ role: z.string().min(1), content })),
   system: z.union([z.string(), z.array(textBlock)]).optional(), tools: z.array(tool).optional(),
   tool_choice: z.union([z.object({ type: z.enum(["auto", "any", "none"]) }), z.object({ type: z.literal("tool"), name: z.string().min(1) })]).optional(),
   stream: z.boolean().optional(), temperature: z.number().min(0).max(1).optional(), top_p: z.number().min(0).max(1).optional(), stop_sequences: z.array(z.string()).optional(),
@@ -43,12 +43,23 @@ function blocks(value: z.infer<typeof content>): CanonicalContent[] {
 
 export function decodeAnthropicRequest(raw: unknown, headers: Record<string, string | string[] | undefined> = {}): DecodedAnthropicRequest {
   const parsed = rawSchema.safeParse(raw);
-  if (!parsed.success) throw new AnthropicProtocolError("invalid_request_error", "Request does not match the supported Messages contract");
+  if (!parsed.success) {
+    const paths = [...new Set(parsed.error.issues.map((issue) => issue.path.map(String).join(".") || "body"))].slice(0, 8);
+    throw new AnthropicProtocolError("invalid_request_error", `Request does not match the supported Messages fields: ${paths.join(", ")}`);
+  }
   const value = parsed.data;
   const beta = headers["anthropic-beta"];
   const betaValues = typeof beta === "string" ? beta.split(",").map((item) => item.trim()).filter(Boolean) : [];
-  const system = value.system === undefined ? [] : typeof value.system === "string" ? [{ type: "text", text: value.system } satisfies CanonicalContent] : value.system.map((block) => ({ type: "text", text: block.text } satisfies CanonicalContent));
-  const messages = value.messages.map((message) => ({ role: message.role, content: blocks(message.content) }));
+  const declaredSystem = value.system === undefined ? [] : typeof value.system === "string" ? [{ type: "text", text: value.system } satisfies CanonicalContent] : value.system.map((block) => ({ type: "text", text: block.text } satisfies CanonicalContent));
+  const system: CanonicalContent[] = [...declaredSystem];
+  const messages: CanonicalMessage[] = [];
+  for (const message of value.messages) {
+    const decodedContent = blocks(message.content);
+    if (message.role === "system") { system.push(...decodedContent); continue; }
+    if (message.role !== "user" && message.role !== "assistant") throw new AnthropicProtocolError("invalid_request_error", `Unsupported message role: ${message.role}`);
+    if (message.role === "user") messages.push({ role: "user", content: decodedContent });
+    else messages.push({ role: "assistant", content: decodedContent });
+  }
   const input = messages.flatMap((message) => message.content);
   const required: CapabilityRequirement[] = [];
   if (value.stream) required.push("streaming");

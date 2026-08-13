@@ -5,6 +5,7 @@ const routeSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   credential: z.string().min(1),
+  baseUrl: z.url().optional(),
 });
 
 const protectedPorts = new Set([10100, 8317, 17870]);
@@ -18,13 +19,14 @@ export const gatewayConfigSchema = z.object({
       .default(17871),
     logLevel: z.enum(["silent", "error", "warn", "info", "debug"]).default("info"),
   }),
-  routes: z.record(z.string().min(1), routeSchema).default({}),
+  routes: z.object({ primary: routeSchema.optional(), fast: routeSchema.optional(), reasoning: routeSchema.optional() }).strict().default({}),
 });
 
 export type GatewayConfig = z.infer<typeof gatewayConfigSchema>;
 
 export function validateCredentialRefs(config: GatewayConfig): void {
   for (const route of Object.values(config.routes)) {
+    if (route === undefined) continue;
     const separator = route.credential.indexOf(":");
     if (separator < 1) {
       throw new Error("Credential reference must use an approved kind:name syntax");

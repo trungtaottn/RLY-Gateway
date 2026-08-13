@@ -8,6 +8,7 @@ coverage/
 .[e]nv*
 *.local.toml
 gateway.config.toml
+gateway.live.toml
 .*local*
 
 #AGENTS

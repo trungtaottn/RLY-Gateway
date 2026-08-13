@@ -10,12 +10,12 @@ import { acquireGateway, inspectGateway, type GatewayLeaseHandle } from "../runt
 
 const DEFAULT_CONFIG = "gateway.config.toml";
 function usage(): void {
-  console.log("Usage: agent-gateway <status|doctor> [--config path] | run claude [--config path] -- [claude args]");
+  console.log("Usage: agent-gateway <status|doctor> [--config path] | run claude [--config path] [--route provider/model] -- [claude args]");
 }
 
 export type ParsedCliCommand =
   | Readonly<{ command: "status" | "doctor"; configPath: string }>
-  | Readonly<{ command: "run-claude"; configPath: string; claudeArgs: readonly string[] }>;
+  | Readonly<{ command: "run-claude"; configPath: string; claudeArgs: readonly string[]; route?: string }>;
 
 function configPath(args: readonly string[], cwd: string): string {
   const index = args.indexOf("--config");
@@ -33,11 +33,29 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
   if (command !== "run" || args[1] !== "claude") return undefined;
   const separator = args.indexOf("--", 2);
   if (separator < 0) throw new Error("run claude requires `--` before Claude arguments");
+  const options = args.slice(2, separator);
+  const routeIndex = options.indexOf("--route");
+  const route = routeIndex < 0 ? undefined : options[routeIndex + 1];
+  if (routeIndex >= 0 && (route === undefined || route.startsWith("--"))) throw new Error("--route requires an exact provider/model value");
+  if (routeIndex >= 0 && options.filter((value) => value === "--route").length !== 1) throw new Error("--route may be provided once");
   return {
     command: "run-claude",
-    configPath: configPath(args.slice(2, separator), cwd),
+    configPath: configPath(options, cwd),
     claudeArgs: args.slice(separator + 1),
+    ...(route === undefined ? {} : { route }),
   };
+}
+
+function configuredRoleForRoute(config: Awaited<ReturnType<typeof loadConfig>>, route: string): "primary" | "fast" | "reasoning" {
+  const match = (Object.entries(config.routes) as ["primary" | "fast" | "reasoning", typeof config.routes.primary][])
+    .find(([, candidate]) => candidate !== undefined && `${candidate.provider}/${candidate.model}` === route);
+  if (!match) throw new Error("Requested route is not configured");
+  return match[0];
+}
+
+function routeScopedClaudeArgs(args: readonly string[], role: "primary" | "fast" | "reasoning"): readonly string[] {
+  if (args.includes("--model")) throw new Error("--model cannot be combined with gateway --route");
+  return ["--model", role, ...args];
 }
 
 async function canRead(path: string): Promise<boolean> {
@@ -61,7 +79,7 @@ async function doctor(path: string): Promise<number> {
   try {
     const config = await loadConfig(path);
     const placeholderRoutes = Object.entries(config.routes)
-      .filter(([, route]) => isPlaceholderModel(route.model))
+      .filter(([, route]) => route !== undefined && isPlaceholderModel(route.model))
       .map(([role]) => role);
     console.log(JSON.stringify({
       ok: true,
@@ -130,12 +148,15 @@ export async function runCli(
   else {
     if (!("claudeArgs" in parsed)) throw new Error("Invalid Claude command");
     const config = await loadConfig(path);
+    const claudeArgs = parsed.route === undefined
+      ? parsed.claudeArgs
+      : routeScopedClaudeArgs(parsed.claudeArgs, configuredRoleForRoute(config, parsed.route));
     const lease = await (dependencies.acquireGateway ?? acquireGateway)({ config });
     try {
       const exit = await (dependencies.launchClaude ?? launchClaude)({
         gatewayBaseUrl: lease.baseUrl,
         authToken: lease.authToken,
-        args: parsed.claudeArgs,
+        args: claudeArgs,
         environment: dependencies.environment,
       });
       code = childExitCode(exit);
