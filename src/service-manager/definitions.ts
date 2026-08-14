@@ -58,25 +58,42 @@ ${workingBlock}${logBlock}</dict>
 `;
 }
 
-/** Quotes a single systemd ExecStart argument only when it needs quoting. */
+/**
+ * Escapes a single systemd ExecStart argument: `%` is a systemd specifier that
+ * must be doubled, and arguments containing whitespace or quotes are quoted.
+ */
 function systemdQuote(value: string): string {
-  return /[\s"']/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+  const escaped = value.replace(/%/g, "%%");
+  return /[\s"']/.test(escaped) ? `"${escaped.replace(/"/g, '\\"')}"` : escaped;
 }
 
-export function buildSystemdUserUnit(input: ServiceDefinitionInput): string {
+export function buildSystemdUserUnit(
+  input: ServiceDefinitionInput & Readonly<{ workingDirectory?: string; logPath?: string }>,
+): string {
   const execStart = [input.executable, input.entrypoint, "gateway", "start", "--config", input.configPath]
     .map(systemdQuote)
     .join(" ");
+  // Paths only. No Environment= and no credentials/account identity ever enter
+  // the unit; stdout/stderr go to the durable RLY log directory when a log path
+  // is provided, otherwise systemd's journal default applies.
+  const workingBlock = input.workingDirectory === undefined
+    ? ""
+    : `WorkingDirectory=${systemdQuote(input.workingDirectory)}\n`;
+  const logBlock = input.logPath === undefined
+    ? ""
+    : `StandardOutput=append:${systemdQuote(input.logPath)}\nStandardError=append:${systemdQuote(input.logPath)}\n`;
   return `[Unit]
 Description=RLY Gateway per-user runtime service
 After=default.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=${execStart}
 Restart=on-failure
 RestartSec=2
-
+${workingBlock}${logBlock}
 [Install]
 WantedBy=default.target
 `;
