@@ -36,7 +36,7 @@ When a requirement changes, update its owning document and this matrix in the sa
 
 - BR-001/006/008 have partial verified evidence from the completed Claude direct-provider milestone.
 - Control-plane foundation evidence exists for schema/migrations, authenticated management, CLI administration, and secret-free DTOs.
-- Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection is implemented as a library engine; Claude Code pool integration, UI accessibility, and Codex harness remain unimplemented.
+- Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, Claude Code profile integration, and the secret-free local UI are implemented; Codex harness remains the later V1 surface.
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
 
 ## Phase 06 executable evidence
@@ -88,3 +88,13 @@ When a requirement changes, update its owning document and this matrix in the sa
 | AT-027 subset | `tests/privacy/profiles.test.ts`, `tests/lifecycle/profile-pool-route.test.ts` | Verified route-trace and activation DTOs contain no credential, identity, prompt, response, or tool argument |
 | Profile launch UX | `tests/unit/cli-main.test.ts`, `src/cli/main.ts` | Verified `--profile` is mutually exclusive with `--route` and uses a child token |
 | Live Codex pool smoke | `tests/contract/providers/codex-oauth/live-smoke.test.ts` | Skipped unless `AGENT_GATEWAY_LIVE_CODEX_OAUTH=1` and a project-owned handle is provided; not passing evidence |
+
+## Phase 10 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-025, AT-026 | `tests/ui/session.test.ts`, `tests/management/auth.test.ts` | Verified fragment exchange, CSRF rotate/resume, Origin/CSRF fail-closed, security headers |
+| AT-027 subset | `tests/ui/page.test.ts`, `tests/ui/session.test.ts`, `tests/privacy/control-plane.test.ts` | Verified UI/HTML/DTO/traces contain no secrets, no browser storage, no file picker |
+| AT-031 subset | `tests/ui/page.test.ts` | Verified skip link, labeled view select, live status, desktop/mobile nav, 44px targets in CSS |
+| Provider contracts | `tests/contract/providers/catalog.test.ts`, `tests/contract/providers/gemini-oauth.test.ts`, `tests/contract/providers/expansion.test.ts`, `tests/contract/providers/isolation.test.ts` | Verified Gemini/Claude OAuth, Antigravity bridge identity, Cline explicit lock/restore, OpenCode Go/Alibaba isolation |
+| Live provider smoke | none in this phase | Opt-in live gates remain skipped; not passing evidence |

@@ -33,6 +33,16 @@ follows the already pinned `adapted` rows `ccs-profile-target`,
 `claude-proxy-helper-map` without copying source text. Verification owner:
 profiles. Notices remain in `docs/third-party-notices.md`.
 
+Phase 10 independently implemented a secret-free management UI, session
+resume, management health/trace DTOs, a provider catalog, project-owned
+Gemini and Claude OAuth adapters, an attested Antigravity bridge probe,
+explicit Cline interoperability lock/backup, and OpenCode Go / Alibaba
+direct adapters. The work follows the already pinned `adapted` rows
+`opencodex-management-dto`, `claude-proxy-gemini-oauth`,
+`claude-proxy-cline-interop`, and `cliproxy-plus-bridge-oracle` without
+copying source text. Verification owner: management / providers. Notices
+remain in `docs/third-party-notices.md`.
+
 ## Frozen artifacts (2026-08-13)
 
 A repository revision may not be treated as the package source unless contents

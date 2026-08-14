@@ -99,4 +99,4 @@ Code/live-provider compatibility.
 
 ## Unresolved questions
 
-- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy; first UI scope remains open.
+- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy. First UI scope is admin plus diagnostics. Next integration is Codex OAuth and ClinePass through Claude Code; Claude subscription OAuth is parked in BACKLOG.

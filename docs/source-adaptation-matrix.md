@@ -79,6 +79,6 @@ must preserve:
 9. Transient launch settings only. No persistent global Claude/Codex mutation.
 10. Fixtures and diagnostics stay synthetic and secret-free.
 
-Unresolved for later phases: first UI field set, and whether any provider uses
-an attested CLIProxy binary instead of a project-owned adapter. Those choices
-cannot copy Plus/API source.
+Unresolved for later phases: whether any provider uses an attested CLIProxy
+binary instead of a project-owned adapter. That choice cannot copy Plus/API
+source. First UI field set is admin plus diagnostics on existing DTOs.

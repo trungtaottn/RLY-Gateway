@@ -130,5 +130,4 @@
 
 ## Unresolved questions
 
-- Provider-specific UI fields after the first Codex OAuth slice.
 - Exact quota-aware strategy behavior after live quota evidence is pinned.

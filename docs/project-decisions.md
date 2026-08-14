@@ -39,6 +39,8 @@ Routes declare one quality level: `upstream`, `exact-local`, `conservative-estim
 - Alibaba Token Plan is deferred until after Claude MVP, local-only, feature-gated, and requires explicit terms acceptance.
 - Codex runtime and Google Antigravity bridge follow Claude acceptance.
 - ClinePass is an explicit interoperability adapter after the first OAuth/pool slice.
+- First local UI increment is admin plus diagnostics: providers, accounts, pools, profiles, health/quota, audit, and last-N route traces. Secrets stay out of the browser.
+- After the Phase 10 UI/fail-closed slice, provider breadth pauses. Next integration target is Codex OAuth and ClinePass through Claude Code. Claude subscription OAuth remains implemented as text-only and is parked in `BACKLOG.md` until stream/tools and an owner OAuth-vs-bridge decision exist.
 
 ## Non-goals for V1
 

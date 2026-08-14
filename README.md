@@ -7,8 +7,8 @@ Personal, protocol-preserving gateway and local multi-provider control plane for
 The foundation, Anthropic Messages boundary, direct-provider Claude route,
 authenticated control-plane/management contract, project-owned credential
 broker with one Codex OAuth vertical slice, the deterministic account-pool
-engine, and Claude Code profile/pool integration are implemented. The next
-milestone is the secret-free local UI; see [TASKLIST](./docs/TASKLIST.md).
+engine, and Claude Code profile/pool integration are implemented. The next integration target is Codex OAuth and ClinePass through Claude Code;
+see [BACKLOG.md](./docs/BACKLOG.md) and [TASKLIST](./docs/TASKLIST.md).
 
 ## Start here
 
@@ -83,7 +83,7 @@ pnpm dev admin ui
 pnpm dev run claude --profile <name> -- --help
 ```
 
-`run claude` starts or reuses only the deterministic, attested local gateway, then launches Claude with gateway settings scoped to that child process. `--profile <name>` activates a harness profile (pool and model roles) without preselecting an account; each launch gets a lease-scoped child token so concurrent profiles do not share request identity. `--profile` and `--route` cannot be combined. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` and `route-trace` print secret-free account quota classes and last-N in-memory route decisions from the running instance. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session exchange. There is no ownership-bypassing `serve` command. The local management UI itself is not implemented yet.
+`run claude` starts or reuses only the deterministic, attested local gateway, then launches Claude with gateway settings scoped to that child process. `--profile <name>` activates a harness profile (pool and model roles) without preselecting an account; each launch gets a lease-scoped child token so concurrent profiles do not share request identity. `--profile` and `--route` cannot be combined. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` and `route-trace` print secret-free account quota classes and last-N in-memory route decisions from the running instance. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command.
 
 With configured direct routes or a selected Codex OAuth account, the lifecycle
 server also exposes authenticated Anthropic Messages and token-count endpoints.
