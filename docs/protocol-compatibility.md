@@ -63,4 +63,5 @@ adapter/runtime route, not to this protocol boundary.
 - Contract coverage: `tests/contract/anthropic/messages.test.ts`, `tests/contract/openai-responses/responses.test.ts`
 - Fake-upstream route coverage: `tests/integration/fake-upstream/anthropic-route.test.ts`, `tests/integration/fake-upstream/openai-responses-route.test.ts`
 - Codex launcher E2E: `tests/e2e/codex/fake-upstream.e2e.test.ts`
+- ClinePass Claude profile: `tests/lifecycle/cline-profile-route.test.ts`, `tests/e2e/claude-code/cline-interop.e2e.test.ts` (gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass)
 - Boundary code: `src/protocols/anthropic/`, `src/protocols/openai-responses/`, `src/routes/anthropic-*.ts`, `src/routes/openai-responses-route.ts`

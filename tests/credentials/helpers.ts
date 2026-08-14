@@ -30,6 +30,18 @@ export async function writeCodexSource(directory: string, tokens: Readonly<{ acc
   return { path, sourceFingerprint: fingerprint(contents) };
 }
 
+export async function writeClineSource(directory: string, tokens: Readonly<{ access?: string; refresh?: string; fileName?: string }> = {}): Promise<{ path: string; sourceFingerprint: string; contents: string }> {
+  const path = join(directory, tokens.fileName ?? "cline-auth.json");
+  const contents = JSON.stringify({
+    tokens: {
+      access_token: tokens.access ?? FIXTURE_ACCESS,
+      refresh_token: tokens.refresh ?? FIXTURE_REFRESH,
+    },
+  });
+  await writeFile(path, contents, "utf8");
+  return { path, sourceFingerprint: fingerprint(contents), contents };
+}
+
 export function fixtureTokens(overrides: Partial<OAuthTokenSet> = {}): OAuthTokenSet {
   return {
     accessToken: FIXTURE_ACCESS,

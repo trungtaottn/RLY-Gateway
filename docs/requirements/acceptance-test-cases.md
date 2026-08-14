@@ -24,7 +24,7 @@ These are acceptance scenarios, not hand-maintained implementation test names. T
 | AT-018 | Include paused/expired/unready/cooling/incompatible/unaccepted candidates, plus quota-exhausted accounts that are still cooling | Every ineligible candidate is excluded before strategy evaluation; exhausted accounts whose cooldown has elapsed are recovery probes |
 | AT-019 | Receive eligible pre-output auth/quota/transient failure | Transactional outcome update occurs and bounded rotation follows policy; quota success restores healthy and probe failure extends cooldown |
 | AT-020 | Receive failure after first response byte or tool event | Failure propagates; no second account/provider invocation occurs |
-| AT-021 | Run Claude text, stream, tool, thinking, helper, usage, and stop flows | Supported semantics and event order are preserved through the selected route, including a Codex OAuth Claude profile |
+| AT-021 | Run Claude text, stream, tool, thinking, helper, usage, and stop flows | Supported semantics and event order are preserved through the selected route, including a Codex OAuth Claude profile and a ClinePass Claude profile |
 | AT-022 | Cancel Claude request and run concurrent profiles/sessions | Upstream aborts; route/account state does not contaminate sibling requests |
 | AT-023 | Run Codex Responses text/function/reasoning/usage/continuation flows | Responses semantics are preserved without Anthropic flattening |
 | AT-024 | Cancel/fail Codex Responses request or encounter unknown required event | Upstream aborts or route becomes unready; no silent loss/substitution occurs |

@@ -127,3 +127,14 @@ When a requirement changes, update its owning document and this matrix in the sa
 | NX-004 | `tests/unit/model-registry.test.ts`, `tests/lifecycle/codex-profile-route.test.ts` | Verified exact `(codex, gpt-5.4)` evidence; OpenRouter ids and unknown Codex models fail closed; images fail closed |
 | AT-027 subset / NX-005 | `tests/unit/cli-diagnostics.test.ts` | Verified `quota` and `route-trace` print only pseudonym, quota class, and decision reason for a Codex profile |
 | NX-003 live | `tests/e2e/claude-code/codex-oauth-live.e2e.test.ts`, `tests/contract/providers/codex-oauth/live-smoke.test.ts` | Skipped unless `RLY_LIVE_CODEX_OAUTH=1` (and a project-owned handle / `claude` binary); not passing evidence |
+
+## Phase 4 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| NX-012 / FR-003 / FR-008 / AT-005 subset | `README.md`, `CONTRIBUTING.md`, `tests/credentials/import.test.ts`, `tests/management/credentials.test.ts` | Verified operator recipe: `cline` provider with explicit endpoint, preview+import with `providerId`, pool, Claude profile named `clinepass`, `rly clinepass`. Preview without `providerId` is rejected. Import leaves the Cline source byte-identical and writes no lock/backup files |
+| AT-021 subset | `tests/lifecycle/cline-profile-route.test.ts`, `tests/e2e/claude-code/cline-interop.e2e.test.ts` | Verified helper mapping, streaming, and tools through a ClinePass profile; Claude Code fake E2E is opt-in (`RLY_CLAUDE_E2E=1`) and skipped ≠ pass |
+| AT-022 subset / NX-013 isolation | `tests/lifecycle/cline-profile-route.test.ts`, `tests/contract/providers/isolation.test.ts`, `tests/e2e/claude-code/cline-interop.e2e.test.ts` | Verified Cline failure does not mutate Codex credential files; Cline source remains unchanged |
+| NX-004-equivalent | `tests/unit/model-registry.test.ts`, `tests/lifecycle/cline-profile-route.test.ts` | Verified exact `(cline, claude-sonnet-4-5)` evidence; Codex/OpenRouter ids and unknown Cline models fail closed; images fail closed |
+| NX-014 live | `tests/e2e/claude-code/cline-interop-live.e2e.test.ts` | Skipped unless `RLY_LIVE_CLINEPASS=1`, `RLY_LIVE_CLINE_HANDLE`, `RLY_LIVE_CLINE_ENDPOINT`, and a `claude` binary; not passing evidence |
+| NX-015 superseded | `src/credentials/broker.ts`, `src/providers/interop/cline.ts`, `tests/credentials/import.test.ts` | Default import remains one-time read-only. `lockClineInterop` / `backupClineSource` / `restoreClineSource` are not called from import or launch |

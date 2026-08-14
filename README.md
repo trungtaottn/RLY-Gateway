@@ -79,7 +79,7 @@ rly status
 rly quota
 rly route-trace
 rly admin providers list
-rly admin credentials preview --source /path/to/auth.json
+rly admin credentials preview --source /path/to/auth.json --provider-id <id>
 rly admin credentials import --source /path/to/auth.json --provider-id <id> --pseudonym acct-1 --source-fingerprint <sha256>
 rly admin credentials login --provider-id <id> --pseudonym acct-1
 rly admin accounts select --id <id> --version <n>
@@ -140,6 +140,42 @@ rly run claude --profile codex --
 ```
 
 The second form is compatibility only. Unknown required capabilities fail closed. Codex models are not remapped onto OpenRouter or other provider evidence.
+
+## ClinePass through Claude Code
+
+Canonical launch is `rly clinepass`: Claude Code using a RLY Claude profile named `clinepass` against a ClinePass credential pool. Catalog/provider id stays `cline`. RLY owns imported credentials; import is one-time and read-only. Continuous Cline store lock/writeback/restore is not default. `--profile` and `--route` stay exclusive.
+
+1. Create `gateway.toml` if needed, then start the gateway once so management is listening (`rly doctor` after, or any later `rly` command).
+2. Create the Cline provider with an explicit loopback or HTTPS endpoint (never ports `10100`, `8317`, or `17870`):
+
+```bash
+rly admin providers create --name cline --mode oauth --endpoint https://api.example.invalid/v1
+```
+
+3. Preview then import a local Cline `auth.json`. Preview without `--provider-id` is rejected. Do not paste access tokens, refresh tokens, emails, or account ids into the shell, docs, or tickets. Import does not write the Cline store.
+
+```bash
+rly admin credentials preview --source /path/to/auth.json --provider-id <provider-id>
+rly admin credentials import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
+```
+
+Repeat preview+import for each additional Cline account you want in the pool.
+
+4. Create a pool that contains those account ids, then a Claude harness profile named `clinepass` whose model roles are reviewed Cline ids (today `claude-sonnet-4-5`):
+
+```bash
+rly admin pools create --name clinepass-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id> --retry-budget 1
+rly admin profiles create --name clinepass --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"claude-sonnet-4-5","fast":"claude-sonnet-4-5","reasoning":"claude-sonnet-4-5"}'
+```
+
+5. Launch Claude Code through that profile:
+
+```bash
+rly clinepass
+rly run claude --profile clinepass --
+```
+
+The second form is compatibility only. Unknown required capabilities fail closed. Cline models are not remapped onto Codex, OpenRouter, or other provider evidence. Opt-in live smoke: `RLY_LIVE_CLINEPASS=1` (plus `RLY_LIVE_CLINE_HANDLE` and `RLY_LIVE_CLINE_ENDPOINT`); skipped ≠ pass.
 
 ## Verification
 

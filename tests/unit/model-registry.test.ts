@@ -21,6 +21,10 @@ describe("model registry", () => {
     expect(codex?.capabilities.streaming).toBe(true);
     expect(codex?.capabilities.tools).toBe(true);
     expect(codex?.capabilities.images).toBe(false);
+    const cline = directProviderRegistry.models.find((model) => model.logicalId === "cline/claude-sonnet-4-5");
+    expect(cline?.capabilities.streaming).toBe(true);
+    expect(cline?.capabilities.tools).toBe(true);
+    expect(cline?.capabilities.images).toBe(false);
   });
 
   it("refuses routes that lack reviewed model evidence", () => {
@@ -47,5 +51,13 @@ describe("model registry", () => {
     expect(findModelEvidence(directProviderRegistry, "openrouter", "gpt-5.4")).toBeUndefined();
     expect(findModelEvidence(directProviderRegistry, "codex", "nvidia/nemotron-3.5-lightning:free")).toBeUndefined();
     expect(findModelEvidence(directProviderRegistry, "codex", "gpt-unreviewed")).toBeUndefined();
+  });
+
+  it("matches Cline evidence only for exact provider and model ids", () => {
+    expect(findModelEvidence(directProviderRegistry, "cline", "claude-sonnet-4-5")?.logicalId).toBe("cline/claude-sonnet-4-5");
+    expect(findModelEvidence(directProviderRegistry, "codex", "claude-sonnet-4-5")).toBeUndefined();
+    expect(findModelEvidence(directProviderRegistry, "openrouter", "claude-sonnet-4-5")).toBeUndefined();
+    expect(findModelEvidence(directProviderRegistry, "cline", "gpt-5.4")).toBeUndefined();
+    expect(findModelEvidence(directProviderRegistry, "cline", "gpt-unreviewed")).toBeUndefined();
   });
 });

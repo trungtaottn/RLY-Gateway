@@ -11,7 +11,7 @@ Report suspected vulnerabilities privately to the repository owner. Do not inclu
 - Gateway binds to loopback and requires a transient launcher-provided token.
 - Direct credentials are resolved from approved references and never committed.
 - Project-owned OAuth credentials live outside Git in a `0700` directory with `0600` files, atomic replacement, generation CAS, backup, and recovery. SQLite stores handles and metadata only.
-- Import from another client store is explicit and read-only by default. Shared-store interoperability requires provider-specific locking and recovery tests.
+- Import from another client store is explicit and read-only by default. Shared-store interoperability helpers exist but are not the default path and are not wired into import or launch.
 - Managed bridges may retain OAuth and lifecycle ownership when selected for a provider.
 - Management and data boundaries bind loopback only. Management requires authentication, Origin/CSRF checks, and versioned mutations.
 - Global Claude/Codex configuration is not persisted by normal launch flows.
@@ -33,7 +33,7 @@ The browser is a management API client only. It never reads SQLite, credential f
 | Clickjacking | `Content-Security-Policy frame-ancestors 'none'` and `X-Frame-Options: DENY` | Security header assertions |
 | Stale mutation | Optimistic `version`; `409 stale-version`; UI reloads, never auto-retries | Mutation + UI client |
 | Session replay | Single-use bootstrap fragment; logout/shutdown revoke | Auth tests |
-| Shared-store write | Cline interoperability is explicit, locked, backed up; default import is read-only | Cline contract tests |
+| Shared-store write | Default Cline import is one-time read-only into the project store. Lock/backup/restore helpers are unused and not wired into import or launch | Cline import immutability tests |
 
 ## Secret exposure response
 

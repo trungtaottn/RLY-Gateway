@@ -160,4 +160,31 @@ describe("management credential operations", () => {
     expect(login.statusCode).toBe(400);
     expect(asRecord(login.json())["error"]).toBe("invalid");
   });
+
+  it("rejects credential preview without a providerId", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-mgmt-preview-"));
+    directories.push(directory);
+    store = await ControlPlaneStore.open(directory);
+    broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
+    const credentials = new CredentialService(store, broker);
+    app = createManagementServer({
+      host: "127.0.0.1",
+      port: 17872,
+      origin: "http://127.0.0.1:17872",
+      managementToken: "mgmt-secret",
+      instanceId: "00000000-0000-4000-8000-000000000099",
+      configFingerprint: "a".repeat(64),
+      store,
+      sessions: new SessionStore(),
+      credentials,
+    });
+    const missing = await app.inject({
+      method: "POST",
+      url: "/v1/credentials/import/preview",
+      headers: auth,
+      payload: { sourcePath: join(directory, "cline-auth.json") },
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(asRecord(missing.json())["error"]).toBe("invalid");
+  });
 });

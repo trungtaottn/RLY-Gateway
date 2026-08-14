@@ -121,6 +121,7 @@ function bodyFromFields(command: AdminCommand): Record<string, unknown> {
   copyString(body, fields, "provenance", "provenanceRef");
   copyString(body, fields, "source", "sourcePath");
   copyString(body, fields, "source-fingerprint", "sourceFingerprint");
+  copyString(body, fields, "endpoint", "endpointPolicy");
   if (fields["disable"] === "true") body["enabled"] = false;
   if (fields["enable"] === "true") body["enabled"] = true;
   if (fields["retry-budget"] !== undefined) body["retryBudget"] = Number(fields["retry-budget"]);
