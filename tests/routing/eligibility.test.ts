@@ -18,13 +18,13 @@ describe("eligibility", () => {
   it("matches the deterministic quota-class fixture", async () => {
     const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/upstream/ccs/quota-classes.json");
     const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as {
-      classes: Array<{ id: string; eligible: boolean }>;
+      classes: Array<{ id: string; rank: number; eligible: boolean }>;
     };
     expect(fixture.classes.map((item) => item.id)).toEqual([...QUOTA_CLASS_ORDER]);
-    expect(fixture.classes.find((item) => item.id === "exhausted")?.eligible).toBe(false);
+    expect(fixture.classes.map((item) => item.rank)).toEqual([0, 1, 2, 3]);
   });
 
-  it("never selects paused, expired, unready, exhausted, cooling, incompatible, or unaccepted accounts", async () => {
+  it("never selects paused, expired, unready, cooling, incompatible, or unaccepted accounts", async () => {
     const directory = await tempDir();
     directories.push(directory);
     const store = await openStore(directory, now);
@@ -37,7 +37,7 @@ describe("eligibility", () => {
         { pseudonym: "acct-fixture-revoked", handle: "cred-revoked", state: "revoked", terms: "terms-2" },
         { pseudonym: "acct-fixture-unready", handle: "cred-unready", state: "unready", generation: 0 },
         { pseudonym: "acct-fixture-exhausted", handle: "cred-exhausted", quotaClass: "exhausted", terms: "terms-2" },
-        { pseudonym: "acct-fixture-cooling", handle: "cred-cooling", terms: "terms-2", cooldownUntil: "2026-08-13T01:00:00.000Z" },
+        { pseudonym: "acct-fixture-cooling", handle: "cred-cooling", quotaClass: "exhausted", terms: "terms-2", cooldownUntil: "2026-08-13T01:00:00.000Z" },
         { pseudonym: "acct-fixture-terms", handle: "cred-terms" },
       ],
     });
@@ -86,13 +86,13 @@ describe("eligibility", () => {
     expect(compatible.route.accountPseudonym).toBe("acct-fixture-ready");
     expect(compatible.trace.candidates.filter((item) => !item.eligible).map((item) => item.accountPseudonym).sort()).toEqual([
       "acct-fixture-cooling",
-      "acct-fixture-exhausted",
       "acct-fixture-expired",
       "acct-fixture-paused",
       "acct-fixture-revoked",
       "acct-fixture-terms",
       "acct-fixture-unready",
     ]);
+    expect(compatible.trace.candidates.find((item) => item.accountPseudonym === "acct-fixture-exhausted")?.eligible).toBe(true);
     store.close();
   });
 
@@ -197,7 +197,6 @@ describe("eligibility", () => {
       "paused",
       "auth-unready",
       "generation-unbound",
-      "quota-exhausted",
       "cooling",
       "capability-incompatible",
       "terms-unaccepted",

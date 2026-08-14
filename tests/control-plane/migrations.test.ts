@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { DEFAULT_MIGRATIONS, openMigratedDatabase } from "../../src/storage/migrations.js";
 import { controlPlanePaths } from "../../src/storage/paths.js";
-import { SCHEMA_V1_CHECKSUM } from "../../src/storage/schema-v1.js";
+import { SCHEMA_V1_CHECKSUM, SCHEMA_V1_SQL } from "../../src/storage/schema-v1.js";
+import { SCHEMA_V2_CHECKSUM } from "../../src/storage/schema-v2.js";
 import { writePrivateTextAtomically } from "../../src/storage/private-files.js";
 
 const directories: string[] = [];
@@ -24,7 +25,7 @@ describe("control-plane migrations", () => {
 
     await expect(openMigratedDatabase(directory, [
       ...DEFAULT_MIGRATIONS,
-      { version: 2, checksum: "deadbeef", sql: "CREATE TABLE broken (id TEXT PRIMARY KEY);\nNOT VALID SQL" },
+      { version: 3, checksum: "deadbeef", sql: "CREATE TABLE broken (id TEXT PRIMARY KEY);\nNOT VALID SQL" },
     ])).rejects.toThrow("prior schema restored");
 
     const restored = await ControlPlaneStore.open(directory);
@@ -105,10 +106,58 @@ describe("control-plane migrations", () => {
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     try {
-      const row = store.database.prepare("SELECT checksum FROM schema_migrations WHERE version = 1").get() as { checksum: string };
-      expect(row.checksum).toBe(SCHEMA_V1_CHECKSUM);
+      const v1 = store.database.prepare("SELECT checksum FROM schema_migrations WHERE version = 1").get() as { checksum: string };
+      const v2 = store.database.prepare("SELECT checksum FROM schema_migrations WHERE version = 2").get() as { checksum: string };
+      expect(v1.checksum).toBe(SCHEMA_V1_CHECKSUM);
+      expect(v2.checksum).toBe(SCHEMA_V2_CHECKSUM);
     } finally {
       store.close();
+    }
+  });
+
+  it("rebuilds global account uniqueness into provider-scoped uniqueness and keeps valid accounts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-account-unique-"));
+    directories.push(directory);
+    const legacySql = SCHEMA_V1_SQL
+      .replace(",\n  UNIQUE (provider_id, pseudonym)\n", "\n")
+      .replace("  pseudonym TEXT NOT NULL,\n", "  pseudonym TEXT NOT NULL UNIQUE,\n");
+    const { createHash } = await import("node:crypto");
+    const database = await openMigratedDatabase(directory, [{
+      version: 1,
+      checksum: createHash("sha256").update(legacySql).digest("hex"),
+      sql: legacySql,
+    }]);
+    database.exec("BEGIN IMMEDIATE");
+    database.prepare(
+      "INSERT INTO providers (id, name, integration_mode, enabled, version, created_at, updated_at) VALUES (?, ?, ?, 1, 1, ?, ?)",
+    ).run("11111111-1111-4111-8111-111111111111", "codex", "oauth", "2026-08-13T00:00:00.000Z", "2026-08-13T00:00:00.000Z");
+    database.prepare(
+      "INSERT INTO providers (id, name, integration_mode, enabled, version, created_at, updated_at) VALUES (?, ?, ?, 1, 1, ?, ?)",
+    ).run("22222222-2222-4222-8222-222222222222", "claude", "oauth", "2026-08-13T00:00:00.000Z", "2026-08-13T00:00:00.000Z");
+    database.prepare(
+      "INSERT INTO accounts (id, pseudonym, provider_id, credential_handle, credential_generation, state, quota_class, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 'ready', 'healthy', 1, ?, ?)",
+    ).run("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "acct-kept", "11111111-1111-4111-8111-111111111111", "cred-kept", "2026-08-13T00:00:00.000Z", "2026-08-13T00:00:00.000Z");
+    database.exec("COMMIT");
+    database.close();
+
+    const upgraded = await ControlPlaneStore.open(directory);
+    try {
+      const kept = upgraded.listAccounts().find((account) => account.pseudonym === "acct-kept");
+      expect(kept?.providerId).toBe("11111111-1111-4111-8111-111111111111");
+      const cloned = upgraded.createAccount({
+        pseudonym: "acct-kept",
+        providerId: "22222222-2222-4222-8222-222222222222",
+        credentialHandle: "cred-claude",
+      }, "cli");
+      expect(cloned.pseudonym).toBe("acct-kept");
+      expect(cloned.providerId).toBe("22222222-2222-4222-8222-222222222222");
+      expect(() => upgraded.createAccount({
+        pseudonym: "acct-kept",
+        providerId: "11111111-1111-4111-8111-111111111111",
+        credentialHandle: "cred-dup",
+      }, "cli")).toThrow("account already exists for this provider");
+    } finally {
+      upgraded.close();
     }
   });
 });

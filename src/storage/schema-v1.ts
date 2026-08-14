@@ -38,7 +38,7 @@ CREATE TABLE providers (
 
 CREATE TABLE accounts (
   id TEXT PRIMARY KEY,
-  pseudonym TEXT NOT NULL UNIQUE,
+  pseudonym TEXT NOT NULL,
   provider_id TEXT NOT NULL REFERENCES providers(id),
   credential_handle TEXT NOT NULL,
   credential_generation INTEGER NOT NULL DEFAULT 0 CHECK (credential_generation >= 0),
@@ -50,7 +50,8 @@ CREATE TABLE accounts (
   terms_acknowledged_revision TEXT,
   version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  UNIQUE (provider_id, pseudonym)
 ) STRICT;
 
 CREATE TABLE pools (

@@ -87,6 +87,18 @@ describe("control-plane repositories", () => {
       }, "cli")).toThrow(ValidationError);
       store.createPool({ name: "unique", providerId: provider.id, strategy: "manual" }, "cli");
       expect(() => store.createPool({ name: "unique", providerId: provider.id, strategy: "manual" }, "cli")).toThrow(UniquenessError);
+      const shared = store.createAccount({
+        pseudonym: "acct-001",
+        providerId: other.id,
+        credentialHandle: "cred-shared",
+      }, "cli");
+      expect(shared.pseudonym).toBe("acct-001");
+      expect(shared.providerId).toBe(other.id);
+      expect(() => store.createAccount({
+        pseudonym: "acct-001",
+        providerId: provider.id,
+        credentialHandle: "cred-dup",
+      }, "cli")).toThrow(UniquenessError);
       expect(() => store.createProvider({
         name: "secret-json",
         integrationMode: "direct",

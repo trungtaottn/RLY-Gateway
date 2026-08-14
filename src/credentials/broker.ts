@@ -135,7 +135,18 @@ export class CredentialBroker {
   }
 
   public async resolve(handle: string): Promise<RequestScopedCredential> {
-    return scopedFromRecord(await this.ensureFresh(handle));
+    const prepared = await this.prepare(handle);
+    return this.bind(handle, prepared.generation);
+  }
+
+  public async prepare(handle: string): Promise<CredentialMetadata> {
+    return toCredentialMetadata(await this.ensureFresh(handle));
+  }
+
+  public async bind(handle: string, generation: number): Promise<RequestScopedCredential> {
+    const record = await this.store.read(handle);
+    if (record.generation !== generation) throw new StaleGenerationError();
+    return scopedFromRecord(record);
   }
 
   public async refresh(handle: string): Promise<CredentialMetadata> {

@@ -1,14 +1,14 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
-import { readProcessIdentity } from "../runtime/process-identity.js";
+import { acquireOwnershipLock, OwnershipLockError } from "./ownership-lock.js";
 import { SCHEMA_V1_CHECKSUM, SCHEMA_V1_SQL, SCHEMA_VERSION, assertSchemaHasNoSecretColumns } from "./schema-v1.js";
+import { SCHEMA_V2_CHECKSUM, SCHEMA_V2_SQL, SCHEMA_V2_VERSION } from "./schema-v2.js";
 import { controlPlanePaths } from "./paths.js";
 import {
   chmodPrivateFile,
-  createExclusivePrivateFile,
   ensurePrivateDirectory,
   PRIVATE_FILE_MODE,
   readPrivateTextIfPresent,
@@ -24,6 +24,7 @@ export type Migration = Readonly<{
 
 export const DEFAULT_MIGRATIONS: readonly Migration[] = [
   { version: SCHEMA_VERSION, checksum: SCHEMA_V1_CHECKSUM, sql: SCHEMA_V1_SQL },
+  { version: SCHEMA_V2_VERSION, checksum: SCHEMA_V2_CHECKSUM, sql: SCHEMA_V2_SQL },
 ];
 
 type MigrationMarker = Readonly<{
@@ -159,56 +160,18 @@ async function writeMarker(path: string, marker: MigrationMarker): Promise<void>
   await writePrivateTextAtomically(path, `${JSON.stringify(marker)}\n`);
 }
 
-type MigrationLock = Readonly<{
-  lockId: string;
-  createdAt: string;
-  owner: Readonly<{ pid: number; processStartedAt: string }>;
-}>;
-
 async function acquireMigrationLock(path: string): Promise<{ release: () => Promise<void> }> {
-  const owner = await readProcessIdentity(process.pid);
-  if (!owner) throw new MigrationError("unable to read process identity for migration lock");
-  const lockId = randomUUID();
-  const payload = `${JSON.stringify({ lockId, createdAt: new Date().toISOString(), owner })}\n`;
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (await createExclusivePrivateFile(path, payload)) {
-      return {
-        release: async () => {
-          const current = await readPrivateTextIfPresent(path);
-          if (current !== undefined && lockIdFrom(current) === lockId) {
-            await removePrivateFileIfPresent(path);
-          }
-        },
-      };
-    }
-    const existing = await readPrivateTextIfPresent(path);
-    if (existing !== undefined && await isStaleMigrationLock(existing)) {
-      const still = await readPrivateTextIfPresent(path);
-      if (still === existing) await removePrivateFileIfPresent(path);
-      continue;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new MigrationError("control-plane migration lock is held");
-}
-
-function lockIdFrom(raw: string): string | undefined {
   try {
-    const parsed = JSON.parse(raw) as { lockId?: unknown };
-    return typeof parsed.lockId === "string" ? parsed.lockId : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function isStaleMigrationLock(raw: string): Promise<boolean> {
-  try {
-    const lock = JSON.parse(raw) as Partial<MigrationLock> & { owner?: Partial<MigrationLock["owner"]> };
-    if (typeof lock.owner?.pid !== "number" || typeof lock.owner.processStartedAt !== "string") return true;
-    const observed = await readProcessIdentity(lock.owner.pid);
-    return observed?.processStartedAt !== lock.owner.processStartedAt;
-  } catch {
-    return true;
+    return await acquireOwnershipLock(path, {
+      attempts: 40,
+      waitMs: 25,
+      onLive: "wait",
+      identityError: () => new MigrationError("unable to read process identity for migration lock"),
+      liveError: () => new MigrationError("control-plane migration lock is held"),
+    });
+  } catch (error) {
+    if (error instanceof OwnershipLockError) throw new MigrationError("control-plane migration lock is held");
+    throw error;
   }
 }
 

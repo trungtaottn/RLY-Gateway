@@ -30,6 +30,7 @@ export function createCodexOauthRouteResolver(
   return async (canonical) => {
     const account = await credentials.resolveSelected();
     if (!account) return undefined;
+    const prepared = await broker.prepare(account.credentialHandle);
     const route: RouteRecord = {
       role: "primary",
       providerId: "codex",
@@ -44,13 +45,13 @@ export function createCodexOauthRouteResolver(
       required: [],
       configFingerprint,
       accountPseudonym: account.pseudonym,
-      credentialGeneration: account.credentialGeneration,
+      credentialGeneration: prepared.generation,
     });
     return {
       route,
       upstream: {
         invoke: async function* (_ignored: CanonicalRequest, signal: AbortSignal): AsyncIterable<CanonicalEvent> {
-          const scoped = await broker.resolve(account.credentialHandle);
+          const scoped = await broker.bind(account.credentialHandle, prepared.generation);
           try {
             const adapter = new CodexOAuthAdapter(request, scoped.accessToken, endpoint, scoped.accountId);
             yield* adapter.invoke(canonical, decision, signal);

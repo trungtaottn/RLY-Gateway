@@ -46,4 +46,45 @@ describe("manual oauth route", () => {
     store.close();
     await broker.close();
   });
+
+  it("freezes the prepared generation before invoke and does not refresh again", async () => {
+    const directory = await tempDirectory("rly-gateway-oauth-bind-");
+    directories.push(directory);
+    const oauth = fakeOauth();
+    const store = await ControlPlaneStore.open(directory);
+    const broker = await CredentialBroker.open(directory, { oauth });
+    const service = new CredentialService(store, broker);
+    const provider = store.createProvider({ name: "codex", integrationMode: "oauth" }, "cli");
+    const source = await writeCodexSource(directory);
+    const account = await service.importCodex({
+      sourcePath: source.path,
+      providerId: provider.id,
+      pseudonym: "acct-fixture-001",
+      sourceFingerprint: source.sourceFingerprint,
+    }, "cli");
+    await service.select(account.id, account.version, "cli");
+    const current = await broker.store.read(account.credentialHandle);
+    await broker.store.commit(account.credentialHandle, current.generation, {
+      ...current,
+      generation: current.generation + 1,
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      id: "chat_fixture",
+      choices: [{ finish_reason: "stop", message: { content: "fixture text" } }],
+    }), { status: 200 }));
+    const resolve = createCodexOauthRouteResolver(service, broker, "a".repeat(64), fetch, "http://127.0.0.1:9");
+    const request = decodeAnthropicRequest({ model: "fixture-model", max_tokens: 8, messages: [{ role: "user", content: "fixture" }] }).request;
+    expect(oauth.refreshCalls).toBe(0);
+    const resolved = await resolve(request);
+    expect(oauth.refreshCalls).toBe(1);
+    expect(resolved?.route).toBeDefined();
+    const events = [];
+    if (!resolved) throw new Error("expected oauth route");
+    for await (const event of resolved.upstream.invoke(request, new AbortController().signal)) events.push(event);
+    expect(oauth.refreshCalls).toBe(1);
+    expect(events.some((event) => event.type === "response-completed")).toBe(true);
+    store.close();
+    await broker.close();
+  });
 });

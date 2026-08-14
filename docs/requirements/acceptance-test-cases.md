@@ -21,8 +21,8 @@ These are acceptance scenarios, not hand-maintained implementation test names. T
 | AT-015 | Create valid profile and pool | References, roles, strategy, affinity, retry budget, and ownership validate atomically |
 | AT-016 | Submit duplicate/invalid/cross-provider/stale pool configuration | Mutation fails without changing current policy |
 | AT-017 | Select from fixed eligible candidates under manual/RR/fill-first | Result and decision reason are deterministic and bind one credential generation |
-| AT-018 | Include paused/expired/unready/exhausted/cooling/incompatible/unaccepted candidates | Every ineligible candidate is excluded before strategy evaluation |
-| AT-019 | Receive eligible pre-output auth/quota/transient failure | Transactional outcome update occurs and bounded rotation follows policy |
+| AT-018 | Include paused/expired/unready/cooling/incompatible/unaccepted candidates, plus quota-exhausted accounts that are still cooling | Every ineligible candidate is excluded before strategy evaluation; exhausted accounts whose cooldown has elapsed are recovery probes |
+| AT-019 | Receive eligible pre-output auth/quota/transient failure | Transactional outcome update occurs and bounded rotation follows policy; quota success restores healthy and probe failure extends cooldown |
 | AT-020 | Receive failure after first response byte or tool event | Failure propagates; no second account/provider invocation occurs |
 | AT-021 | Run Claude text, stream, tool, thinking, helper, usage, and stop flows | Supported semantics and event order are preserved through the selected route |
 | AT-022 | Cancel Claude request and run concurrent profiles/sessions | Upstream aborts; route/account state does not contaminate sibling requests |
