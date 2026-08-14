@@ -67,6 +67,8 @@ describe("Claude child launcher", () => {
       ANTHROPIC_BASE_URL: "http://127.0.0.1:17871",
       ANTHROPIC_AUTH_TOKEN: "transient-token",
     });
+    // #72: gateway model discovery is child-only for RLY-launched Claude.
+    expect(environment["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"]).toBe("1");
     expect(environment).not.toHaveProperty("CLAUDE_CONFIG_DIR");
     expect(environment).not.toHaveProperty("ANTHROPIC_API_KEY");
     expect(parent).toEqual({
@@ -74,6 +76,8 @@ describe("Claude child launcher", () => {
       ANTHROPIC_BASE_URL: "http://outside",
       ANTHROPIC_API_KEY: "outside-key",
     });
+    // The parent/global environment is never mutated by the child-only flag.
+    expect(parent).not.toHaveProperty("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY");
   });
 
   it("forwards arguments unchanged and propagates child exit", async () => {
@@ -98,6 +102,7 @@ describe("Claude child launcher", () => {
     const childEnvironment = suppliedOptions?.env;
     expect(childEnvironment?.["ANTHROPIC_BASE_URL"]).toBe("http://127.0.0.1:17871");
     expect(childEnvironment?.["ANTHROPIC_AUTH_TOKEN"]).toBe("transient-token");
+    expect(childEnvironment?.["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"]).toBe("1");
     expect(childEnvironment?.["CLAUDE_CONFIG_DIR"]).toMatch(/rly-gateway-claude-/);
     expect(suppliedOptions?.stdio).toBe("inherit");
     expect(suppliedArgs).toEqual(["--model", "quoted value", "--", "-not-a-gateway-flag"]);
