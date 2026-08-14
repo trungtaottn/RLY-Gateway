@@ -5,21 +5,21 @@ import { pathToFileURL } from "node:url";
 import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
 import { runDoctor, runQuota, runRouteTrace, runStatus } from "./diagnostics.js";
 import { loadConfig } from "../config/load-config.js";
-import { launchClaude, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
+import { launchClaude, launchCodex, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
 import { acquireGateway, type GatewayLeaseHandle } from "../runtime/gateway-lifecycle.js";
-import { detectClaudeTarget } from "../targets/detect.js";
+import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 
 const DEFAULT_CONFIG = "gateway.config.toml";
 const DIAGNOSTIC_COMMANDS = ["status", "doctor", "quota", "route-trace"] as const;
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: agent-gateway <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run claude [--config path] [--profile name | --route provider/model] -- [claude args]");
+  console.log("Usage: agent-gateway <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args]");
 }
 
 export type ParsedCliCommand =
   | Readonly<{ command: "status" | "doctor" | "quota" | "route-trace"; configPath: string }>
-  | Readonly<{ command: "run-claude"; configPath: string; claudeArgs: readonly string[]; route?: string; profile?: string }>
+  | Readonly<{ command: "run-claude" | "run-codex"; configPath: string; claudeArgs: readonly string[]; route?: string; profile?: string }>
   | AdminCommand;
 
 function isDiagnosticCommand(value: string | undefined): value is "status" | "doctor" | "quota" | "route-trace" {
@@ -51,15 +51,16 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
   if (command === "admin") {
     return parseAdminArgs(args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config"), configPath(args, cwd));
   }
-  if (command !== "run" || args[1] !== "claude") return undefined;
+  const harness = args[1];
+  if (command !== "run" || (harness !== "claude" && harness !== "codex")) return undefined;
   const separator = args.indexOf("--", 2);
-  if (separator < 0) throw new Error("run claude requires `--` before Claude arguments");
+  if (separator < 0) throw new Error(`run ${harness} requires \`--\` before ${harness} arguments`);
   const options = args.slice(2, separator);
   const route = optionalFlag(options, "--route", "--route requires an exact provider/model value");
   const profile = optionalFlag(options, "--profile", "--profile requires a profile name");
   if (route !== undefined && profile !== undefined) throw new Error("--profile cannot be combined with --route");
   return {
-    command: "run-claude",
+    command: harness === "codex" ? "run-codex" : "run-claude",
     configPath: configPath(options, cwd),
     claudeArgs: args.slice(separator + 1),
     ...(route === undefined ? {} : { route }),
@@ -80,13 +81,19 @@ function routeScopedClaudeArgs(args: readonly string[], role: "primary" | "fast"
   return ["--model", role, ...args];
 }
 
+function detectForHarness(harness: "claude" | "codex"): typeof detectClaudeTarget {
+  return harness === "codex" ? detectCodexTarget : detectClaudeTarget;
+}
+
 async function issueProfileLaunch(
   lease: GatewayLeaseHandle,
   profileName: string,
   args: readonly string[],
   environment: Readonly<NodeJS.ProcessEnv>,
+  harness: "claude" | "codex" = "claude",
 ): Promise<{ token: string; args: readonly string[]; executable: string | undefined }> {
-  const target = detectClaudeTarget(environment);
+  const detect = detectForHarness(harness);
+  const target = detect(environment);
   const response = await fetch(`${lease.baseUrl}/v1/launch-sessions`, {
     method: "POST",
     headers: {
@@ -97,13 +104,17 @@ async function issueProfileLaunch(
   });
   const payload = await response.json() as {
     token?: unknown;
+    harness?: unknown;
     launchPolicy?: { executable?: unknown };
   };
   if (!response.ok || typeof payload.token !== "string") {
     throw new Error("Profile activation failed");
   }
+  if (typeof payload.harness === "string" && payload.harness !== harness) {
+    throw new Error(`Profile harness is ${payload.harness}, not ${harness}`);
+  }
   const configured = payload.launchPolicy?.executable;
-  const resolved = detectClaudeTarget(
+  const resolved = detect(
     environment,
     typeof configured === "string" ? { executable: configured } : {},
   );
@@ -123,29 +134,35 @@ export function childExitCode(exit: ChildExit): number {
 export type CliDependencies = Readonly<{
   environment: Readonly<NodeJS.ProcessEnv>;
   launchClaude?: (options: LaunchClaudeOptions) => Promise<ChildExit>;
+  launchCodex?: (options: LaunchClaudeOptions) => Promise<ChildExit>;
   acquireGateway?: (options: Parameters<typeof acquireGateway>[0]) => Promise<GatewayLeaseHandle>;
   issueProfileLaunch?: (
     lease: GatewayLeaseHandle,
     profileName: string,
     args: readonly string[],
     environment: Readonly<NodeJS.ProcessEnv>,
+    harness?: "claude" | "codex",
   ) => Promise<{ token: string; args: readonly string[]; executable: string | undefined }>;
 }>;
 
-async function runClaudeCommand(
-  parsed: Extract<ParsedCliCommand, { command: "run-claude" }>,
+async function runHarnessCommand(
+  parsed: Extract<ParsedCliCommand, { command: "run-claude" | "run-codex" }>,
   dependencies: CliDependencies,
 ): Promise<number> {
   const config = await loadConfig(parsed.configPath);
+  const harness = parsed.command === "run-codex" ? "codex" : "claude";
   const claudeArgs = parsed.route === undefined
     ? parsed.claudeArgs
-    : routeScopedClaudeArgs(parsed.claudeArgs, configuredRoleForRoute(config, parsed.route));
+    : harness === "claude"
+      ? routeScopedClaudeArgs(parsed.claudeArgs, configuredRoleForRoute(config, parsed.route))
+      : (configuredRoleForRoute(config, parsed.route), parsed.claudeArgs);
   const lease = await (dependencies.acquireGateway ?? acquireGateway)({ config });
   try {
     const launched = parsed.profile === undefined
       ? { token: lease.authToken, args: claudeArgs, executable: undefined as string | undefined }
-      : await (dependencies.issueProfileLaunch ?? issueProfileLaunch)(lease, parsed.profile, claudeArgs, dependencies.environment);
-    const exit = await (dependencies.launchClaude ?? launchClaude)({
+      : await (dependencies.issueProfileLaunch ?? issueProfileLaunch)(lease, parsed.profile, claudeArgs, dependencies.environment, harness);
+    const launch = harness === "codex" ? (dependencies.launchCodex ?? launchCodex) : (dependencies.launchClaude ?? launchClaude);
+    const exit = await launch({
       gatewayBaseUrl: lease.baseUrl,
       authToken: launched.token,
       args: launched.args,
@@ -167,7 +184,7 @@ export async function runCli(
     usage();
     return 2;
   }
-  if (parsed.command === "run-claude") return runClaudeCommand(parsed, dependencies);
+  if (parsed.command === "run-claude" || parsed.command === "run-codex") return runHarnessCommand(parsed, dependencies);
   if (parsed.command === "admin") return runAdmin(parsed, await loadConfig(parsed.configPath));
   if (parsed.command === "doctor") return runDoctor(parsed.configPath);
   if (parsed.command === "status") return runStatus(parsed.configPath);

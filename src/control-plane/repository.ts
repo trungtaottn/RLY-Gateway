@@ -254,6 +254,11 @@ export class ControlPlaneRepository {
     return this.database.prepare("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?").all(limit).map((row) => mapAudit(row as SqlRow));
   }
 
+  public deleteAuditOlderThan(cutoffIso: string): number {
+    const result = this.database.prepare("DELETE FROM audit_events WHERE created_at < ?").run(cutoffIso);
+    return Number(result.changes);
+  }
+
   public appendAudit(
     actor: ManagementActor,
     action: string,

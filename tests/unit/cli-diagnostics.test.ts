@@ -15,6 +15,7 @@ describe("CLI diagnostics", () => {
       const printed = String(log.mock.calls[0]?.[0]);
       expect(printed).toContain('"ok":true');
       expect(printed).toContain('"claudeTarget"');
+      expect(printed).toContain('"codexTarget"');
       expect(printed).not.toMatch(/OPENROUTER_API_KEY|accessToken|authorization|prompt/i);
     } finally {
       log.mockRestore();

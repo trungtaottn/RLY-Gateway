@@ -39,6 +39,16 @@ When a requirement changes, update its owning document and this matrix in the sa
 - Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, Claude Code profile integration, and the secret-free local UI are implemented; Codex harness remains the later V1 surface.
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
 
+## Phase 11 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-023 | `tests/contract/openai-responses/responses.test.ts`, `tests/e2e/codex/fake-upstream.e2e.test.ts` | Verified Responses text/function/reasoning/usage/continuation and Codex fake launcher E2E |
+| AT-024 | `tests/contract/openai-responses/responses.test.ts`, `tests/integration/fake-upstream/openai-responses-route.test.ts` | Verified unknown required items/include fail closed; client abort binds the upstream signal |
+| AT-032 | `tests/storage/retention.test.ts` | Verified versioned policy, expired class deletion, and interrupted-cleanup resume |
+| AT-030 | `scripts/check-license.mjs`, `scripts/package-release.mjs`, `scripts/clean-install-smoke.mjs`, `tests/control-plane/migrations.test.ts` | Verified license/provenance inventory, private-path-free package, clean-install doctor, and existing migration restore |
+| AT-001/002 Codex | `tests/lifecycle/child-launcher.test.ts`, `tests/lifecycle/global-config-isolation.test.ts` | Verified transient `CODEX_HOME` and byte-identical `~/.codex` |
+
 ## Phase 06 executable evidence
 
 | Acceptance | Evidence | Status |

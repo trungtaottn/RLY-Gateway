@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createClaudeChildEnvironment,
+  createCodexChildEnvironment,
   launchClaude,
+  launchCodex,
   type ChildSpawner,
   type ChildProcessLike,
   type SignalSource,
@@ -98,6 +100,37 @@ describe("Claude child launcher", () => {
     expect(suppliedArgs).toEqual(["--model", "quoted value", "--", "-not-a-gateway-flag"]);
     child.close(23, null);
     await expect(launched).resolves.toEqual({ code: 23, signal: null });
+  });
+
+  it("creates an isolated Codex child environment", async () => {
+    const parent = { PATH: "/bin", OPENAI_BASE_URL: "http://outside", CODEX_API_KEY: "outside-key" };
+    const environment = createCodexChildEnvironment(parent, "http://127.0.0.1:17871", "transient-token");
+    expect(environment).toMatchObject({
+      PATH: "/bin",
+      OPENAI_BASE_URL: "http://127.0.0.1:17871",
+      OPENAI_API_KEY: "transient-token",
+    });
+    expect(environment).not.toHaveProperty("CODEX_HOME");
+    expect(environment).not.toHaveProperty("CODEX_API_KEY");
+    const child = new TestChild();
+    let suppliedOptions: Parameters<ChildSpawner>[2] | undefined;
+    const launched = launchCodex({
+      gatewayBaseUrl: "http://127.0.0.1:17871",
+      authToken: "transient-token",
+      executable: "test-codex",
+      args: ["exec", "fixture"],
+      environment: { PATH: "/bin" },
+      spawner: (_executable, args, options) => {
+        expect(args).toEqual(["exec", "fixture"]);
+        suppliedOptions = options;
+        return child;
+      },
+      signalSource: new TestSignals(),
+    });
+    if (suppliedOptions === undefined) throw new Error("Codex child was not spawned");
+    expect(suppliedOptions.env["CODEX_HOME"]).toMatch(/agent-gateway-codex-/);
+    child.close(0, null);
+    await expect(launched).resolves.toEqual({ code: 0, signal: null });
   });
 
   it("uses Claude's documented no-persistence flag for print sessions only", async () => {

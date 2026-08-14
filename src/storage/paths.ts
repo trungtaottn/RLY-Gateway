@@ -10,6 +10,9 @@ export const CREDENTIAL_QUARANTINE_DIRECTORY = "quarantine";
 export const CREDENTIAL_LOCK_DIRECTORY = "locks";
 export const MANUAL_SELECTION_NAME = "manual-selection.json";
 export const SELECTOR_AFFINITY_NAME = "selector-affinity.json";
+export const RESPONSES_DIRECTORY = "responses";
+export const LOG_DIRECTORY = "logs";
+export const RETENTION_MARKER_NAME = "retention.marker";
 
 export function defaultControlPlaneDirectory(): string {
   return join(homedir(), ".agent-gateway");
@@ -26,6 +29,9 @@ export function controlPlanePaths(directory: string): Readonly<{
   credentialLocks: string;
   manualSelection: string;
   selectorAffinity: string;
+  responses: string;
+  logs: string;
+  retentionMarker: string;
 }> {
   const credentials = join(directory, CREDENTIAL_DIRECTORY);
   return {
@@ -39,5 +45,8 @@ export function controlPlanePaths(directory: string): Readonly<{
     credentialLocks: join(credentials, CREDENTIAL_LOCK_DIRECTORY),
     manualSelection: join(directory, MANUAL_SELECTION_NAME),
     selectorAffinity: join(directory, SELECTOR_AFFINITY_NAME),
+    responses: join(directory, RESPONSES_DIRECTORY),
+    logs: join(directory, LOG_DIRECTORY),
+    retentionMarker: join(directory, RETENTION_MARKER_NAME),
   };
 }

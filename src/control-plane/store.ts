@@ -340,6 +340,10 @@ export class ControlPlaneStore {
     return this.repo.listAudit(limit);
   }
 
+  public deleteAuditOlderThan(cutoffIso: string): number {
+    return this.repo.deleteAuditOlderThan(cutoffIso);
+  }
+
   public recordRejectedAudit(
     actor: ManagementActor,
     action: string,

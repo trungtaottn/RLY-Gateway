@@ -2,7 +2,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { detectClaudeTarget } from "../../src/targets/detect.js";
+import { detectClaudeTarget, detectCodexTarget } from "../../src/targets/detect.js";
 
 const directories: string[] = [];
 
@@ -20,5 +20,15 @@ describe("claude target detection", () => {
     expect(detectClaudeTarget({ PATH: directory })).toEqual({ found: true, executable });
     expect(detectClaudeTarget({ PATH: directory }, { executable: "missing" }).found).toBe(false);
     expect(detectClaudeTarget({ PATH: "/no-such-path" }).found).toBe(false);
+  });
+
+  it("finds a Codex executable on PATH without throwing when missing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-codex-target-"));
+    directories.push(directory);
+    const executable = join(directory, "codex");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(executable, 0o755);
+    expect(detectCodexTarget({ PATH: directory })).toEqual({ found: true, executable });
+    expect(detectCodexTarget({ PATH: "/no-such-path" }).found).toBe(false);
   });
 });

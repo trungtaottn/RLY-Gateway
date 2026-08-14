@@ -16,6 +16,14 @@ describe("CLI parsing", () => {
     });
   });
 
+  it("parses run codex with the same separator contract", () => {
+    expect(parseCliArgs(["run", "codex", "--config", "custom.toml", "--", "exec", "fixture"], "/work")).toEqual({
+      command: "run-codex",
+      configPath: "/work/custom.toml",
+      claudeArgs: ["exec", "fixture"],
+    });
+  });
+
   it("forwards only arguments after the run separator to Claude", () => {
     expect(parseCliArgs([
       "run", "claude", "--config", "custom.toml", "--", "--model", "name with spaces", "--dangerously-skip-permissions",

@@ -11,8 +11,10 @@ import { resolveProfileRoute } from "../profiles/resolve-route.js";
 import type { LaunchSessionRegistry } from "../profiles/sessions.js";
 import type { RouteTraceRing } from "../profiles/traces.js";
 import { createDirectRouteResolver, type ResolvedDirectRoute } from "../providers/direct/direct-upstream.js";
+import { ResponseContinuationStore } from "../protocols/openai-responses/continuation.js";
 import { registerAnthropicMessagesRoute } from "../routes/anthropic-messages-route.js";
 import { registerAnthropicDirectCountTokensRoute } from "../routes/anthropic-direct-count-tokens-route.js";
+import { registerOpenAiResponsesRoute } from "../routes/openai-responses-route.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 
 export type GatewayServerOptions = Readonly<{
@@ -30,6 +32,7 @@ export type GatewayServerOptions = Readonly<{
   selector?: RouteSelector;
   launchSessions?: LaunchSessionRegistry;
   traces?: RouteTraceRing;
+  continuationDirectory?: string;
 }>;
 
 export type GatewayLeaseRegistry = Readonly<{
@@ -119,9 +122,16 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       }
       return resolveDirect?.(request) ?? await options.resolveOauthRoute?.(request);
     };
+    const continuationDirectory = options.continuationDirectory ?? options.controlPlane?.directory;
+    const continuation = continuationDirectory === undefined ? undefined : new ResponseContinuationStore(continuationDirectory);
     registerAnthropicMessagesRoute(app, {
       configFingerprint: options.configFingerprint,
       resolveRoute,
+    });
+    registerOpenAiResponsesRoute(app, {
+      configFingerprint: options.configFingerprint,
+      resolveRoute,
+      ...(continuation === undefined ? {} : { continuation }),
     });
     registerAnthropicDirectCountTokensRoute(app, resolveRoute);
     app.addHook("onRequest", async (request, reply) => {
