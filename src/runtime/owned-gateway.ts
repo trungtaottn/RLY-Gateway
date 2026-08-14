@@ -15,10 +15,12 @@ import { defaultControlPlaneDirectory, resolveDefaultControlPlaneDirectory } fro
 import { applyRetentionPolicy } from "../storage/retention.js";
 import { createGatewayServer, listenGateway } from "./gateway-server.js";
 import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS, RUNTIME_VERSION } from "./gateway-attestation.js";
+import { UpdateStateStore } from "./update/store.js";
 import type { AcquireGatewayOptions, GatewayLeaseHandle } from "./gateway-lifecycle.js";
 import { LeaseManager } from "./lease-manager.js";
 import type { ProcessIdentity } from "./ownership-record.js";
 import type { RuntimeStore } from "./runtime-store.js";
+import { SCHEMA_V2_VERSION } from "../storage/schema-v2.js";
 
 const LEASE_TTL_MS = 15_000;
 const IDLE_GRACE_MS = 2_000;
@@ -151,6 +153,11 @@ export async function startOwnedGateway(input: Readonly<{
     appHolder.controlPlane = controlPlane;
     appHolder.broker = broker;
     const { host, port, managementPort } = options.config.gateway;
+    // #73: the serving runtime reports durable update state through the
+    // attested handshake so an updated CLI can apply the launch policy. A
+    // malformed update-state file fails the metadata read closed (omitted),
+    // never the whole identity.
+    const updateStore = new UpdateStateStore(controlPlaneDirectory);
     const gatewayOptions = {
       host,
       port,
@@ -166,6 +173,8 @@ export async function startOwnedGateway(input: Readonly<{
       launchSessions,
       traces,
       shutdown,
+      stateVersion: SCHEMA_V2_VERSION,
+      updateState: () => updateStore.read().catch(() => undefined),
       ...(resident ? { resident: true } : {}),
     };
     const managementOptions = {

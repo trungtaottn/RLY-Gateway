@@ -16,6 +16,14 @@ export type GatewayIdentity = Readonly<{
   runtimeVersion?: string;
   /** True when this instance is owned by the per-user resident service. */
   resident?: boolean;
+  /** Durable state/schema version the serving runtime was built against (#73). */
+  stateVersion?: number;
+  /** Active launch-session count (#73 drain semantics; not TCP connection count). */
+  activeSessions?: number;
+  /** True once the #73 update drain phase has begun on this process. */
+  draining?: boolean;
+  /** Secret-free update metadata (#73). */
+  update?: Readonly<{ state: string; pendingVersion?: string; previousVersion?: string }>;
   proof: string;
 }>;
 

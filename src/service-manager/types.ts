@@ -60,6 +60,12 @@ export interface ServiceManagerAdapter {
   unregister(): Promise<void>;
   /** Idempotent start for the registered per-user service. */
   start(): Promise<void>;
+  /**
+   * Process-level restart for the #73 controlled update path. Callers drain
+   * launch sessions through the authenticated runtime first; the adapter
+   * never signals an unknown port owner.
+   */
+  restart(): Promise<void>;
   stop(): Promise<void>;
   status(): Promise<ServiceStatus>;
 }

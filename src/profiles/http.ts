@@ -28,6 +28,12 @@ export function registerLaunchSessionRoutes(
     extractToken: (headers: Readonly<{ authorization?: string | undefined; "x-api-key"?: string | string[] | undefined }>) => string | undefined;
     leaseActive?: (leaseId: string) => boolean;
     /**
+     * #73: returns an actionable reason string when new launch-session
+     * issuance must be refused (the update drain phase has begun on this
+     * runtime). Existing sessions keep running to completion.
+     */
+    refuseIssuance?: () => string | undefined;
+    /**
      * Compiles the session-pinned model-universe snapshot (#72) from the
      * current policy + registry at issue time, so discovery and reverse
      * mapping stay stable for the active session.
@@ -38,6 +44,10 @@ export function registerLaunchSessionRoutes(
   app.post("/v1/launch-sessions", async (request, reply) => {
     if (!input.isInstanceToken(input.extractToken(request.headers))) {
       return reply.code(401).send({ error: "unauthorized" });
+    }
+    const refused = input.refuseIssuance?.();
+    if (refused !== undefined) {
+      return reply.code(409).send({ error: "update-pending", reason: refused });
     }
     const parsed = issueBody.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid" });
