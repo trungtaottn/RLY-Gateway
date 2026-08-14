@@ -5,12 +5,12 @@
 | Business requirement | System requirements | Functional requirements | Use cases / stories | Acceptance |
 | --- | --- | --- | --- | --- |
 | BR-001 Multiple providers through Claude | SR-F-001, SR-F-003, SR-F-009–012 | FR-008, FR-009, FR-011 | UC-001, UC-005; US-001, US-007 | AT-015–AT-022, AT-033 |
-| BR-002 Central administration | SR-F-004/005/009/011/016/017 | FR-002, FR-007/008/013 | UC-004/006/007; US-004–US-006 | AT-003/004, AT-013–AT-016, AT-025/026 |
+| BR-002 Central administration | SR-F-004/005/009/011/016/017/023 | FR-002, FR-007/008/013, FR-019 | UC-004/006/007; US-004–US-006 | AT-003/004, AT-013–AT-016, AT-025/026, AT-048–AT-052 |
 | BR-003 Credential ownership | SR-F-006–008, SR-NF-002/003/005/006/008 | FR-003–FR-006 | UC-002/003/006/008; US-002–US-004/010 | AT-005–AT-014 |
 | BR-004 Reuse proven MIT code | SR-F-019, SR-NF-011/014 | FR-015 | UC-009; US-009 | AT-028, AT-030 |
 | BR-005 Deterministic safe routing | SR-F-010–014, SR-NF-006/007/010/012 | FR-009/010/014 | UC-005/007; US-005/006 | AT-017–AT-020, AT-027 |
 | BR-006 Claude first, Codex next | SR-F-001–003/015 | FR-011/012 | UC-001/005; US-007/008 | AT-021–AT-024 |
-| BR-007 CLI and local UI | SR-F-009/016/017, SR-NF-004/013 | FR-008/013/014 | UC-001/004/007; US-001/005/006 | AT-015/016, AT-025–AT-027, AT-031, AT-033 |
+| BR-007 CLI and local UI | SR-F-009/016/017/023, SR-NF-004/013 | FR-008/013/014, FR-019 | UC-001/004/007; US-001/005/006 | AT-015/016, AT-025–AT-027, AT-031, AT-033, AT-048–AT-052 |
 | BR-008 Preserve native recovery/process safety | SR-F-015/018, SR-NF-001/004/008 | FR-001/011/012 | UC-001/008; US-001/010 | AT-001/002, AT-021–AT-026, AT-033 |
 | BR-009 Privacy | SR-F-005/016/017/021, SR-NF-002–005/008/009/014 | FR-003–FR-007/013/014/017 | UC-002/003/006/007/008; US-002–US-006/010/011 | AT-005–AT-014, AT-025–AT-032 |
 | BR-010 Terms/evidence gates | SR-F-004/005/010, SR-NF-012 | FR-002/007/009/015 | UC-003–UC-005/009; US-004/005/009 | AT-003/004, AT-014, AT-017/018, AT-028 |
@@ -65,6 +65,16 @@
 | AT-040 / FR-018 / SR-F-022 CLI | `tests/unit/cli-gateway.test.ts`, `tests/unit/cli-init.test.ts` | Verified `rly gateway status` reports Linux systemd service label/load state/pid/enabled separately from runtime readiness; init passes durable log/working paths into the adapter |
 | AT-040 live smoke | `tests/service-manager/systemd-user-live.test.ts` | Linux-only, opt-in `RLY_LIVE_SYSTEMD_SMOKE=1`; skipped ≠ pass. Proves real `systemd --user` register → enable/start → running → restart → stop → unregister in a logged-in user session when CI/runtime permits |
 
+## Phase 66 executable evidence (`rly config` control plane, #66)
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-048 / FR-019 / SR-F-023 | `tests/unit/cli-config.test.ts` | Verified durable config resolution from the `~/.rly` installation record (recorded absolute config path), schema-defaults fallback for a missing recorded file, explicit `--config` and CWD dev fallback, and an actionable uninitialized error; `rly config` runs from an unrelated working directory against a live management listener without any local `gateway.config.toml` |
+| AT-049 / FR-019 / SR-F-023 | `tests/unit/cli-config.test.ts`, `tests/lifecycle/config-recovery.test.ts` | Verified resident-runtime ensure/recover: reuse of an attested compatible runtime (resident or launcher-owned), service-manager start + bounded readiness wait when the registered service is down, session-scoped foreground fallback, occupied-foreign and attested-incompatible fail-closed; a real resident runtime stays attested after `rly config` returns (closing the UI does not stop it) |
+| AT-050 / FR-019 / SR-F-023 | `tests/unit/cli-config.test.ts`, `tests/lifecycle/config-recovery.test.ts` | Verified user-facing provider/account/pool/profile create/list through the same management endpoints as `rly admin`; a `rly config` provider mutation publishes one policy revision readable by the admin/management surface; multi-account and provider-scoped pool membership remain governed by the control-plane store |
+| AT-051 / FR-019 / SR-F-023 | `tests/unit/cli-config.test.ts`, `tests/management/credentials.test.ts` | Verified credential login/import/refresh/revoke flows reuse the credential broker and persist only handle/generation metadata; stale versioned mutations surface `stale-version` explicitly and exit non-zero |
+| AT-052 / FR-019 / SR-F-023 | `tests/unit/cli-config.test.ts`, `tests/lifecycle/config-recovery.test.ts`, `tests/privacy/*` | Verified headless bootstrap URL behavior (fragment token, no browser in `--headless`), loopback-only management, and secret-free CLI output (no token/secret/authorization/email/identity keys); the shared management client keeps `rly admin` and `rly config` on one API/policy source of truth |
+
 ## Maintenance rule
 
 When a requirement changes, update its owning document and this matrix in the same change. When implementation completes, add the executable evidence reference without replacing the stable acceptance ID. If a Must requirement lacks downstream coverage or current evidence, the phase/release cannot be marked accepted.
@@ -77,6 +87,7 @@ When a requirement changes, update its owning document and this matrix in the sa
 - The model intelligence registry (`src/registry/model-registry.ts`) is the canonical model-data layer and the source of truth for #68-#72: exact access-provider identity, upstream model id/family, capability/limits/reasoning evidence, typed compatibility state, deterministic query helpers, and a discovery→proposal boundary that never mutates reviewed evidence (#23). `ProviderRecord.capabilityEvidence` is typed against the registry schema (was `unknown`).
 - The macOS LaunchAgent adapter is delivered by #33 on top of the #65 service-manager contract: one per-user `com.rly.gateway` plist without root, launchctl v2/legacy tolerance, idempotent repair that unloads before reloading, bounded crash-restart, secret-free paths, and service load state/pid reported separately from runtime readiness (AT-036). Linux `systemd --user` specifics remain #34.
 - The capability based model selection engine (#68) runs deterministically before account selection: trusted-registry candidates pass hard eligibility (exact evidence, protocol capabilities, reasoning semantics, compatibility state) then rank in stable document order; the selected physical model is frozen into the effective request/route and `RouteSelector` keeps owning account/credential choice within one pool (AT-044–AT-047).
+- The `rly config` user control plane (#66) is the primary post-install surface on top of the #65 resident runtime: durable `~/.rly` configuration resolution (no CWD `gateway.config.toml` on the normal installed path), resident-runtime ensure/recover, secret-free status, local loopback UI bootstrap through the existing fragment session, and focused provider/account/pool/profile shortcuts over the same management endpoints and policy revision as `rly admin` (AT-048–AT-052).
 
 - The macOS LaunchAgent adapter is delivered by #33 on top of the #65 service-manager contract: one per-user `com.rly.gateway` plist without root, launchctl v2/legacy tolerance, idempotent repair that unloads before reloading, bounded crash-restart, secret-free paths, and service load state/pid reported separately from runtime readiness (AT-036). The Linux `systemd --user` adapter is delivered by #34 on the same contract: one per-user `rly-gateway.service` without root, user-manager bus probe with actionable no-linger guidance, change-only `daemon-reload` with idempotent repair, bounded `StartLimit` restart policy, secret-free unit with durable `~/.rly` paths, and unit enabled/active/process state reported separately from runtime readiness (AT-040).
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.

@@ -141,6 +141,15 @@
 - Prohibition: no credential, token, or account identity in service definitions, logs, or diagnostics.
 - Acceptance: AT-035, AT-036, AT-040.
 
+### FR-019 — Operate the `rly config` user control plane
+
+- Traces: BR-002, BR-007, SR-F-023, SR-NF-002/004.
+- Preconditions: `rly init` has completed (durable `~/.rly` installation record) or an explicit `--config` path is provided; an attested compatible runtime is reachable or recoverable.
+- Behavior: resolve durable configuration from the installation record so `rly config` works from any working directory without a local `gateway.config.toml`; ensure/recover the resident runtime before control-plane operations (reuse an attested launcher-owned instance as-is, start the registered per-user service when it is down, fall back to a session-scoped foreground runtime for uninitialized/dev checkouts, and fail closed on foreign or incompatible listeners); provide a secret-free status summary and a local loopback UI bootstrap through the existing single-use fragment session contract; create/list providers, accounts, pools, and profiles through the same management endpoints and DTOs as `rly admin` so both surfaces observe exactly one policy revision; perform credential login/import/refresh/revoke through the credential broker persisting only handle/generation metadata.
+- Failure: an uninitialized home, a missing recorded config, a foreign or incompatible runtime, a stale versioned mutation, an invalid pool/profile, or a credential failure returns an actionable error with no partial state and no secret, token, or account identity in output.
+- Constraint: closing the config UI never stops the resident runtime; `--headless` prints the bootstrap URL without opening a browser.
+- Acceptance: AT-048, AT-049, AT-050, AT-051, AT-052.
+
 ## Unresolved questions
 
 - Exact quota-aware strategy behavior after live quota evidence is pinned.

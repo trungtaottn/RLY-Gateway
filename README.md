@@ -75,6 +75,17 @@ Project-owned Gemini OAuth uses `RLY_GEMINI_OAUTH_CLIENT_ID`. There is no defaul
 
 ```bash
 rly init
+rly config
+rly config status
+rly config providers list
+rly config providers create --name codex --mode oauth
+rly config accounts list
+rly config accounts login --provider-id <id> --pseudonym acct-1
+rly config accounts import --provider-id <id> --pseudonym acct-1 --source /path/to/auth.json --source-fingerprint <sha256>
+rly config accounts revoke --id <id> --version <n>
+rly config accounts refresh --id <id> --version <n>
+rly config pools create --name codex-pool --provider-id <id> --strategy fill-first --accounts <a>,<b>
+rly config profiles create --name codex --harness claude --provider-id <id> --pool-id <pool> --roles '{"primary":"gpt-5.4"}'
 rly gateway status
 rly gateway stop
 rly gateway start
@@ -97,7 +108,9 @@ rly run codex -- --help
 
 `rly init` bootstraps the per-user installation: it settles the durable `~/.rly` home, validates the control-plane store, registers the per-user service idempotently (macOS LaunchAgent `com.rly.gateway` or Linux `systemd --user`, never root), starts the resident runtime, and waits for an attested compatible instance. The resident runtime stays alive after Claude/Codex sessions close and is reused by `rly <profile>`, config, and diagnostics; the foreground launcher remains the fallback when no service is initialized. On macOS the LaunchAgent starts again at login/reboot, restarts crashes within launchd's bounded throttle policy, and writes its stdout/stderr into `~/.rly/logs/service.log`; on Linux the `systemd --user` unit (`~/.config/systemd/user/rly-gateway.service`) starts again whenever the user's systemd manager starts, restarts crashes under a bounded `StartLimit`/`Restart` policy, and appends its stdout/stderr to `~/.rly/logs/service.log`. A session without a reachable user systemd manager (containers, minimal distros, WSL without systemd) fails actionably and RLY never auto-enables `loginctl enable-linger`. Re-running `rly init` repairs a changed/stale definition without duplicating the service. `rly gateway status` reports runtime readiness plus service label/load state/pid (and enabled state on Linux); `rly gateway stop` shuts the resident runtime down through the attested in-process shutdown. No credential, token, or account identity is ever written into the service definition, logs, or diagnostics.
 
-`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` prints pseudonym and quota class only. `route-trace` prints profile name, decision reason, and selected pseudonym only. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, and `run`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
+`rly config` is the primary user-facing control plane after `rly init`: it resolves the durable configuration from the `~/.rly` installation record (no `gateway.config.toml` in the current directory is required), ensures or recovers the resident runtime, and productizes the existing management surface. Bare `rly config` (or `rly config ui`) opens the local loopback config UI — providers, accounts, pools, profiles, health/quota, audit, and route traces — and prints the URL; `--headless` prints the bootstrap URL without opening a browser. `rly config status` prints a secret-free summary (runtime state, policy revision, resource counts, health). Focused shortcuts `rly config providers|accounts|pools|profiles` create/list through the same management API that `rly admin` uses, so both surfaces observe exactly one policy revision. Credential login/import/refresh/revoke reuse the credential broker and persist only handle/generation metadata. Closing the config UI never stops the resident runtime. `rly admin` remains the advanced/operator surface over the same endpoints.
+
+`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` prints pseudonym and quota class only. `route-trace` prints profile name, decision reason, and selected pseudonym only. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, `run`, `init`, `gateway`, and `config`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
 
 With configured direct routes or a selected Codex OAuth account, the lifecycle
 server also exposes authenticated Anthropic Messages and token-count endpoints.
@@ -109,24 +122,32 @@ references, never raw secrets.
 
 Canonical launch is `rly codex`: Claude Code using a RLY Claude profile named `codex` against a Codex OAuth pool. `rly run codex` is Codex CLI and is not this path. `--profile` and `--route` stay exclusive.
 
-1. Create `gateway.toml` if needed, then start the gateway once so management is listening (`rly doctor` after, or any later `rly` command).
+1. Bootstrap once, then open the config control plane:
+
+```bash
+rly init
+rly config
+```
+
+`rly config` opens the local config UI (add providers/accounts/pools/profiles there), or use the focused shortcuts below. `rly config` resolves the durable configuration from `~/.rly` and recovers the resident runtime when it is not already running.
+
 2. Create the Codex OAuth provider:
 
 ```bash
-rly admin providers create --name codex --mode oauth
+rly config providers create --name codex --mode oauth
 ```
 
 3. Add accounts by PKCE login or explicit import. Do not paste access tokens, refresh tokens, emails, or account ids into the shell, docs, or tickets.
 
 ```bash
-rly admin credentials login --provider-id <provider-id> --pseudonym acct-1
+rly config accounts login --provider-id <provider-id> --pseudonym acct-1
 ```
 
 Or import a local Codex `auth.json` after previewing the fingerprint:
 
 ```bash
 rly admin credentials preview --source /path/to/auth.json --provider-id <provider-id>
-rly admin credentials import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
+rly config accounts import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
 ```
 
 Repeat login or import for each additional OAuth account you want in the pool.
@@ -134,8 +155,8 @@ Repeat login or import for each additional OAuth account you want in the pool.
 4. Create a pool that contains those account ids, then a Claude harness profile named `codex` whose model roles are reviewed Codex ids (today `gpt-5.4`):
 
 ```bash
-rly admin pools create --name codex-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id> --retry-budget 1
-rly admin profiles create --name codex --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"gpt-5.4","fast":"gpt-5.4","reasoning":"gpt-5.4"}'
+rly config pools create --name codex-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id>
+rly config profiles create --name codex --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"gpt-5.4","fast":"gpt-5.4","reasoning":"gpt-5.4"}'
 ```
 
 5. Launch Claude Code through that profile:
@@ -151,18 +172,24 @@ The second form is compatibility only. Unknown required capabilities fail closed
 
 Canonical launch is `rly clinepass`: Claude Code using a RLY Claude profile named `clinepass` against a ClinePass credential pool. Catalog/provider id stays `cline`. RLY owns imported credentials; import is one-time and read-only. Continuous Cline store lock/writeback/restore is not default. `--profile` and `--route` stay exclusive.
 
-1. Create `gateway.toml` if needed, then start the gateway once so management is listening (`rly doctor` after, or any later `rly` command).
+1. Bootstrap once, then open the config control plane (`rly config` opens the local UI; the focused shortcuts below work headless):
+
+```bash
+rly init
+rly config
+```
+
 2. Create the Cline provider with an explicit loopback or HTTPS endpoint (never ports `10100`, `8317`, or `17870`):
 
 ```bash
-rly admin providers create --name cline --mode oauth --endpoint https://api.example.invalid/v1
+rly config providers create --name cline --mode oauth --endpoint https://api.example.invalid/v1
 ```
 
 3. Preview then import a local Cline `auth.json`. Preview without `--provider-id` is rejected. Do not paste access tokens, refresh tokens, emails, or account ids into the shell, docs, or tickets. Import does not write the Cline store.
 
 ```bash
 rly admin credentials preview --source /path/to/auth.json --provider-id <provider-id>
-rly admin credentials import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
+rly config accounts import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
 ```
 
 Repeat preview+import for each additional Cline account you want in the pool.
@@ -170,8 +197,8 @@ Repeat preview+import for each additional Cline account you want in the pool.
 4. Create a pool that contains those account ids, then a Claude harness profile named `clinepass` whose model roles are reviewed Cline ids (today `claude-sonnet-4-5`):
 
 ```bash
-rly admin pools create --name clinepass-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id> --retry-budget 1
-rly admin profiles create --name clinepass --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"claude-sonnet-4-5","fast":"claude-sonnet-4-5","reasoning":"claude-sonnet-4-5"}'
+rly config pools create --name clinepass-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id>
+rly config profiles create --name clinepass --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"claude-sonnet-4-5","fast":"claude-sonnet-4-5","reasoning":"claude-sonnet-4-5"}'
 ```
 
 5. Launch Claude Code through that profile:

@@ -122,6 +122,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 - Management requires exact loopback Origin validation, CSRF protection on mutations, versioned mutations, bounded sessions, explicit logout, and migration rollback. The management listener stops with the attested gateway instance.
 - Management DTOs never expose secret values, raw account identity, prompts, responses, or authorization material.
 - UI follows the tested management contract; it never reads credential files directly.
+- `rly config` is the primary post-install user control plane: it resolves durable configuration from the `~/.rly` installation record (no CWD `gateway.config.toml` on the normal installed path), ensures/reuses the resident runtime, and operates providers/accounts/pools/profiles/credentials through the same management endpoints and policy revision as `rly admin`.
 
 ### 6.7 Launcher and lifecycle
 

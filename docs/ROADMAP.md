@@ -105,6 +105,7 @@ Outcome: RLY runs as a per-user resident service installed once by `rly init`, s
 - Resident ownership on the existing attested loopback gateway (service-owned lease; no second daemon/data plane).
 - Per-user service registration: macOS LaunchAgent and Linux `systemd --user` through one service-manager contract (idempotent `rly init`).
 - Identity/version handshake on `/identity` for #73 update decisions.
+- `rly config` user control plane (#66): durable `~/.rly` configuration resolution (no CWD `gateway.config.toml`), resident-runtime ensure/recover, secret-free status, local config UI bootstrap (fragment token, loopback-only), and focused provider/account/pool/profile shortcuts over the same management API as `rly admin`.
 - Crash recovery, stale-record recovery, foreign-listener fail-closed, and bounded explicit shutdown.
 
 Exit: lifecycle/service-manager/CLI gates and full `pnpm verify` pass; macOS launchd specifics delivered by #33 (per-user LaunchAgent, idempotent repair, bounded crash policy, no root) and Linux systemd specifics delivered by #34 (per-user `systemd --user` unit, user-manager bus probe, bounded `StartLimit` restart policy, no root, no auto-linger).

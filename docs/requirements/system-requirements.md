@@ -39,6 +39,7 @@ This SRS defines externally verifiable system behavior for the local RLY Gateway
 | SR-F-020 | Produce a public release snapshot without connecting private `dev` history to public `main`. | Must | Git topology verification |
 | SR-F-021 | Apply versioned retention and deletion policy to logs, audit, continuation state, backups, revoked credentials, and migration artifacts. | Must | Retention/deletion acceptance tests |
 | SR-F-022 | Bootstrap and operate a per-user resident runtime service: idempotent `rly init`, macOS LaunchAgent / Linux `systemd --user` registration without root, a service-owned lease that prevents zero-lease idle shutdown while the service is intentional, independent launch/session leases, an identity/version handshake, crash/stale-record recovery, and bounded explicit shutdown that never signals an unknown port owner. | Must | Service-manager, lifecycle, and CLI tests |
+| SR-F-023 | Operate the `rly config` user control plane: durable `~/.rly` configuration resolution (no CWD `gateway.config.toml` on the normal installed path), resident-runtime ensure/recover, secret-free status, loopback UI bootstrap, and provider/account/pool/profile operations through the same management API and policy revision as `rly admin`. | Must | Config CLI unit/lifecycle tests |
 
 ## Non-functional requirements
 
