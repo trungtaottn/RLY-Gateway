@@ -88,7 +88,7 @@ Additional coding plans only after terms and protocol capability review.
 ## Operations and distribution
 
 - Persistent per-user runtime service (owner decision #53/#65): `rly init` installs the user service (macOS LaunchAgent, Linux `systemd --user`) idempotently and starts the resident runtime. This issue owns the service-manager contract, idempotent init, identity/version handshake, and lifecycle tests. The macOS launchd adapter is delivered by #33 (label namespace, launchctl v2/legacy tolerance, idempotent repair/reload, bounded crash policy, secret-free plist, service load state/pid) and the Linux systemd adapter is delivered by #34 (per-user `rly-gateway.service`, user-manager bus probe with actionable no-linger guidance, change-only `daemon-reload` with idempotent repair, bounded `StartLimit` restart policy, secret-free unit with durable `~/.rly` paths, unit enabled/active/process state). Supersedes the older "optional launchd after foreground ownership" deferral.
-- Signed package or standalone distribution.
+- Signed package or standalone distribution (#35). Distribution/signing is deliberately split from activation: #73 (landed) owns the drain/restart/verify/rollback lifecycle once a candidate is obtained/verified, via an injectable `CandidateInstaller` contract (local candidate swap + fake-runner tests); #35 will own how a verified candidate reaches disk (artifact authenticity/signing, Homebrew/npm-style channel) without redesigning the lifecycle state machine. Until then `rly update --candidate <dir> [--version <v>]` installs a locally verified candidate through the existing install layout and the identity/version handshake.
 - Remote TLS bridge support with explicit trust configuration.
 
 ## Explicitly rejected until new evidence
