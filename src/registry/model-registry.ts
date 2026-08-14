@@ -228,6 +228,35 @@ export const directProviderRegistry: RegistryDocument = Object.freeze({
       verifiedAt: "2026-08-14", fixtureVersion: "cline-interop-chat-v1", capabilities: clineSonnet45Capabilities,
       compatibility: { evidenceRef: CLINE_E2E_REF },
     }),
+    // ClinePass aggregator tier fixtures (#69): one access provider exposing
+    // several upstream families at once. Same canonical shape; family is
+    // classification metadata only. These rows back the owner-approved tier
+    // fixtures (Terra-parent → Sol, DeepSeek Flash → Pro, Anthropic family).
+    reviewedModel({
+      accessProviderId: "cline", upstreamModelId: "gpt-5.6-terra", modelFamily: "openai/codex",
+      verifiedAt: "2026-08-21", fixtureVersion: "cline-interop-chat-v1", capabilities: clineSonnet45Capabilities,
+      compatibility: { evidenceRef: CLINE_E2E_REF },
+    }),
+    reviewedModel({
+      accessProviderId: "cline", upstreamModelId: "gpt-5.6-sol", modelFamily: "openai/codex",
+      verifiedAt: "2026-08-21", fixtureVersion: "cline-interop-chat-v1", capabilities: clineSonnet45Capabilities,
+      compatibility: { evidenceRef: CLINE_E2E_REF },
+    }),
+    reviewedModel({
+      accessProviderId: "cline", upstreamModelId: "deepseek-v4-pro", modelFamily: "deepseek",
+      verifiedAt: "2026-08-21", fixtureVersion: "cline-interop-chat-v1", capabilities: conservativeCapabilities({ tools: false }),
+      compatibility: { evidenceRef: CLINE_E2E_REF },
+    }),
+    reviewedModel({
+      accessProviderId: "cline", upstreamModelId: "claude-opus-4-8", modelFamily: "anthropic",
+      verifiedAt: "2026-08-21", fixtureVersion: "cline-interop-chat-v1", capabilities: clineSonnet45Capabilities,
+      compatibility: { evidenceRef: CLINE_E2E_REF },
+    }),
+    reviewedModel({
+      accessProviderId: "cline", upstreamModelId: "claude-fable", modelFamily: "anthropic",
+      verifiedAt: "2026-08-21", fixtureVersion: "cline-interop-chat-v1", capabilities: clineSonnet45Capabilities,
+      compatibility: { evidenceRef: CLINE_E2E_REF },
+    }),
   ]),
 });
 
