@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const enabled = process.env["AGENT_GATEWAY_CLAUDE_E2E"] === "1";
+const enabled = process.env["RLY_CLAUDE_E2E"] === "1";
 const timeoutMs = 45_000;
 let provider: FastifyInstance | undefined;
 const directories: string[] = [];
@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-claude-e2e-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-claude-e2e-"));
   directories.push(directory);
   return directory;
 }

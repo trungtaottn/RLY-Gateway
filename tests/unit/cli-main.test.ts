@@ -39,7 +39,7 @@ describe("CLI parsing", () => {
   });
 
   it("pins a configured exact provider/model route through its explicit role", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cli-route-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cli-route-"));
     const configPath = join(directory, "gateway.toml");
     await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n[routes.primary]\nprovider = \"openrouter\"\nmodel = \"provider/model\"\ncredential = \"env:OPENROUTER_API_KEY\"\n", "utf8");
     expect(parseCliArgs(["run", "claude", "--config", configPath, "--route", "openrouter/provider/model", "--", "-p", "fixture"])).toMatchObject({ route: "openrouter/provider/model" });
@@ -53,7 +53,7 @@ describe("CLI parsing", () => {
   });
 
   it("rejects unconfigured or conflicting route selection", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cli-route-error-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cli-route-error-"));
     const configPath = join(directory, "gateway.toml");
     await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
     await expect(runCli(["run", "claude", "--config", configPath, "--route", "openrouter/missing", "--"], { environment: {} })).rejects.toThrow("not configured");
@@ -69,7 +69,7 @@ describe("CLI parsing", () => {
   });
 
   it("launches Claude with a profile child token instead of the instance secret", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cli-profile-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cli-profile-"));
     const configPath = join(directory, "gateway.toml");
     await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
     const release = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
@@ -98,13 +98,20 @@ describe("CLI parsing", () => {
     expect(parseCliArgs(["serve"])).toBeUndefined();
   });
 
+  it("prints the canonical rly executable in usage output", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await expect(runCli(["unknown"], { environment: {} })).resolves.toBe(2);
+    expect(output).toHaveBeenCalledWith(expect.stringContaining("Usage: rly "));
+    output.mockRestore();
+  });
+
   it("preserves regular child exits and converts signal exits", () => {
     expect(childExitCode({ code: 7, signal: null })).toBe(7);
     expect(childExitCode({ code: null, signal: "SIGINT" })).toBe(130);
   });
 
   it("acquires and releases a gateway around the Claude child", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cli-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cli-"));
     const configPath = join(directory, "gateway.toml");
     await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
     const release = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);

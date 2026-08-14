@@ -50,7 +50,7 @@ describe("admin CLI parsing", () => {
   });
 
   it("creates and lists providers through the live management listener", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-admin-cli-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-admin-cli-"));
     directories.push(directory);
     const port = await availablePort();
     const managementPort = await availablePort();

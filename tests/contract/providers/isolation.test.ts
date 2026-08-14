@@ -28,7 +28,7 @@ async function availablePort(): Promise<number> {
 
 describe("provider credential isolation", () => {
   it("does not let a failed Gemini refresh mutate a Codex credential", async () => {
-    const directory = await tempDirectory("agent-gateway-iso-");
+    const directory = await tempDirectory("rly-gateway-iso-");
     directories.push(directory);
     const source = await writeCodexSource(directory);
     const gemini = fakeOauth({
@@ -61,7 +61,7 @@ describe("provider credential isolation", () => {
   });
 
   it("stores Cline material as cline and refuses Codex refresh", async () => {
-    const directory = await tempDirectory("agent-gateway-cline-iso-");
+    const directory = await tempDirectory("rly-gateway-cline-iso-");
     directories.push(directory);
     const sourcePath = join(directory, "cline-auth.json");
     const raw = JSON.stringify({ tokens: { access_token: "cline-access-fixture", refresh_token: "cline-refresh-fixture" } });

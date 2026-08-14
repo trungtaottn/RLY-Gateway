@@ -35,7 +35,7 @@ describe("OpenAI Responses fake upstream route", () => {
   });
 
   it("serves streaming, non-streaming, and continuation", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-responses-route-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-responses-route-"));
     directories.push(directory);
     app = Fastify();
     registerOpenAiResponsesRoute(app, {

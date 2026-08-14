@@ -24,7 +24,7 @@ describe("Anthropic fake upstream route", () => {
     const stream = await app.inject({ method: "POST", url: "/v1/messages", payload: { ...body, stream: true } });
     expect(stream.headers["content-type"]).toContain("text/event-stream"); expect(stream.body).toContain("input_json_delta");
     const count = await app.inject({ method: "POST", url: "/v1/messages/count_tokens", payload: body });
-    expect(count.headers["x-agent-gateway-token-count-quality"]).toBe("exact-local"); expect(count.json()).toEqual({ input_tokens: 12 });
+    expect(count.headers["x-rly-gateway-token-count-quality"]).toBe("exact-local"); expect(count.json()).toEqual({ input_tokens: 12 });
   });
 
   it("retries only a pre-first-byte transport failure", async () => {

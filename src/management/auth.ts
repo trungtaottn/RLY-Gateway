@@ -29,7 +29,7 @@ export function createManagementIdentityProof(
   configFingerprint: string,
 ): string {
   return createHmac("sha256", managementToken)
-    .update(["agent-gateway-management", "1", challenge, instanceId, configFingerprint].join("\n"))
+    .update(["rly-gateway-management", "1", challenge, instanceId, configFingerprint].join("\n"))
     .digest("hex");
 }
 

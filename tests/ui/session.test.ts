@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 async function start() {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-ui-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-ui-"));
   directories.push(directory);
   store = await ControlPlaneStore.open(directory);
   const sessions = new SessionStore();

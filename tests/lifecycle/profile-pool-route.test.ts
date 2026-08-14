@@ -71,7 +71,7 @@ async function seed(directory: string, endpoint: string) {
 
 describe("profile pool route", () => {
   it("binds a child token to a profile and selects an account only at request time", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-profile-route-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-profile-route-"));
     directories.push(directory);
     const received: string[] = [];
     provider = Fastify();

@@ -217,7 +217,7 @@ async function launchIsolatedHarness(
 export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildExit> {
   return launchIsolatedHarness(
     options,
-    "agent-gateway-claude-",
+    "rly-gateway-claude-",
     "claude",
     createClaudeChildEnvironment,
     sessionIsolatedArgs(options.args),
@@ -228,7 +228,7 @@ export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildE
 export async function launchCodex(options: LaunchCodexOptions): Promise<ChildExit> {
   return launchIsolatedHarness(
     options,
-    "agent-gateway-codex-",
+    "rly-gateway-codex-",
     "codex",
     createCodexChildEnvironment,
     options.args,

@@ -4,7 +4,7 @@ import { createManagementIdentityProof } from "../management/server.js";
 import type { OwnershipRecord } from "./ownership-record.js";
 
 export const HEARTBEAT_MS = 5_000;
-export const EXECUTABLE_FINGERPRINT = createHash("sha256").update("agent-gateway:0.1.0").digest("hex");
+export const EXECUTABLE_FINGERPRINT = createHash("sha256").update("rly-gateway:0.1.0").digest("hex");
 
 export type GatewayIdentity = Readonly<{
   product: string;
@@ -29,7 +29,7 @@ export async function attestedIdentities(
       request,
       managementBaseUrl,
       managementSecret,
-      "agent-gateway-management",
+      "rly-gateway-management",
       createManagementIdentityProof,
     ),
   };
@@ -88,7 +88,7 @@ async function identityChallenge(
   request: typeof fetch,
   baseUrl: string,
   secret: string,
-  expectedProduct = "agent-gateway",
+  expectedProduct = "rly-gateway",
   proof: typeof createIdentityProof = createIdentityProof,
 ): Promise<GatewayIdentity | undefined> {
   const challenge = randomBytes(32).toString("base64url");

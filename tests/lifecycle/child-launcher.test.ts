@@ -95,7 +95,7 @@ describe("Claude child launcher", () => {
     const childEnvironment = suppliedOptions?.env;
     expect(childEnvironment?.["ANTHROPIC_BASE_URL"]).toBe("http://127.0.0.1:17871");
     expect(childEnvironment?.["ANTHROPIC_AUTH_TOKEN"]).toBe("transient-token");
-    expect(childEnvironment?.["CLAUDE_CONFIG_DIR"]).toMatch(/agent-gateway-claude-/);
+    expect(childEnvironment?.["CLAUDE_CONFIG_DIR"]).toMatch(/rly-gateway-claude-/);
     expect(suppliedOptions?.stdio).toBe("inherit");
     expect(suppliedArgs).toEqual(["--model", "quoted value", "--", "-not-a-gateway-flag"]);
     child.close(23, null);
@@ -128,7 +128,7 @@ describe("Claude child launcher", () => {
       signalSource: new TestSignals(),
     });
     if (suppliedOptions === undefined) throw new Error("Codex child was not spawned");
-    expect(suppliedOptions.env["CODEX_HOME"]).toMatch(/agent-gateway-codex-/);
+    expect(suppliedOptions.env["CODEX_HOME"]).toMatch(/rly-gateway-codex-/);
     child.close(0, null);
     await expect(launched).resolves.toEqual({ code: 0, signal: null });
   });

@@ -1,8 +1,8 @@
-# Agent Gateway Backlog
+# RLY Gateway Backlog
 
 Items here are not committed V1 scope. Promotion requires evidence, owner approval, and an update to SPEC/roadmap/plan as appropriate.
 
-GitHub board: [Agent Gateway Backlog](https://github.com/users/trungtaottn/projects/4) (private). Every repo issue and PR is added automatically. Status is `Backlog` when the issue has the `backlog` label, `Todo` for other open issues, `In Progress` for open PRs, and `Done` when closed or merged.
+GitHub board: [RLY Gateway Backlog](https://github.com/users/trungtaottn/projects/4) (private). Every repo issue and PR is added automatically. Status is `Backlog` when the issue has the `backlog` label, `Todo` for other open issues, `In Progress` for open PRs, and `Done` when closed or merged.
 
 ## Near-term candidates
 
@@ -18,15 +18,15 @@ Owner decision 2026-08-14: stop broadening providers. Next work is **Codex OAuth
 
 ### Codex OAuth → Claude Code
 
-Already in tree: project-owned PKCE login, explicit Codex import, refresh CAS, revoke, `codex-oauth` adapter, selected-account route, `run claude --profile`, opt-in live pool smoke (`AGENT_GATEWAY_LIVE_CODEX_OAUTH=1`). Missing is a repeatable Claude Code path.
+Already in tree: project-owned PKCE login, explicit Codex import, refresh CAS, revoke, `codex-oauth` adapter, selected-account route, `run claude --profile`, opt-in live pool smoke (`RLY_LIVE_CODEX_OAUTH=1`). Missing is a repeatable Claude Code path.
 
 | ID | Issue | Task | Acceptance |
 | --- | --- | --- | --- |
-| NX-001 | [#1](https://github.com/trungtaottn/agent-gateway/issues/1) | Operator recipe: create `codex` provider, login or import, pool, Claude profile, `run claude --profile` | README/CONTRIBUTING steps; no raw secrets; `--profile` and `--route` stay exclusive |
-| NX-002 | [#2](https://github.com/trungtaottn/agent-gateway/issues/2) | Fake-upstream Claude Code E2E through Codex OAuth (not OpenRouter) | Text + tools + helper map + cancel; no global Claude/Codex config mutation |
-| NX-003 | [#3](https://github.com/trungtaottn/agent-gateway/issues/3) | Opt-in live smoke: Claude Code → gateway → Codex OAuth | Gated env; secret-free evidence only; skipped ≠ pass |
-| NX-004 | [#4](https://github.com/trungtaottn/agent-gateway/issues/4) | Profile model roles for Codex models used as Claude helpers | Capability preflight rejects unsupported required tools/images; no silent remap |
-| NX-005 | [#5](https://github.com/trungtaottn/agent-gateway/issues/5) | Status/quota/route-trace for a live Codex profile | Pseudonym + quota class + decision reason only |
+| NX-001 | [#1](https://github.com/trungtaottn/RLY-Gateway/issues/1) | Operator recipe: create `codex` provider, login or import, pool, Claude profile, `run claude --profile` | README/CONTRIBUTING steps; no raw secrets; `--profile` and `--route` stay exclusive |
+| NX-002 | [#2](https://github.com/trungtaottn/RLY-Gateway/issues/2) | Fake-upstream Claude Code E2E through Codex OAuth (not OpenRouter) | Text + tools + helper map + cancel; no global Claude/Codex config mutation |
+| NX-003 | [#3](https://github.com/trungtaottn/RLY-Gateway/issues/3) | Opt-in live smoke: Claude Code → gateway → Codex OAuth | Gated env; secret-free evidence only; skipped ≠ pass |
+| NX-004 | [#4](https://github.com/trungtaottn/RLY-Gateway/issues/4) | Profile model roles for Codex models used as Claude helpers | Capability preflight rejects unsupported required tools/images; no silent remap |
+| NX-005 | [#5](https://github.com/trungtaottn/RLY-Gateway/issues/5) | Status/quota/route-trace for a live Codex profile | Pseudonym + quota class + decision reason only |
 
 ### ClinePass → Claude Code
 
@@ -34,12 +34,12 @@ Already in tree: explicit Cline import, `cline` credential provider, no Codex re
 
 | ID | Issue | Task | Acceptance |
 | --- | --- | --- | --- |
-| NX-010 | [#6](https://github.com/trungtaottn/agent-gateway/issues/6) | Pin a redacted ClinePass source schema from a real `auth.json` shape | Done: `tests/fixtures/upstream/clinepass/auth-shape.json` (synthetic; tokens omitted) |
-| NX-011 | [#7](https://github.com/trungtaottn/agent-gateway/issues/7) | Declare the ClinePass upstream endpoint policy | Done: create requires explicit loopback or HTTPS endpoint; protected ports rejected |
-| NX-012 | [#8](https://github.com/trungtaottn/agent-gateway/issues/8) | Operator recipe: explicit preview+import with `providerId`, pool, Claude profile | Preview without `providerId` stays rejected; import does not write the Cline store |
-| NX-013 | [#9](https://github.com/trungtaottn/agent-gateway/issues/9) | Fake-upstream Claude Code E2E through `cline-interop` | Text + tools; Cline failure does not touch Codex credential files |
-| NX-014 | [#10](https://github.com/trungtaottn/agent-gateway/issues/10) | Opt-in live smoke: Claude Code → gateway → ClinePass | Gated env; skipped ≠ pass |
-| NX-015 | [#11](https://github.com/trungtaottn/agent-gateway/issues/11) | Continuous Cline store lock/backup/restore | Separate opt-in later; default remains one-time read-only import |
+| NX-010 | [#6](https://github.com/trungtaottn/RLY-Gateway/issues/6) | Pin a redacted ClinePass source schema from a real `auth.json` shape | Done: `tests/fixtures/upstream/clinepass/auth-shape.json` (synthetic; tokens omitted) |
+| NX-011 | [#7](https://github.com/trungtaottn/RLY-Gateway/issues/7) | Declare the ClinePass upstream endpoint policy | Done: create requires explicit loopback or HTTPS endpoint; protected ports rejected |
+| NX-012 | [#8](https://github.com/trungtaottn/RLY-Gateway/issues/8) | Operator recipe: explicit preview+import with `providerId`, pool, Claude profile | Preview without `providerId` stays rejected; import does not write the Cline store |
+| NX-013 | [#9](https://github.com/trungtaottn/RLY-Gateway/issues/9) | Fake-upstream Claude Code E2E through `cline-interop` | Text + tools; Cline failure does not touch Codex credential files |
+| NX-014 | [#10](https://github.com/trungtaottn/RLY-Gateway/issues/10) | Opt-in live smoke: Claude Code → gateway → ClinePass | Gated env; skipped ≠ pass |
+| NX-015 | [#11](https://github.com/trungtaottn/RLY-Gateway/issues/11) | Continuous Cline store lock/backup/restore | Separate opt-in later; default remains one-time read-only import |
 
 ## Deferred from Phase 10 (do not enable for Claude Code)
 
@@ -49,10 +49,10 @@ Code exists (`src/providers/oauth/claude/`, catalog `claude`) but is **text-only
 
 | ID | Issue | Task | Acceptance |
 | --- | --- | --- | --- |
-| BL-020 | [#12](https://github.com/trungtaottn/agent-gateway/issues/12) | Decide project-owned Anthropic OAuth client vs attested Claude subscription bridge | Written owner decision; no first-party Claude Code client impersonation |
-| BL-021 | [#13](https://github.com/trungtaottn/agent-gateway/issues/13) | Stream + tools + thinking on the Anthropic protocol path | AT-021 subset through this adapter; catalog capabilities match |
-| BL-022 | [#14](https://github.com/trungtaottn/agent-gateway/issues/14) | Fake + opt-in live Claude Code E2E | Same gates as NX-002/NX-003 |
-| BL-023 | [#15](https://github.com/trungtaottn/agent-gateway/issues/15) | Document `AGENT_GATEWAY_CLAUDE_OAUTH_CLIENT_ID` only after BL-020 | Example config; no default client id in source |
+| BL-020 | [#12](https://github.com/trungtaottn/RLY-Gateway/issues/12) | Decide project-owned Anthropic OAuth client vs attested Claude subscription bridge | Written owner decision; no first-party Claude Code client impersonation |
+| BL-021 | [#13](https://github.com/trungtaottn/RLY-Gateway/issues/13) | Stream + tools + thinking on the Anthropic protocol path | AT-021 subset through this adapter; catalog capabilities match |
+| BL-022 | [#14](https://github.com/trungtaottn/RLY-Gateway/issues/14) | Fake + opt-in live Claude Code E2E | Same gates as NX-002/NX-003 |
+| BL-023 | [#15](https://github.com/trungtaottn/RLY-Gateway/issues/15) | Document `RLY_CLAUDE_OAUTH_CLIENT_ID` only after BL-020 | Example config; no default client id in source |
 
 ### Other Phase 10 leftovers
 

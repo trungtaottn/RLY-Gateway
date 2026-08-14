@@ -10,6 +10,7 @@ const forbidden = [
   /(^|\/)gateway\.config\.toml$/,
   /\.sqlite$/,
   /(^|\/)plans\//,
+  /(^|\/)\.rly\//,
   /(^|\/)\.agent-gateway\//,
   /(^|\/)control-plane\.sqlite/,
 ];
@@ -24,7 +25,7 @@ if (leaked.length > 0) {
   process.exit(1);
 }
 
-const directory = await mkdtemp(join(tmpdir(), "agent-gateway-package-"));
+const directory = await mkdtemp(join(tmpdir(), "rly-gateway-package-"));
 try {
   const archive = join(directory, "snapshot.tar");
   execFileSync("tar", ["-cf", archive, "-T", "-"], { input: `${files.join("\n")}\n` });

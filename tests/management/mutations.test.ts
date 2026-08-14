@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 async function start() {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-mut-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-mut-"));
   directories.push(directory);
   store = await ControlPlaneStore.open(directory);
   app = createManagementServer({

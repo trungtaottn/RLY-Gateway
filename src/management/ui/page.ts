@@ -10,7 +10,7 @@ export function managementUiHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="${MANAGEMENT_CSP}">
-  <title>Agent Gateway</title>
+  <title>RLY Gateway</title>
   <style>${managementUiCss()}</style>
 </head>
 <body>
@@ -20,7 +20,7 @@ export function managementUiHtml(): string {
   <div id="gate"></div>
   <div id="app" class="hidden">
     <header class="app">
-      <h1>Agent Gateway</h1>
+      <h1>RLY Gateway</h1>
       <p class="meta" id="policy-revision">policy</p>
       <button type="button" id="refresh">Refresh</button>
       <button type="button" id="logout" class="danger">Logout</button>

@@ -2,8 +2,10 @@
 
 ## Product identity
 
-- Project, package, and initial CLI name: `agent-gateway`.
-- Repository path: project Git root (`agent-gateway`).
+- Brand/product: `RLY` / `RLY Gateway`.
+- Repository/package/CLI: `RLY-Gateway` / `rly-gateway` / `rly`.
+- Local checkout and durable state root: `rly-gateway` / `~/.rly`.
+- The first RLY start migrates a legacy `~/.agent-gateway` tree only when `~/.rly` is absent; two roots are an operator-resolved conflict.
 - Development posture: private-first and public-ready.
 - License: MIT, with per-module upstream provenance for copied or substantially adapted code.
 

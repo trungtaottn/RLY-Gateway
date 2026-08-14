@@ -79,7 +79,7 @@ export function createIdentityProof(
   configFingerprint: string,
 ): string {
   return createHmac("sha256", authToken)
-    .update(["agent-gateway", "1", challenge, instanceId, configFingerprint].join("\n"))
+    .update(["rly-gateway", "1", challenge, instanceId, configFingerprint].join("\n"))
     .digest("hex");
 }
 
@@ -203,7 +203,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       return reply.code(400).send({ error: "invalid-challenge" });
     }
     return {
-      product: "agent-gateway",
+      product: "rly-gateway",
       instanceId: options.instanceId,
       configFingerprint: options.configFingerprint,
       protocolVersion: 1,

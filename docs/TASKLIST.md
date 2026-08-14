@@ -1,10 +1,10 @@
-# Agent Gateway Tasklist
+# RLY Gateway Tasklist
 
 This file is the concise committed-work view. Detailed steps, risks, and acceptance evidence live in the [active implementation plan](../plans/260813-1239-claude-first-personal-gateway/plan.md).
 
 ## Completed milestones: Bootstrap through Claude direct-provider MVP
 
-- [x] Create clean `agent-gateway` Git repository on `main`.
+- [x] Create clean `rly-gateway` Git repository on `main`.
 - [x] Move plan, research, scout, and architecture counsel into the project.
 - [x] Approve product identity, stack, privacy, bridge, and token-count defaults.
 - [x] Record protocol, bridge, and lifecycle ADRs.

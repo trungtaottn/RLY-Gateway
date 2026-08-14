@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("Codex fake-upstream E2E", () => {
   it("launches an isolated Codex child through Responses and a fake upstream", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-codex-e2e-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-codex-e2e-"));
     directories.push(directory);
     const app = createGatewayServer({
       host: "127.0.0.1",

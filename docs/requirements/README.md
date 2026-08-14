@@ -1,6 +1,6 @@
 # Requirements Pack
 
-This directory is the requirements authority for Agent Gateway. It is structured for the owner, business analysis, engineering, QA, security review, and future public contributors.
+This directory is the requirements authority for RLY Gateway. It is structured for the owner, business analysis, engineering, QA, security review, and future public contributors.
 
 ## Document map
 

@@ -22,7 +22,7 @@ export function registerAnthropicDirectCountTokensRoute(
       if (resolved.route.capabilities.tokenCounting === "unsupported") return await reply.code(501).send(unavailable);
       const result = await resolved.upstream.countTokens?.(decoded.request);
       if (!result) return await reply.code(501).send(unavailable);
-      return await reply.header("x-agent-gateway-token-count-quality", result.quality).send({ input_tokens: result.inputTokens });
+      return await reply.header("x-rly-gateway-token-count-quality", result.quality).send({ input_tokens: result.inputTokens });
     } catch (error) {
       if (error instanceof AnthropicProtocolError) return await reply.code(error.statusCode).send({ type: "error", error: { type: error.code, message: "Gateway rejected the protocol event" } });
       if (error instanceof ProfileActivationError) return await reply.code(400).send({ type: "error", error: { type: error.code, message: "Profile is not ready for this request" } });

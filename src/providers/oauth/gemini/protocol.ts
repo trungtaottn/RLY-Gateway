@@ -10,7 +10,7 @@ export const GEMINI_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/
 export const GEMINI_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GEMINI_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 export const GEMINI_OAUTH_SCOPE = "https://www.googleapis.com/auth/generative-language";
-export const GEMINI_CLIENT_ID_ENV = "AGENT_GATEWAY_GEMINI_OAUTH_CLIENT_ID";
+export const GEMINI_CLIENT_ID_ENV = "RLY_GEMINI_OAUTH_CLIENT_ID";
 
 export function geminiClientId(environment: NodeJS.ProcessEnv = process.env): string {
   return requiredOAuthClientId(environment, GEMINI_CLIENT_ID_ENV, "gemini");

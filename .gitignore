@@ -4,6 +4,8 @@ coverage/
 .DS_Store
 *.log
 *.tsbuildinfo
+.rly/
+# Legacy state remains private until every existing installation has migrated.
 .agent-gateway/
 .[e]nv*
 *.local.toml

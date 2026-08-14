@@ -24,7 +24,7 @@ export class CodexOAuthAdapter extends OpenAiChatAdapter {
   }
 
   protected override extraHeaders(): Readonly<Record<string, string>> {
-    if (!this.accountId) return { originator: "agent-gateway" };
-    return { originator: "agent-gateway", "chatgpt-account-id": this.accountId.reveal() };
+    if (!this.accountId) return { originator: "rly-gateway" };
+    return { originator: "rly-gateway", "chatgpt-account-id": this.accountId.reveal() };
   }
 }

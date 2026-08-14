@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("global client config isolation", () => {
   it("leaves Claude and Codex configuration byte-identical", async () => {
-    const home = await mkdtemp(join(tmpdir(), "agent-gateway-home-"));
+    const home = await mkdtemp(join(tmpdir(), "rly-gateway-home-"));
     directories.push(home);
     const claudeDirectory = join(home, ".claude");
     const codexDirectory = join(home, ".codex");
