@@ -2,6 +2,7 @@ import type { ProviderCapabilities } from "../core/capabilities.js";
 import type { RouteRecord } from "../core/router.js";
 import type { GatewayConfig } from "../config/schema.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
+import { helperRoleFor } from "../profiles/helper-map.js";
 
 export type ModelEvidence = Readonly<{
   logicalId: string;
@@ -14,49 +15,24 @@ export type ModelEvidence = Readonly<{
 
 export type RegistryDocument = Readonly<{ registryRevision: number; models: readonly ModelEvidence[] }>;
 
-const nvidiaNemotronCapabilities: ProviderCapabilities = Object.freeze({
-  streaming: true,
-  tools: true,
-  parallelTools: false,
-  images: false,
-  reasoning: true,
-  redactedReasoning: false,
-  structuredOutput: false,
-  tokenCounting: "conservative-estimate",
-});
+function conservativeCapabilities(overrides: Partial<ProviderCapabilities> = {}): ProviderCapabilities {
+  return Object.freeze({
+    streaming: true,
+    tools: true,
+    parallelTools: false,
+    images: false,
+    reasoning: true,
+    redactedReasoning: false,
+    structuredOutput: false,
+    tokenCounting: "conservative-estimate",
+    ...overrides,
+  });
+}
 
-const deepSeekFlashCapabilities: ProviderCapabilities = Object.freeze({
-  streaming: true,
-  tools: false,
-  parallelTools: false,
-  images: false,
-  reasoning: true,
-  redactedReasoning: false,
-  structuredOutput: false,
-  tokenCounting: "conservative-estimate",
-});
-
-const nvidiaNemotronNanoCapabilities: ProviderCapabilities = Object.freeze({
-  streaming: true,
-  tools: true,
-  parallelTools: false,
-  images: true,
-  reasoning: true,
-  redactedReasoning: false,
-  structuredOutput: false,
-  tokenCounting: "conservative-estimate",
-});
-
-const openAiGptOssCapabilities: ProviderCapabilities = Object.freeze({
-  streaming: true,
-  tools: true,
-  parallelTools: false,
-  images: false,
-  reasoning: true,
-  redactedReasoning: false,
-  structuredOutput: true,
-  tokenCounting: "conservative-estimate",
-});
+const nvidiaNemotronCapabilities = conservativeCapabilities();
+const deepSeekFlashCapabilities = conservativeCapabilities({ tools: false });
+const nvidiaNemotronNanoCapabilities = conservativeCapabilities({ images: true });
+const openAiGptOssCapabilities = conservativeCapabilities({ structuredOutput: true });
 
 /** Reviewed evidence only. Provider probes report drift but never mutate this document. */
 export const directProviderRegistry: RegistryDocument = Object.freeze({
@@ -96,11 +72,7 @@ export function routesFromConfig(config: GatewayConfig, registry: RegistryDocume
 export function resolveConfiguredRoute(routes: ReadonlyMap<string, RouteRecord>, requestedModel: string): RouteRecord | undefined {
   const explicit = routes.get(requestedModel) ?? [...routes.values()].find((route) => route.modelId === requestedModel);
   if (explicit) return explicit;
-  const helperRole = new Map<string, "fast" | "primary">([
-    ["claude-haiku-4-5", "fast"],
-    ["claude-sonnet-5", "primary"],
-    ["claude-opus-4-8", "primary"],
-  ]).get(requestedModel.toLowerCase());
+  const helperRole = helperRoleFor(requestedModel);
   if (helperRole) return routes.get(helperRole);
   return undefined;
 }

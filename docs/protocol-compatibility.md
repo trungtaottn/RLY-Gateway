@@ -24,8 +24,11 @@ helpers with a fake canonical upstream.
 - Direct providers currently use Chat Completions transport. OpenRouter probes
   its models catalog and DeepSeek preserves assistant reasoning content when
   replaying a tool turn. Probe results never mutate declarative configuration.
-- Roles are exactly `primary`, `fast`, and `reasoning`; a request must name one
-  configured role or its exact configured model ID. There is no fallback.
+- Roles are exactly `primary`, `fast`, and `reasoning`. A request may name a
+  configured role, its exact configured model ID, or a known Claude helper
+  alias (`claude-haiku-4-5` → `fast`, `claude-sonnet-5` / `claude-opus-4-8` →
+  `primary`). Unknown helpers fail closed. Profile-scoped helpers stay inside
+  the activated profile's model-role map.
 - No live provider smoke or real token-count validation has been recorded yet.
 - OpenAI Responses has canonical type identity reserved, but no runtime
   decoder, encoder, or Codex CLI integration.

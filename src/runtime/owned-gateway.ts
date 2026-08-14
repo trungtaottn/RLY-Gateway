@@ -4,9 +4,13 @@ import { ControlPlaneStore } from "../control-plane/store.js";
 import { CredentialBroker } from "../credentials/broker.js";
 import { CredentialService } from "../credentials/service.js";
 import { createManagementServer, listenManagement } from "../management/server.js";
+import { LaunchSessionRegistry } from "../profiles/sessions.js";
+import { RouteTraceRing } from "../profiles/traces.js";
 import { createCodexOauthRouteResolver } from "../providers/oauth/codex/route.js";
 import { managementOrigin } from "../management/origin.js";
 import { SessionStore } from "../management/session-store.js";
+import { AffinityStore } from "../routing/pools/affinity.js";
+import { RouteSelector } from "../routing/pools/selector.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
 import { createGatewayServer, listenGateway } from "./gateway-server.js";
 import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS } from "./gateway-attestation.js";
@@ -56,10 +60,13 @@ export async function startOwnedGateway(input: Readonly<{
   const managementSecretValue = randomBytes(32).toString("base64url");
   const instanceId = randomUUID();
   const sessions = new SessionStore();
+  const traces = new RouteTraceRing();
   const appHolder: { app?: FastifyInstance; management?: FastifyInstance; controlPlane?: ControlPlaneStore; broker?: CredentialBroker } = {};
+  const sessionHolder: { registry?: LaunchSessionRegistry } = {};
   const leases = new LeaseManager({
     ttlMs: LEASE_TTL_MS,
     idleGraceMs: IDLE_GRACE_MS,
+    onExpire: (expiredLeaseId) => sessionHolder.registry?.dropLease(expiredLeaseId),
     onIdle: async (stillIdle) => {
       if (!stillIdle()) return;
       const cleanupLock = await store.acquireStartupLock(processIdentity, () => false);
@@ -82,6 +89,8 @@ export async function startOwnedGateway(input: Readonly<{
       }
     },
   });
+  const launchSessions = new LaunchSessionRegistry((id) => leases.has(id));
+  sessionHolder.registry = launchSessions;
   await leases.add(leaseId);
   let leaseMutation: Promise<void> = Promise.resolve();
   const serializeLeaseMutation = <T>(work: () => Promise<T>): Promise<T> => {
@@ -101,9 +110,11 @@ export async function startOwnedGateway(input: Readonly<{
     }),
     renew: (id: string): Promise<void> => leases.renew(id),
     release: (id: string): Promise<void> => serializeLeaseMutation(async () => {
+      launchSessions.dropLease(id);
       await store.removeLease(id, processIdentity, () => false);
       await leases.release(id);
     }),
+    has: (id: string): boolean => leases.has(id),
   };
   let controlPlane: ControlPlaneStore | undefined;
   let broker: CredentialBroker | undefined;
@@ -116,22 +127,29 @@ export async function startOwnedGateway(input: Readonly<{
     controlPlane = await ControlPlaneStore.open(controlPlaneDirectory);
     broker = await CredentialBroker.open(controlPlaneDirectory);
     const credentials = new CredentialService(controlPlane, broker);
+    const selector = new RouteSelector(controlPlane, new AffinityStore(controlPlaneDirectory));
     appHolder.controlPlane = controlPlane;
     appHolder.broker = broker;
+    const { host, port, managementPort } = options.config.gateway;
     const gatewayOptions = {
-      host: options.config.gateway.host,
-      port: options.config.gateway.port,
+      host,
+      port,
       authToken: secretValue,
       instanceId,
       configFingerprint,
       config: options.config,
       leases: registry,
       resolveOauthRoute: createCodexOauthRouteResolver(credentials, broker, configFingerprint),
+      controlPlane,
+      broker,
+      selector,
+      launchSessions,
+      traces,
     };
     const managementOptions = {
-      host: options.config.gateway.host,
-      port: options.config.gateway.managementPort,
-      origin: managementOrigin(options.config.gateway.host, options.config.gateway.managementPort),
+      host,
+      port: managementPort,
+      origin: managementOrigin(host, managementPort),
       managementToken: managementSecretValue,
       instanceId,
       configFingerprint,

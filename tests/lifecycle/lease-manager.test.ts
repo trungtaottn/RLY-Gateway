@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from "vitest";
 import { LeaseManager } from "../../src/runtime/lease-manager.js";
 
 describe("lease manager", () => {
+  it("notifies onExpire when a lease TTL elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const expired: string[] = [];
+      const leases = new LeaseManager({
+        ttlMs: 10,
+        idleGraceMs: 50,
+        onIdle: () => undefined,
+        onExpire: (leaseId) => { expired.push(leaseId); },
+      });
+      await leases.add("00000000-0000-4000-8000-000000000011");
+      await vi.advanceTimersByTimeAsync(11);
+      expect(expired).toEqual(["00000000-0000-4000-8000-000000000011"]);
+      expect(leases.has("00000000-0000-4000-8000-000000000011")).toBe(false);
+      leases.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("expires a crashed launcher and shuts down after idle grace", async () => {
     vi.useFakeTimers();
     try {

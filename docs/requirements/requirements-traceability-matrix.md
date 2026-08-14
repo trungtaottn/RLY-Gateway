@@ -78,3 +78,13 @@ When a requirement changes, update its owning document and this matrix in the sa
 | AT-020 | `tests/routing/retry.test.ts` | Verified failure after text or tool event does not invoke a second account |
 | AT-027 subset | `tests/privacy/routing.test.ts` | Verified decision traces and outcome audit contain no secret or identity fields |
 | SR-NF-006 / SR-NF-008 | `tests/routing/race.test.ts`, `tests/routing/restart.test.ts`, `tests/routing/outcomes.test.ts` | Verified selector isolation, durable pause/cooldown across restart, and interrupted health writes roll back |
+
+## Phase 09 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-021 subset | `tests/lifecycle/profile-pool-route.test.ts`, `tests/e2e/claude-code/pool-profile.e2e.test.ts` | Verified text, helper mapping, and tools through a profile pool; real Claude E2E remains opt-in (`AGENT_GATEWAY_CLAUDE_E2E=1`) |
+| AT-022 subset | `tests/lifecycle/profile-pool-route.test.ts`, `tests/unit/profiles.test.ts` | Verified concurrent child tokens and lease-drop invalidation; account is not bound at activation. Client abort remains covered by the Anthropic route bind test, not the profile inject suite |
+| AT-027 subset | `tests/privacy/profiles.test.ts`, `tests/lifecycle/profile-pool-route.test.ts` | Verified route-trace and activation DTOs contain no credential, identity, prompt, response, or tool argument |
+| Profile launch UX | `tests/unit/cli-main.test.ts`, `src/cli/main.ts` | Verified `--profile` is mutually exclusive with `--route` and uses a child token |
+| Live Codex pool smoke | `tests/contract/providers/codex-oauth/live-smoke.test.ts` | Skipped unless `AGENT_GATEWAY_LIVE_CODEX_OAUTH=1` and a project-owned handle is provided; not passing evidence |

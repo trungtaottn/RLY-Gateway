@@ -75,9 +75,17 @@ Code/live-provider compatibility.
 - [x] Outcome/cooldown updates are transactional; rotation is blocked after the first output or tool event.
 - [x] Race, crash-rollback, and restart gates. Evidence: `pnpm verify` — 153 passed, 7 skipped.
 
+## Completed milestone: Claude integration and profile UX
+
+- [x] Profile activation selects policy, not an account.
+- [x] `run claude --profile` issues a lease-scoped child token.
+- [x] Anthropic requests through a profile use request-time pool eligibility.
+- [x] Helper-role mapping stays inside the selected profile.
+- [x] Status, doctor, quota, and route-trace stay secret-free.
+- [x] Fake pool-profile Claude E2E is gated; live Codex pool smoke is opt-in.
+- [x] Doctor does not open or migrate the control-plane store.
+
 ## Later committed V1 milestones
-- [ ] Claude Code integration through the pool.
-- [ ] Profiles, launcher, status, doctor, and quota UX.
 - [ ] Secret-free local UI and provider expansion.
 - [ ] OpenAI Responses and Codex CLI E2E.
 - [ ] Release hardening, packaging, provenance, migration, recovery, and daily workflow gates.

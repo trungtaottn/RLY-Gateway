@@ -25,6 +25,14 @@ pinned `adapted` rows `opencodex-eligibility-pools` and
 `opencodex-health-outcome` without copying source text. Verification owner:
 routing. Notices remain in `docs/third-party-notices.md`.
 
+Phase 09 independently implemented profile activation, Claude helper-role
+mapping, transient target detection, lease-scoped launch tokens, pool-mounted
+Anthropic resolve, and secret-free quota/route-trace diagnostics. The work
+follows the already pinned `adapted` rows `ccs-profile-target`,
+`ccs-alias-normalization`, `ccs-account-quota-ux`, and
+`claude-proxy-helper-map` without copying source text. Verification owner:
+profiles. Notices remain in `docs/third-party-notices.md`.
+
 ## Frozen artifacts (2026-08-13)
 
 A repository revision may not be treated as the package source unless contents

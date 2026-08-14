@@ -24,10 +24,13 @@ Data plane
 ```
 
 The Anthropic Messages protocol adapter and encoder are registered into the
-foreground gateway when declarative direct routes exist. The route requires the
-per-instance transient bearer token (or Claude's `x-api-key` equivalent), then
-preflights an immutable configured-role snapshot before any provider call.
-OpenAI Responses remains a reserved canonical boundary.
+foreground gateway when declarative direct routes, a selected OAuth account, or
+an activated profile exists. Profile activation is lease-scoped: `run claude
+--profile` issues a child token bound to that profile. Each request then
+performs eligibility and account selection through the pool; the profile never
+preselects an account. Requests without a profile child token keep the
+previous resolve order: TOML direct routes, then a manually selected Codex
+account. OpenAI Responses remains a reserved canonical boundary.
 
 ## Implemented local foundation
 

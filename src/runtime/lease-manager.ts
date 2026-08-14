@@ -4,6 +4,7 @@ export type LeaseManagerOptions = Readonly<{
   ttlMs: number;
   idleGraceMs: number;
   onIdle: (stillIdle: () => boolean) => Promise<void> | void;
+  onExpire?: (leaseId: string) => void;
   now?: () => number;
   setTimer?: (callback: () => void, delayMs: number) => NodeJS.Timeout;
   clearTimer?: (timer: NodeJS.Timeout) => void;
@@ -80,7 +81,9 @@ export class LeaseManager implements GatewayLeaseRegistry {
     this.#timer = this.#setTimer(() => {
       const now = this.#now();
       for (const [leaseId, expiresAt] of this.#expiresAt) {
-        if (expiresAt <= now) this.#expiresAt.delete(leaseId);
+        if (expiresAt > now) continue;
+        this.#expiresAt.delete(leaseId);
+        this.#options.onExpire?.(leaseId);
       }
       this.#scheduleExpiry();
       this.#scheduleIdleIfEmpty();

@@ -1,0 +1,40 @@
+import { accessSync, constants } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
+import type { LaunchPolicy } from "../profiles/schema.js";
+
+export type ClaudeTarget = Readonly<{ found: boolean; executable: string }>;
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function lookupOnPath(name: string, pathValue: string | undefined): string | undefined {
+  if (!pathValue) return undefined;
+  for (const directory of pathValue.split(delimiter)) {
+    if (!directory) continue;
+    const candidate = join(directory, name);
+    if (isExecutable(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/** Detects the Claude harness binary without mutating global client config. */
+export function detectClaudeTarget(
+  environment: Readonly<NodeJS.ProcessEnv> = process.env,
+  launchPolicy: LaunchPolicy = {},
+): ClaudeTarget {
+  const configured = launchPolicy.executable;
+  if (configured !== undefined) {
+    const found = isAbsolute(configured)
+      ? isExecutable(configured)
+      : lookupOnPath(configured, environment["PATH"]) !== undefined;
+    return { found, executable: configured };
+  }
+  const found = lookupOnPath("claude", environment["PATH"]);
+  return { found: found !== undefined, executable: found ?? "claude" };
+}

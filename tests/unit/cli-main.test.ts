@@ -5,6 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 import { childExitCode, parseCliArgs, runCli } from "../../src/cli/main.js";
 
 describe("CLI parsing", () => {
+  it("parses quota and route-trace diagnostic commands", () => {
+    expect(parseCliArgs(["quota", "--config", "custom.toml"], "/work")).toEqual({
+      command: "quota",
+      configPath: "/work/custom.toml",
+    });
+    expect(parseCliArgs(["route-trace"], "/work")).toEqual({
+      command: "route-trace",
+      configPath: "/work/gateway.config.toml",
+    });
+  });
+
   it("forwards only arguments after the run separator to Claude", () => {
     expect(parseCliArgs([
       "run", "claude", "--config", "custom.toml", "--", "--model", "name with spaces", "--dangerously-skip-permissions",
@@ -39,6 +50,40 @@ describe("CLI parsing", () => {
     await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
     await expect(runCli(["run", "claude", "--config", configPath, "--route", "openrouter/missing", "--"], { environment: {} })).rejects.toThrow("not configured");
     expect(() => parseCliArgs(["run", "claude", "--route", "openrouter/model", "--", "--model", "primary"])).not.toThrow();
+  });
+
+  it("parses --profile and rejects combining it with --route", () => {
+    expect(parseCliArgs(["run", "claude", "--profile", "work", "--", "-p", "fixture"])).toMatchObject({
+      command: "run-claude",
+      profile: "work",
+    });
+    expect(() => parseCliArgs(["run", "claude", "--profile", "work", "--route", "openrouter/model", "--"])).toThrow("cannot be combined");
+  });
+
+  it("launches Claude with a profile child token instead of the instance secret", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cli-profile-"));
+    const configPath = join(directory, "gateway.toml");
+    await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
+    const release = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const launch = vi.fn().mockResolvedValue({ code: 0, signal: null });
+    await expect(runCli(
+      ["run", "claude", "--config", configPath, "--profile", "work", "--", "-p", "fixture"],
+      {
+        environment: { PATH: "/bin" },
+        acquireGateway: vi.fn().mockResolvedValue({
+          baseUrl: "http://127.0.0.1:17871",
+          authToken: "instance-secret",
+          instanceId: "00000000-0000-4000-8000-000000000001",
+          leaseId: "00000000-0000-4000-8000-000000000011",
+          reused: false,
+          release,
+        }),
+        launchClaude: launch,
+        issueProfileLaunch: vi.fn().mockResolvedValue({ token: "child-token", args: ["-p", "fixture"], executable: "claude" }),
+      },
+    )).resolves.toBe(0);
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ authToken: "child-token", args: ["-p", "fixture"] }));
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it("does not expose an ownership-bypassing serve command", () => {
