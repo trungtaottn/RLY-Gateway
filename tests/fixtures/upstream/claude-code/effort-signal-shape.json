@@ -1,0 +1,24 @@
+{
+  "schema": "rly-gateway/claude-code-effort-signal/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "claude-code-2.1.229",
+  "purpose": "Pins the actual subagent/session effort signal that reaches an Anthropic Messages gateway (#70/#24): the documented additive effort field, top-level or inside thinking, is preserved as canonical sourceEffort and never invented when absent.",
+  "request": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 8192,
+    "thinking": { "type": "enabled" },
+    "effort": "high",
+    "messages": [{ "role": "user", "content": "redacted synthetic fixture" }]
+  },
+  "expectedCanonical": {
+    "inference.thinking": "enabled",
+    "inference.reasoning.intent": "DEEP",
+    "inference.reasoning.sourceMode": "enabled",
+    "inference.reasoning.sourceEffort": "high",
+    "inference.reasoning.explicit": true
+  },
+  "absentEffortBehavior": {
+    "requestWithoutEffort": { "model": "claude-sonnet-4-5", "max_tokens": 8192, "messages": [{ "role": "user", "content": "redacted synthetic fixture" }] },
+    "note": "When effort is absent, no source effort is assumed; the canonical ReasoningRequest keeps no sourceEffort and unknown additive fields are recorded as ignored."
+  }
+}

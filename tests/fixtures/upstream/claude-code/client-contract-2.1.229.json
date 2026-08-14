@@ -1,0 +1,45 @@
+{
+  "schema": "rly-gateway/client-contract/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "claude-code-2.1.229",
+  "client": "claude-code",
+  "fixtureRevision": "claude-code-2.1.229-contract-v1",
+  "purpose": "Pins the supported Claude Code baseline wire contract that RLY depends on (#24). The canary fails with a typed fixture reason when a client version stops producing/consuming one of these behaviors.",
+  "attribution": {
+    "session": "X-Claude-Code-Session-Id",
+    "agent": "X-Claude-Code-Agent-Id",
+    "parentAgent": "X-Claude-Code-Parent-Agent-Id",
+    "parsedLowercase": true,
+    "note": "Gateway requests carry these headers for session/subagent attribution; they are parsed from headers only, never from prompt/body content, and carry no authorization meaning."
+  },
+  "modelDiscovery": {
+    "enableEnvironmentVariable": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+    "request": { "method": "GET", "path": "/v1/models" },
+    "idPrefixFilter": ["claude", "anthropic"],
+    "cacheAcrossStartups": true,
+    "rlyProjectionPrefix": "claude-rly-",
+    "note": "Discovery currently filters returned model ids to those beginning with claude/anthropic and caches results between startups; RLY projection ids use the Claude-compatible claude-rly- namespace."
+  },
+  "aliases": {
+    "tiers": ["haiku", "sonnet", "opus", "fable"],
+    "fableSemantics": "contextual-strongest-tier",
+    "exactIdsNotTiers": true,
+    "note": "Subagents support model aliases on sufficiently new clients; fable is a portable tier resolved contextually by RLY, never a hardcoded global model. Exact physical model ids are never reinterpreted as tiers."
+  },
+  "effort": {
+    "requestField": "effort",
+    "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+    "optional": true,
+    "note": "Subagent/session effort is an optional documented additive field (top-level or inside thinking). When absent no source effort is assumed; the canonical ReasoningRequest keeps sourceEffort fidelity."
+  },
+  "additiveFields": {
+    "policy": "preserve-and-ignore",
+    "note": "Unknown additive beta/metadata fields are deliberately preserved/ignored by RLY, never assumed."
+  },
+  "framing": {
+    "streamingEventOrder": ["message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"],
+    "cancellationPropagates": true,
+    "sessionIsolatedFlag": "--no-session-persistence",
+    "note": "Print-mode launches add --no-session-persistence so a gateway-scoped Claude run never writes session state."
+  }
+}

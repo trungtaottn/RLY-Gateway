@@ -1,0 +1,24 @@
+{
+  "schema": "rly-gateway/claude-code-fable-subagent/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "claude-code-2.1.229",
+  "purpose": "Pins the supported baseline subagent routing shape: a subagent request carrying attribution headers with a portable model: fable alias and an explicit effort value. RLY resolves fable contextually inside the parent execution context (#69/#71) and never rewrites the source agent definition.",
+  "request": {
+    "model": "fable",
+    "max_tokens": 8192,
+    "thinking": { "type": "enabled" },
+    "effort": "high",
+    "messages": [{ "role": "user", "content": "redacted synthetic subagent fixture" }]
+  },
+  "attributionHeaders": {
+    "X-Claude-Code-Session-Id": "session-synthetic-0001",
+    "X-Claude-Code-Agent-Id": "agent-synthetic-0001",
+    "X-Claude-Code-Parent-Agent-Id": "parent-synthetic-0001"
+  },
+  "expectedCanonical": {
+    "agent": { "claudeSessionId": "session-synthetic-0001", "agentId": "agent-synthetic-0001", "parentAgentId": "parent-synthetic-0001" },
+    "requestedModel": "fable",
+    "inference.reasoning.sourceEffort": "high",
+    "note": "The tier alias resolves to an exact physical model only inside the parent's provider/family context; the request reaches upstream as the resolved physical model, never as the string 'fable'."
+  }
+}

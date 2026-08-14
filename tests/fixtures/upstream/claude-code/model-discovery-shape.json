@@ -1,0 +1,22 @@
+{
+  "schema": "rly-gateway/claude-code-model-discovery/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "claude-code-2.1.229",
+  "purpose": "Pins the authenticated gateway GET /v1/models request/auth/response selection behavior used by #72: the supported client only adds ids beginning with claude/anthropic, and discovery results are cached between startups.",
+  "request": {
+    "method": "GET",
+    "path": "/v1/models",
+    "auth": "RLY gateway/inference credentials (launch-session token or instance bearer)",
+    "query": { "limit": 20, "after_id": null, "before_id": null }
+  },
+  "idPrefixFilter": ["claude", "anthropic"],
+  "cacheAcrossStartups": true,
+  "projectionNamespace": "claude-rly-",
+  "responseShape": {
+    "data": [{ "type": "model", "id": "claude-rly-<provider>-<hash>", "display_name": "synthetic display label", "created_at": 0 }],
+    "has_more": false,
+    "first_id": null,
+    "last_id": null
+  },
+  "note": "A model is discoverable only when its access provider is enabled with an explicit provider->pool route, it has trusted registry evidence, and compatibility is VERIFIED by default (EXPERIMENTAL opt-in, BROKEN/unreviewed never)."
+}
