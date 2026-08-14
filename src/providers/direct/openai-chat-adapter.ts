@@ -1,6 +1,7 @@
 import { resolveEnvironmentCredential, type SecretHandle } from "../../credentials/env-resolver.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest } from "../../core/canonical-request.js";
 import type { CanonicalEvent } from "../../core/canonical-event.js";
+import type { ResolvedReasoning } from "../../core/reasoning.js";
 import type { RouteDecision } from "../../core/route-decision.js";
 import { ProviderAdapterError, type ProviderAdapter, type ProviderProbe } from "../provider-adapter.js";
 
@@ -78,7 +79,7 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
   private readonly endpointOverride: string | undefined;
   protected get requestEndpoint(): string { return this.endpointOverride ?? this.endpoint; }
 
-  protected payload(request: CanonicalRequest): Record<string, unknown> {
+  protected payload(request: CanonicalRequest, reasoning?: ResolvedReasoning): Record<string, unknown> {
     return {
       model: request.requestedModel,
       messages: [
@@ -93,7 +94,32 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
       ...(request.inference.temperature === undefined ? {} : { temperature: request.inference.temperature }),
       ...(request.inference.topP === undefined ? {} : { top_p: request.inference.topP }),
       ...(request.inference.stopSequences === undefined ? {} : { stop: request.inference.stopSequences }),
+      ...this.reasoningPayload(reasoning),
     };
+  }
+
+  /**
+   * #70: emits the provider-native reasoning parameter from the deterministic
+   * translation result. The adapter owns the exact wire shape; the translation
+   * boundary (`resolveReasoning`) owns the semantic mapping. Never collapses
+   * enabled/adaptive/effort/budget into one boolean.
+   */
+  protected reasoningPayload(resolved: ResolvedReasoning | undefined): Record<string, unknown> {
+    if (resolved === undefined) return {};
+    switch (resolved.effective.kind) {
+      case "off":
+        return { reasoning: { enabled: false } };
+      case "provider-default":
+        return {};
+      case "binary":
+        return { reasoning: { enabled: resolved.effective.enabled } };
+      case "effort":
+        return { reasoning: { enabled: true, effort: resolved.effective.level } };
+      case "adaptive":
+        return { reasoning: { enabled: true } };
+      case "budget":
+        return { reasoning: { enabled: true, max_tokens: resolved.effective.budgetTokens } };
+    }
   }
 
   protected ownsSecret = true;
@@ -108,7 +134,7 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
     const secret = this.resolveSecret(decision);
     const timeout = AbortSignal.timeout(this.timeoutMs);
     try {
-      const response = await this.request(`${this.requestEndpoint}/chat/completions`, { method: "POST", signal: AbortSignal.any([signal, timeout]), headers: { authorization: `Bearer ${secret.reveal()}`, "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", ...this.extraHeaders() }, body: JSON.stringify(this.payload(request)) });
+      const response = await this.request(`${this.requestEndpoint}/chat/completions`, { method: "POST", signal: AbortSignal.any([signal, timeout]), headers: { authorization: `Bearer ${secret.reveal()}`, "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", ...this.extraHeaders() }, body: JSON.stringify(this.payload(request, decision.resolvedReasoning)) });
       if (!response.ok) throw new ProviderAdapterError(parseError(response.status));
       return response;
     } catch (error) {
