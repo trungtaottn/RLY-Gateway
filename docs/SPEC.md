@@ -84,7 +84,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 
 - Direct adapters resolve approved credential references at request time.
 - Each model has evidence-dated capabilities and token-count quality.
-- The model intelligence registry (`src/registry/model-registry.ts`) is the canonical evidence source for provider/model identity, capability, limits, reasoning controls, and compatibility state (#67); discovery proposes, it never silently rewrites reviewed evidence (#23).
+- The model intelligence registry (`src/registry/model-registry.ts`) is the canonical evidence source for provider/model identity, capability, limits, reasoning controls, and compatibility state (#67); discovery proposes, it never silently rewrites reviewed evidence (#23). `rly admin models refresh` queries or imports a provider catalogue, normalizes it into candidate evidence, diffs it against reviewed evidence, and emits/persists a deterministic propose-only drift report; it never activates or mutates trusted evidence, and promotion requires a separate reviewed control-plane operation (#69/#72).
 - Provider-specific behavior remains in its adapter even when transport is OpenAI-compatible.
 - Runtime probes never silently rewrite the committed registry.
 

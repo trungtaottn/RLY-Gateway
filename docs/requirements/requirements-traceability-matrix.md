@@ -59,6 +59,15 @@ When a requirement changes, update its owning document and this matrix in the sa
 - The macOS LaunchAgent adapter is delivered by #33 on top of the #65 service-manager contract: one per-user `com.rly.gateway` plist without root, launchctl v2/legacy tolerance, idempotent repair that unloads before reloading, bounded crash-restart, secret-free paths, and service load state/pid reported separately from runtime readiness (AT-036). Linux `systemd --user` specifics remain #34.
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
 
+## Phase 23 executable evidence (propose-only catalog refresh, #23 / BL-042)
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-038 | `tests/unit/catalog-proposal.test.ts`, `tests/contract/providers/catalog-discovery.test.ts`, `tests/unit/proposal-store.test.ts`, `tests/unit/cli-admin.test.ts` | Verified deterministic drift engine (`proposeCatalogDrift`) with stable empty proposal on identical inputs; per-kind drift entries (new/removed/family/reasoning/limits/declared capability); cross-provider upstream-id separation; 250-model aggregator snapshot stays deterministic and activates nothing; fail-closed on mixed-provider and duplicate snapshots; OpenRouter API discovery (GET /models) with explicit normalization rules and optional env-ref auth; static reviewed-path source; schema-validated artifact persistence separate from trusted evidence; `rly admin models refresh|proposals` surfaces proposals with `trusted: false` and never mutates `directProviderRegistry` |
+| AT-039 | `tests/contract/providers/catalog-discovery.test.ts`, `tests/unit/proposal-store.test.ts`, `tests/unit/catalog-proposal.test.ts` | Verified privacy-redacted upstream errors (bearer tokens / credential pairs / email stripped), secret-free report/artifact walks, and fail-closed reads of malformed artifacts |
+| SR-F-004 / FR-002 capability evidence (unchanged) | `tests/control-plane/repositories.test.ts`, `tests/management/mutations.test.ts` | Verified unchanged after the proposal pipeline; refresh never writes control-plane state |
+| Existing direct-route fail-closed behavior | `tests/contract/providers/direct-adapters.test.ts`, `tests/unit/model-registry.test.ts` | Verified unchanged: exact `(provider, model)` evidence only; unknown models still get no route |
+
 ## Phase 67 executable evidence (model foundation, #67)
 
 | Acceptance | Evidence | Status |

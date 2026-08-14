@@ -309,12 +309,25 @@ export type DiscoveryCandidate = Readonly<{
   upstreamModelId: string;
   modelFamily?: string;
   observedLimits?: ModelLimits;
+  /**
+   * Provider-reported (declared) metadata. Discovered only, never trusted:
+   * a provider claim does not become runtime capability evidence until a
+   * reviewed/canary promotion (#23, #24).
+   */
+  declared?: Readonly<{
+    tools?: boolean;
+    reasoning?: boolean;
+    contextWindow?: number;
+    maxOutput?: number;
+  }>;
 }>;
 
 export type DiscoverySnapshot = Readonly<{
   /** Adapter/catalog source identifier. */
   source: string;
   discoveredAt: string;
+  /** Catalogue source version when the adapter provides one (e.g. provider endpoint revision). */
+  catalogueVersion?: string;
   models: readonly DiscoveryCandidate[];
 }>;
 
