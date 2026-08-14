@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { UniquenessError, ValidationError, VersionConflictError } from "../../src/control-plane/errors.js";
+import type { ProviderCapabilityEvidence } from "../../src/registry/model-registry.js";
 
 const directories: string[] = [];
 
@@ -102,7 +103,9 @@ describe("control-plane repositories", () => {
       expect(() => store.createProvider({
         name: "secret-json",
         integrationMode: "direct",
-        capabilityEvidence: { email: "hidden" },
+        // Hostile payload: the runtime secret-free gate must reject it even though
+        // the typed schema no longer permits arbitrary keys.
+        capabilityEvidence: { email: "hidden" } as unknown as ProviderCapabilityEvidence,
       }, "cli")).toThrow(ValidationError);
       const paused = store.updateAccount(account.id, account.version, { state: "paused", pauseReason: "owner" }, "cli");
       expect(paused.state).toBe("paused");

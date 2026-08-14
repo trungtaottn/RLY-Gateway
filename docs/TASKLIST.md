@@ -129,6 +129,16 @@ Code/live-provider compatibility.
 - [x] Crash/stale recovery reuses startup-lock and process-identity rules; launcher-owned instances are never killed or reused by the service.
 - [x] Docs aligned (SPEC, project-decisions, BACKLOG, ARCHITECTURE, ROADMAP, ADR 0003/0006, RTM, AT catalogue); FR-018/SR-F-022/AT-034 added. Evidence: `tests/lifecycle/resident-runtime.test.ts`, `tests/service-manager/*`, `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts`; `pnpm verify` green.
 
+## Completed milestone: Phase 67 model foundation — provider model intelligence registry
+
+- [x] Canonical model evidence distinguishes access provider, exact upstream model id, and upstream/model family where known; one aggregator provider exposes many families without parallel registries (#67).
+- [x] Same upstream model id through two access providers stays two separate entries; exact lookup fails closed for missing/cross-provider evidence.
+- [x] Existing `ProviderCapabilities` evidence preserved and extended with typed reasoning/limit metadata; compatibility state (`VERIFIED`/`EXPERIMENTAL`/`BROKEN`) is typed and separate from raw capability support with baseline/evidence/check-date provenance.
+- [x] Deterministic query helpers (provider-scoped, family-scoped, capability predicate, compatibility filtering) with no account selection or credential access (#68/#69).
+- [x] Discovery→proposal boundary: `proposeRegistryChanges()` returns proposed candidates without mutating the trusted registry; #23 propose-only behavior enforced by tests.
+- [x] Registry revision bumped 3→4 with migration for static legacy documents; `ProviderRecord.capabilityEvidence` typed (was `unknown`) and schema-validated at the management boundary and row parse.
+- [x] Docs/RTM/AT identify the registry as the source of truth for #68-#72 and explain evidence ownership (reviewed vs discovered vs #24 canary). Evidence: `pnpm verify` — see PR.
+
 ## Updating this file
 
 - Check an item only when evidence exists.
