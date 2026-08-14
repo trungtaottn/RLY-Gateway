@@ -1,20 +1,22 @@
 import { assertSecretFree } from "../control-plane/secret-free.js";
 import type { ResolvedReasoning } from "../core/reasoning.js";
 import type { ModelSelectionTrace } from "../routing/model-selection/types.js";
+import type { ModelProjectionTrace } from "../routing/model-projection/types.js";
 import type { TierResolutionTrace } from "../routing/model-tiers/types.js";
 import type { DecisionTrace } from "../routing/eligibility/trace.js";
 
 /**
  * Secret-free account decision trace, optionally carrying the #68 model
- * selection trace, the #69 tier resolution trace, and the #70 reasoning
- * translation result (control metadata only — never reasoning text, prompts,
- * responses, or credentials).
+ * selection trace, the #69 tier resolution trace, the #70 reasoning
+ * translation result, and the #72 projection decision (control metadata only —
+ * never reasoning text, prompts, responses, or credentials).
  */
 export type ProfileDecisionTrace = DecisionTrace & Readonly<{
   profileName: string;
   modelSelection?: ModelSelectionTrace;
   tierResolution?: TierResolutionTrace;
   reasoning?: ResolvedReasoning;
+  projection?: ModelProjectionTrace;
 }>;
 
 /** Last-N secret-free traces for the running gateway instance. */
@@ -29,6 +31,7 @@ export class RouteTraceRing {
     modelSelection?: ModelSelectionTrace,
     reasoning?: ResolvedReasoning,
     tierResolution?: TierResolutionTrace,
+    projection?: ModelProjectionTrace,
   ): void {
     const stored: ProfileDecisionTrace = Object.freeze({
       ...trace,
@@ -36,6 +39,7 @@ export class RouteTraceRing {
       ...(modelSelection === undefined ? {} : { modelSelection }),
       ...(reasoning === undefined ? {} : { reasoning }),
       ...(tierResolution === undefined ? {} : { tierResolution }),
+      ...(projection === undefined ? {} : { projection }),
     });
     assertSecretFree(stored);
     this.items.push(stored);
