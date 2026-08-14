@@ -23,8 +23,8 @@ export type ServiceStatus = "running" | "stopped" | "not-registered" | "unknown"
 
 /**
  * Platform-specific detailed service state, reported separately from runtime
- * readiness. Implemented by the macOS adapter (`detail()`); the shared adapter
- * contract deliberately does not grow this member.
+ * readiness. Implemented by the macOS (`detail()`) and Linux (`detail()`)
+ * adapters; the shared adapter contract deliberately does not grow this member.
  */
 export type ServiceDetail = Readonly<{
   label: string;
@@ -36,6 +36,10 @@ export type ServiceDetail = Readonly<{
   running: boolean;
   /** Process identifier of the running service instance, when known. */
   pid?: number;
+  /** The service is enabled in the per-user manager (systemd UnitFileState). */
+  enabled?: boolean;
+  /** Raw manager active state (systemd ActiveState: active/inactive/failed). */
+  activeState?: string;
 }>;
 
 export type ServiceCommandResult = Readonly<{ code: number; stdout: string; stderr: string }>;
@@ -62,8 +66,9 @@ export interface ServiceManagerAdapter {
 
 /**
  * Returns the platform-specific service detail when the adapter provides it
- * (macOS LaunchAgent). Never part of the required contract: other adapters
- * return undefined and CLI callers simply omit the detail fields.
+ * (macOS LaunchAgent, Linux systemd --user). Never part of the required
+ * contract: other adapters return undefined and CLI callers simply omit the
+ * detail fields.
  */
 export async function serviceDetail(manager: ServiceManagerAdapter): Promise<ServiceDetail | undefined> {
   const candidate = manager as ServiceManagerAdapter & { detail?: () => Promise<ServiceDetail> };

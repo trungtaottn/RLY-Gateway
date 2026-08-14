@@ -36,6 +36,8 @@ export function createServiceManager(options: CreateServiceManagerOptions = {}):
       ...(options.home === undefined ? {} : { home: options.home }),
       ...(options.serviceName === undefined ? {} : { serviceName: options.serviceName }),
       ...(options.runner === undefined ? {} : { runner: options.runner }),
+      ...(options.logPath === undefined ? {} : { logPath: options.logPath }),
+      ...(options.workingDirectory === undefined ? {} : { workingDirectory: options.workingDirectory }),
     });
   }
   return new UnsupportedPlatformAdapter(platform);
