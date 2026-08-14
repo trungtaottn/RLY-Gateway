@@ -31,7 +31,7 @@ export type AccountSpec = Readonly<{
 }>;
 
 export async function tempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "agent-gateway-routing-"));
+  return mkdtemp(join(tmpdir(), "rly-gateway-routing-"));
 }
 
 export async function openStore(directory: string, now: Date): Promise<ControlPlaneStore> {

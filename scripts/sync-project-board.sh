@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Add an issue or pull request to Agent Gateway Backlog and set Status.
+# Add an issue or pull request to RLY Gateway Backlog and set Status.
 # Usage: scripts/sync-project-board.sh <issue-or-pr-url>
 set -euo pipefail
 

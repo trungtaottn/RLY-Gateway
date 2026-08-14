@@ -1,6 +1,6 @@
 # Upstream Provenance
 
-Agent Gateway has a clean Git history. Architecture research may influence
+RLY Gateway has a clean Git history. Architecture research may influence
 implementation, but copied or substantially adapted code must be recorded here
 before commit.
 

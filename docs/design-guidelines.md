@@ -1,4 +1,4 @@
-# Agent Gateway Management UI Design Guidelines
+# RLY Gateway Management UI Design Guidelines
 
 Local loopback admin+diagnostics surface. Vanilla HTML/CSS/JS. No React, no new deps, no webfonts (CSP `default-src 'none'`).
 

@@ -40,7 +40,7 @@ describe("gateway server", () => {
       url: `/identity?challenge=${"a".repeat(32)}`,
     });
     expect(identity.json()).toMatchObject({
-      product: "agent-gateway",
+      product: "rly-gateway",
       protocolVersion: 1,
       proof: createIdentityProof(
         "test-only-token",
@@ -62,7 +62,7 @@ describe("gateway server", () => {
     expect(countBlocked.statusCode).toBe(401);
     const xApiKey = await app.inject({ method: "POST", url: "/v1/messages/count_tokens", headers: { "x-api-key": "test-only-token" }, payload: { model: "primary", max_tokens: 1, messages: [{ role: "user", content: "fixture" }] } });
     expect(xApiKey.statusCode).toBe(200);
-    expect(xApiKey.headers["x-agent-gateway-token-count-quality"]).toBe("conservative-estimate");
+    expect(xApiKey.headers["x-rly-gateway-token-count-quality"]).toBe("conservative-estimate");
     const ready = await app.inject({ method: "GET", url: "/readyz", headers: { authorization: "Bearer test-only-token" } });
     expect(ready.json()).toEqual({ ready: true, routes: 1 });
   });

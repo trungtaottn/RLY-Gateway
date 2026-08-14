@@ -11,7 +11,7 @@ import { managementOrigin } from "../management/origin.js";
 import { SessionStore } from "../management/session-store.js";
 import { AffinityStore } from "../routing/pools/affinity.js";
 import { RouteSelector } from "../routing/pools/selector.js";
-import { defaultControlPlaneDirectory } from "../storage/paths.js";
+import { defaultControlPlaneDirectory, resolveDefaultControlPlaneDirectory } from "../storage/paths.js";
 import { applyRetentionPolicy } from "../storage/retention.js";
 import { createGatewayServer, listenGateway } from "./gateway-server.js";
 import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS } from "./gateway-attestation.js";
@@ -118,14 +118,18 @@ export async function startOwnedGateway(input: Readonly<{
     has: (id: string): boolean => leases.has(id),
   };
   let controlPlane: ControlPlaneStore | undefined;
+  let defaultRoot: Awaited<ReturnType<typeof resolveDefaultControlPlaneDirectory>> | undefined;
   let broker: CredentialBroker | undefined;
   let app: FastifyInstance | undefined;
   let management: FastifyInstance | undefined;
   try {
-    const controlPlaneDirectory = options.controlPlaneDirectory
-      ?? options.config.controlPlane.dataDirectory
-      ?? defaultControlPlaneDirectory();
+    const configuredControlPlaneDirectory = options.controlPlaneDirectory ?? options.config.controlPlane.dataDirectory;
+    defaultRoot = configuredControlPlaneDirectory === undefined
+      ? await resolveDefaultControlPlaneDirectory()
+      : undefined;
+    const controlPlaneDirectory = configuredControlPlaneDirectory ?? defaultRoot?.directory ?? defaultControlPlaneDirectory();
     controlPlane = await ControlPlaneStore.open(controlPlaneDirectory);
+    await defaultRoot?.commit();
     await applyRetentionPolicy(controlPlaneDirectory);
     broker = await CredentialBroker.open(controlPlaneDirectory);
     const credentials = new CredentialService(controlPlane, broker);
@@ -179,6 +183,7 @@ export async function startOwnedGateway(input: Readonly<{
       leases: [leaseId],
     });
   } catch (error) {
+    await defaultRoot?.rollback();
     leases.dispose();
     await broker?.close();
     controlPlane?.close();

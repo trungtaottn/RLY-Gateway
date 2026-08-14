@@ -2,7 +2,7 @@
 
 ## Purpose and boundary
 
-This SRS defines externally verifiable system behavior for the local Agent Gateway product. Detailed business rationale belongs to the [BRD](./business-requirements.md); detailed flows belong to the [FRS](./functional-requirements.md); architecture decisions belong to accepted ADRs.
+This SRS defines externally verifiable system behavior for the local RLY Gateway product. Detailed business rationale belongs to the [BRD](./business-requirements.md); detailed flows belong to the [FRS](./functional-requirements.md); architecture decisions belong to accepted ADRs.
 
 ## Actors and external systems
 

@@ -6,7 +6,7 @@ import { OpenAiChatAdapter } from "../direct/openai-chat-adapter.js";
 import { SecretHandle } from "../../credentials/env-resolver.js";
 
 export const ANTIGRAVITY_ADAPTER_ID = "antigravity-bridge";
-export const ANTIGRAVITY_IDENTITY = "agent-gateway-antigravity-bridge";
+export const ANTIGRAVITY_IDENTITY = "rly-gateway-antigravity-bridge";
 const PROTECTED_PORTS = new Set([10100, 8317, 17870]);
 
 export type AntigravityBridgeConfig = Readonly<{

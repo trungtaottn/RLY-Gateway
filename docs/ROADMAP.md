@@ -1,4 +1,4 @@
-# Agent Gateway Roadmap
+# RLY Gateway Roadmap
 
 Roadmap describes release sequence. Detailed execution and evidence live in the active plan.
 

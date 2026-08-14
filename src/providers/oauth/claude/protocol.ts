@@ -10,7 +10,7 @@ export const CLAUDE_OAUTH_AUTHORIZE_URL = "https://claude.com/oauth/authorize";
 export const CLAUDE_OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
 export const CLAUDE_OAUTH_REVOKE_URL = "https://console.anthropic.com/v1/oauth/revoke";
 export const CLAUDE_OAUTH_SCOPE = "user:inference";
-export const CLAUDE_CLIENT_ID_ENV = "AGENT_GATEWAY_CLAUDE_OAUTH_CLIENT_ID";
+export const CLAUDE_CLIENT_ID_ENV = "RLY_CLAUDE_OAUTH_CLIENT_ID";
 
 export function claudeClientId(environment: NodeJS.ProcessEnv = process.env): string {
   return requiredOAuthClientId(environment, CLAUDE_CLIENT_ID_ENV, "claude");

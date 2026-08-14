@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("control-plane privacy", () => {
   it("keeps SQLite metadata and audit DTOs free of secrets and raw identity", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-privacy-cp-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-privacy-cp-"));
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     try {

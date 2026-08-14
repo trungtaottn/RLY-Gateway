@@ -88,7 +88,7 @@ describe("OpenAI Responses protocol", () => {
   });
 
   it("applies continuation and refuses an unknown previous_response_id", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-responses-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-responses-"));
     try {
       const store = new ResponseContinuationStore(directory);
       await store.put({

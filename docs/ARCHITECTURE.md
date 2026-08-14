@@ -1,8 +1,8 @@
-# Agent Gateway Architecture
+# RLY Gateway Architecture
 
 ## System intent
 
-Agent Gateway preserves the semantics of Claude Code and Codex CLI while a self-owned local control plane manages providers, credentials, accounts, profiles, pools, health, and routing policy.
+RLY Gateway preserves the semantics of Claude Code and Codex CLI while a self-owned local control plane manages providers, credentials, accounts, profiles, pools, health, and routing policy.
 
 ## Target layers
 

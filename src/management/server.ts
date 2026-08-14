@@ -60,7 +60,7 @@ export function createManagementServer(options: ManagementServerOptions): Fastif
     const challenge = request.query.challenge;
     if (!challenge || !challengePattern.test(challenge)) return reject(reply, 400, "invalid-challenge");
     return {
-      product: "agent-gateway-management",
+      product: "rly-gateway-management",
       instanceId: options.instanceId,
       configFingerprint: options.configFingerprint,
       protocolVersion: 1,

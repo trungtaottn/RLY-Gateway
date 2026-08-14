@@ -11,8 +11,8 @@ import { AffinityStore } from "../../../../src/routing/pools/affinity.js";
 import { RouteSelector } from "../../../../src/routing/pools/selector.js";
 import { gatewayConfigSchema } from "../../../../src/config/schema.js";
 
-const enabled = process.env["AGENT_GATEWAY_LIVE_CODEX_OAUTH"] === "1";
-const handle = process.env["AGENT_GATEWAY_LIVE_CODEX_HANDLE"];
+const enabled = process.env["RLY_LIVE_CODEX_OAUTH"] === "1";
+const handle = process.env["RLY_LIVE_CODEX_HANDLE"];
 const directories: string[] = [];
 
 afterEach(async () => {
@@ -21,7 +21,7 @@ afterEach(async () => {
 
 describe.skipIf(!enabled || !handle)("Codex OAuth live pool smoke", () => {
   it("issues one profile-scoped request through the pool and records only secret-free evidence", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-codex-pool-smoke-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-codex-pool-smoke-"));
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     const broker = await CredentialBroker.open(directory);

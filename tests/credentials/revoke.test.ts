@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("credential revoke", () => {
   it("removes usable active, temporary, and backup project records after revoke", async () => {
-    const directory = await tempDirectory("agent-gateway-revoke-");
+    const directory = await tempDirectory("rly-gateway-revoke-");
     directories.push(directory);
     let revoked = false;
     const store = await ControlPlaneStore.open(directory);

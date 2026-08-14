@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createGatewayServer } from "../../src/runtime/gateway-server.js";
 
-const enabled = process.env["AGENT_GATEWAY_LIVE_SMOKE"] === "1";
+const enabled = process.env["RLY_LIVE_SMOKE"] === "1";
 let gateway: FastifyInstance | undefined;
 
 afterEach(async () => {
@@ -66,7 +66,7 @@ describe.skipIf(!enabled)("OpenRouter live direct route", () => {
     expect(stream.body).toContain("message_start");
     expect(stream.body).toContain("message_stop");
     expect(count.statusCode).toBe(200);
-    expect(count.headers["x-agent-gateway-token-count-quality"]).toBe("conservative-estimate");
+    expect(count.headers["x-rly-gateway-token-count-quality"]).toBe("conservative-estimate");
     expect(countJson.input_tokens).toEqual(expect.any(Number));
     expect(tool.statusCode).toBe(200);
     expect(tool.body).toContain('"type":"tool_use"');

@@ -21,7 +21,7 @@ afterEach(async () => {
 
 describe("credential refresh", () => {
   it("single-flights concurrent refresh and commits one next generation", async () => {
-    const directory = await tempDirectory("agent-gateway-refresh-");
+    const directory = await tempDirectory("rly-gateway-refresh-");
     directories.push(directory);
     let release: ((value: ReturnType<typeof fixtureTokens>) => void) | undefined;
     const oauth = fakeOauth({
@@ -51,7 +51,7 @@ describe("credential refresh", () => {
   });
 
   it("does not let a stale refresh overwrite a newer generation", async () => {
-    const directory = await tempDirectory("agent-gateway-refresh-stale-");
+    const directory = await tempDirectory("rly-gateway-refresh-stale-");
     directories.push(directory);
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
     const source = await writeCodexSource(directory);
@@ -79,7 +79,7 @@ describe("credential refresh", () => {
   });
 
   it("keeps the last valid generation when refresh fails", async () => {
-    const directory = await tempDirectory("agent-gateway-refresh-fail-");
+    const directory = await tempDirectory("rly-gateway-refresh-fail-");
     directories.push(directory);
     const oauth = fakeOauth({
       refresh: () => Promise.reject(new OAuthFlowError("invalid-grant", "oauth token request failed")),

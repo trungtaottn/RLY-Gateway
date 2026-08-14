@@ -1,4 +1,4 @@
-# Contributing To Agent Gateway
+# Contributing To RLY Gateway
 
 Before work, follow [AGENTS.md](./AGENTS.md) and route the task through the [requirements pack](./docs/requirements/README.md). Requirement or behavior changes must preserve IDs, update RTM/acceptance evidence, and reconcile the owning authority before completion.
 

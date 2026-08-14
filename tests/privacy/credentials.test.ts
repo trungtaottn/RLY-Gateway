@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("credential privacy", () => {
   it("keeps management DTOs, audit, and sqlite free of credential material", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cred-privacy-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cred-privacy-"));
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });

@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 async function start(clock: () => Date = () => new Date()) {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-mgmt-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-mgmt-"));
   directories.push(directory);
   store = await ControlPlaneStore.open(directory, { clock });
   const sessions = new SessionStore(clock);
@@ -169,7 +169,7 @@ describe("management authentication", () => {
     const challenge = "b".repeat(32);
     const identity = await app.inject({ method: "GET", url: `/identity?challenge=${challenge}` });
     expect(identity.json()).toMatchObject({
-      product: "agent-gateway-management",
+      product: "rly-gateway-management",
       proof: createManagementIdentityProof(
         "mgmt-secret",
         challenge,

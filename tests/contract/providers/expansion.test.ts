@@ -52,7 +52,7 @@ describe("provider expansion contracts", () => {
     }), { status: 200 }));
     const adapter = new AntigravityBridgeAdapter(fetchImpl, {
       baseUrl: "http://127.0.0.1:17874",
-      expectedIdentity: "agent-gateway-antigravity-bridge",
+      expectedIdentity: "rly-gateway-antigravity-bridge",
       expectedProtocolVersion: 1,
     });
     await expect(adapter.probe(decision("antigravity", "antigravity-bridge"), new AbortController().signal))
@@ -61,11 +61,11 @@ describe("provider expansion contracts", () => {
 
   it("marks Antigravity ready only when the attested identity matches", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
-      product: "agent-gateway-antigravity-bridge", protocolVersion: 1,
+      product: "rly-gateway-antigravity-bridge", protocolVersion: 1,
     }), { status: 200 }));
     const adapter = new AntigravityBridgeAdapter(fetchImpl, {
       baseUrl: "http://127.0.0.1:17874",
-      expectedIdentity: "agent-gateway-antigravity-bridge",
+      expectedIdentity: "rly-gateway-antigravity-bridge",
       expectedProtocolVersion: 1,
     });
     await expect(adapter.probe(decision("antigravity", "antigravity-bridge"), new AbortController().signal))
@@ -74,7 +74,7 @@ describe("provider expansion contracts", () => {
 
   it("imports Cline only from an explicit path and restores a lock backup", async () => {
     expect(() => rejectSilentClineDiscovery(undefined)).toThrow(/explicit source path/);
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cline-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cline-"));
     directories.push(directory);
     const source = join(directory, "cline-auth.json");
     await writeFile(source, JSON.stringify({ tokens: { access_token: "cline-access-fixture", refresh_token: "cline-refresh-fixture" } }), "utf8");

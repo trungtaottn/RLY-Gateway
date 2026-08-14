@@ -12,7 +12,7 @@ afterEach(async () => {
 
 describe("claude target detection", () => {
   it("finds an executable on PATH and reports a missing binary without throwing", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-target-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-target-"));
     directories.push(directory);
     const executable = join(directory, "claude");
     await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");
@@ -23,7 +23,7 @@ describe("claude target detection", () => {
   });
 
   it("finds a Codex executable on PATH without throwing when missing", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-codex-target-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-codex-target-"));
     directories.push(directory);
     const executable = join(directory, "codex");
     await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");

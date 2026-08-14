@@ -22,7 +22,7 @@ async function availablePort(): Promise<number> {
 }
 
 async function directory(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "agent-gateway-mgmt-life-"));
+  const path = await mkdtemp(join(tmpdir(), "rly-gateway-mgmt-life-"));
   directories.push(path);
   return path;
 }

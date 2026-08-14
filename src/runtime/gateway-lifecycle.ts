@@ -46,7 +46,7 @@ export type AcquireGatewayOptions = Readonly<{
 export function runtimeDirectory(port: number): string {
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("Gateway lifecycle requires a POSIX uid");
-  return join(tmpdir(), `agent-gateway-${String(uid)}-${String(port)}`);
+  return join(tmpdir(), `rly-gateway-${String(uid)}-${String(port)}`);
 }
 
 /** Starts or safely reuses the one deterministic, attested loopback gateway. */

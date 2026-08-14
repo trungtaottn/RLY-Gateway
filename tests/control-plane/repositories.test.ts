@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 async function openStore(): Promise<ControlPlaneStore> {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cp-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cp-"));
   directories.push(directory);
   return ControlPlaneStore.open(directory);
 }
@@ -101,7 +101,7 @@ describe("control-plane repositories", () => {
   });
 
   it("preserves uniqueness under concurrent versioned mutations", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-race-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-race-"));
     directories.push(directory);
     const left = await ControlPlaneStore.open(directory);
     const right = await ControlPlaneStore.open(directory);

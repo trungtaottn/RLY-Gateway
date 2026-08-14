@@ -27,7 +27,7 @@ describe("retention policy", () => {
   });
 
   it("deletes expired continuation, backups, logs, audit, and credentials", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-retention-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-retention-"));
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     store.createProvider({ name: "fixture", integrationMode: "direct" }, "system");
@@ -79,7 +79,7 @@ describe("retention policy", () => {
   });
 
   it("resumes an interrupted cleanup from the marker", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-retention-resume-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-retention-resume-"));
     directories.push(directory);
     const paths = controlPlanePaths(directory);
     const { mkdir } = await import("node:fs/promises");

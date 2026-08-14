@@ -29,7 +29,7 @@ function record(generation: number, refresh = FIXTURE_REFRESH): CredentialRecord
 
 describe("credential store", () => {
   it("writes restrictive files and recovers the last valid generation after a corrupt active file", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-store-");
+    const directory = await tempDirectory("rly-gateway-cred-store-");
     directories.push(directory);
     const store = await CredentialStore.open(directory);
     await store.commit("cred-fixture-001", 0, record(1));
@@ -50,7 +50,7 @@ describe("credential store", () => {
   });
 
   it("rejects a stale generation commit and leaves the newer record in place", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-cas-");
+    const directory = await tempDirectory("rly-gateway-cred-cas-");
     directories.push(directory);
     const store = await CredentialStore.open(directory);
     await store.commit("cred-fixture-001", 0, record(1));
@@ -63,7 +63,7 @@ describe("credential store", () => {
   });
 
   it("marks a handle unready when active and backup records are both unusable", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-unready-");
+    const directory = await tempDirectory("rly-gateway-cred-unready-");
     directories.push(directory);
     const store = await CredentialStore.open(directory);
     await store.commit("cred-fixture-001", 0, record(1));
@@ -74,7 +74,7 @@ describe("credential store", () => {
   });
 
   it("deletes leftover temporary files during recovery", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-tmp-");
+    const directory = await tempDirectory("rly-gateway-cred-tmp-");
     directories.push(directory);
     const store = await CredentialStore.open(directory);
     await store.commit("cred-fixture-001", 0, record(1));

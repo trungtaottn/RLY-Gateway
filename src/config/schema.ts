@@ -11,7 +11,7 @@ const routeSchema = z.object({
 const protectedPorts = new Set([10100, 8317, 17870]);
 
 const loopbackPort = z.number().int().min(1024).max(65535)
-  .refine((port) => !protectedPorts.has(port), "Protected port is unavailable to agent-gateway");
+  .refine((port) => !protectedPorts.has(port), "Protected port is unavailable to rly-gateway");
 
 export const gatewayConfigSchema = z.object({
   schemaVersion: z.literal(1),

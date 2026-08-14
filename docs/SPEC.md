@@ -1,4 +1,4 @@
-# Agent Gateway Product Specification
+# RLY Gateway Product Specification
 
 | Attribute | Value |
 | --- | --- |
@@ -6,14 +6,14 @@
 | Version | 0.2 |
 | Baseline date | 2026-08-13 |
 | Status | Approved control-plane baseline |
-| Product | Agent Gateway |
+| Product | RLY Gateway |
 | Primary harness | Claude Code CLI |
 | Secondary harness | Codex CLI |
 | Delivery posture | Private-first, public-ready |
 
 ## 1. Purpose
 
-Agent Gateway lets one person use preferred coding-agent harnesses with multiple direct APIs and subscription-backed accounts without giving up the harness tools, permissions, hooks, skills, or interaction model. It owns a local control plane for provider accounts, credentials, profiles, pools, health, and routing policy while preserving each harness protocol in the data plane.
+RLY Gateway lets one person use preferred coding-agent harnesses with multiple direct APIs and subscription-backed accounts without giving up the harness tools, permissions, hooks, skills, or interaction model. It owns a local control plane for provider accounts, credentials, profiles, pools, health, and routing policy while preserving each harness protocol in the data plane.
 
 The product preserves client protocol semantics instead of flattening every request into generic chat completions.
 

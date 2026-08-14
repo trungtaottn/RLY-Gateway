@@ -1,4 +1,4 @@
-# Agent Gateway
+# RLY Gateway
 
 Personal, protocol-preserving gateway and local multi-provider control plane for coding-agent harnesses. Claude Code is the first-class client; Codex CLI follows through its own protocol boundary.
 
@@ -65,26 +65,28 @@ pnpm dev status
 pnpm verify
 ```
 
-The example route contains placeholder model IDs and requires no credential for `doctor`. Do not commit the local configuration or place a raw secret in it; credential fields contain references such as `env:OPENROUTER_API_KEY`.
+The example route contains placeholder model IDs and requires no credential for `doctor`. `pnpm dev` runs the source checkout; an installed package exposes the `rly` executable shown below. Do not commit the local configuration or place a raw secret in it; credential fields contain references such as `env:OPENROUTER_API_KEY`.
 
-Project-owned Gemini OAuth uses `AGENT_GATEWAY_GEMINI_OAUTH_CLIENT_ID`. There is no default client id and no Gemini CLI / Code Assist impersonation. Opt-in live smoke: `AGENT_GATEWAY_LIVE_GEMINI_OAUTH=1`. Cline create requires an explicit loopback or HTTPS `endpointPolicy` (never ports `10100`, `8317`, or `17870`). OpenCode Go and Alibaba have adapters but no reviewed TOML model routes yet; Alibaba stays terms-gated.
+RLY stores its durable local control-plane state in `~/.rly`. On its first start after this rename, RLY atomically migrates a complete legacy `~/.agent-gateway` tree only when `~/.rly` is absent. If both roots exist, RLY stops without modifying either directory; back up or move one root before retrying.
+
+Project-owned Gemini OAuth uses `RLY_GEMINI_OAUTH_CLIENT_ID`. There is no default client id and no Gemini CLI / Code Assist impersonation. Opt-in live smoke: `RLY_LIVE_GEMINI_OAUTH=1`. Cline create requires an explicit loopback or HTTPS `endpointPolicy` (never ports `10100`, `8317`, or `17870`). OpenCode Go and Alibaba have adapters but no reviewed TOML model routes yet; Alibaba stays terms-gated.
 
 ## Current CLI
 
 ```bash
-pnpm dev doctor
-pnpm dev status
-pnpm dev quota
-pnpm dev route-trace
-pnpm dev admin providers list
-pnpm dev admin credentials preview --source /path/to/auth.json
-pnpm dev admin credentials import --source /path/to/auth.json --provider-id <id> --pseudonym acct-1 --source-fingerprint <sha256>
-pnpm dev admin credentials login --provider-id <id> --pseudonym acct-1
-pnpm dev admin accounts select --id <id> --version <n>
-pnpm dev admin accounts revoke --id <id> --version <n>
-pnpm dev admin ui
-pnpm dev run claude --profile <name> -- --help
-pnpm dev run codex --profile <name> -- --help
+rly doctor
+rly status
+rly quota
+rly route-trace
+rly admin providers list
+rly admin credentials preview --source /path/to/auth.json
+rly admin credentials import --source /path/to/auth.json --provider-id <id> --pseudonym acct-1 --source-fingerprint <sha256>
+rly admin credentials login --provider-id <id> --pseudonym acct-1
+rly admin accounts select --id <id> --version <n>
+rly admin accounts revoke --id <id> --version <n>
+rly admin ui
+rly run claude --profile <name> -- --help
+rly run codex --profile <name> -- --help
 ```
 
 `run claude` and `run codex` start or reuse only the deterministic, attested local gateway, then launch the harness with gateway settings scoped to that child process. `--profile <name>` activates a harness profile (pool and model roles) without preselecting an account; each launch gets a lease-scoped child token so concurrent profiles do not share request identity. `--profile` and `--route` cannot be combined. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` and `route-trace` print secret-free account quota classes and last-N in-memory route decisions from the running instance. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command.

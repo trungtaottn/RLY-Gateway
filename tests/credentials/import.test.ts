@@ -15,7 +15,7 @@ afterEach(async () => {
 
 describe("codex credential import", () => {
   it("copies a supported source into the project store without mutating the source bytes", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-import-");
+    const directory = await tempDirectory("rly-gateway-cred-import-");
     directories.push(directory);
     const source = await writeCodexSource(directory);
     const before = await readFile(source.path);
@@ -40,7 +40,7 @@ describe("codex credential import", () => {
   });
 
   it("rejects malformed, oversized, and changed sources and leaves no usable project record", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-import-fail-");
+    const directory = await tempDirectory("rly-gateway-cred-import-fail-");
     directories.push(directory);
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
     const bad = `${directory}/bad.json`;
@@ -63,7 +63,7 @@ describe("codex credential import", () => {
   });
 
   it("requires a destination provider before previewing a credential source", async () => {
-    const directory = await tempDirectory("agent-gateway-cred-preview-");
+    const directory = await tempDirectory("rly-gateway-cred-preview-");
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });

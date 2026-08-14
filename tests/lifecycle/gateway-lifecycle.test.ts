@@ -33,7 +33,7 @@ function config(port: number, managementPort: number, model = "model"): GatewayC
 }
 
 async function runtimeDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-lifecycle-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-lifecycle-"));
   directories.push(directory);
   return directory;
 }

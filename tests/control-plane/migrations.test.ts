@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("control-plane migrations", () => {
   it("applies version 1 and refuses a failing follow-on migration by restoring the prior schema", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-migrate-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-migrate-"));
     directories.push(directory);
     const created = await ControlPlaneStore.open(directory);
     created.createProvider({ name: "kept", integrationMode: "direct" }, "system");
@@ -37,7 +37,7 @@ describe("control-plane migrations", () => {
   });
 
   it("recovers an interrupted migration from a verified backup marker", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-recover-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-recover-"));
     directories.push(directory);
     const created = await ControlPlaneStore.open(directory);
     created.createProvider({ name: "prior", integrationMode: "direct" }, "system");
@@ -67,7 +67,7 @@ describe("control-plane migrations", () => {
   });
 
   it("takes a stale migration lock and still restores an interrupted marker", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-stale-lock-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-stale-lock-"));
     directories.push(directory);
     const created = await ControlPlaneStore.open(directory);
     created.createProvider({ name: "prior", integrationMode: "direct" }, "system");
@@ -101,7 +101,7 @@ describe("control-plane migrations", () => {
   });
 
   it("records the schema checksum for the applied revision", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-checksum-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-checksum-"));
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     try {

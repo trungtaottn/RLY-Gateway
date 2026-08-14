@@ -46,7 +46,7 @@ async function allocateLoopbackPort(): Promise<number> {
 }
 
 export async function startManagementBrowser(): Promise<ManagementBrowserSession> {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-browser-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-browser-"));
   const port = await allocateLoopbackPort();
   const store = await ControlPlaneStore.open(directory);
   const sessions = new SessionStore();

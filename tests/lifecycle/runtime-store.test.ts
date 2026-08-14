@@ -16,7 +16,7 @@ const leaseTwo = "00000000-0000-4000-8000-000000000012";
 const directories: string[] = [];
 
 async function makeStore(identity: ProcessIdentity | undefined = owner): Promise<RuntimeStore> {
-  const directory = await mkdtemp(join(tmpdir(), "agent-gateway-runtime-"));
+  const directory = await mkdtemp(join(tmpdir(), "rly-gateway-runtime-"));
   directories.push(directory);
   return new RuntimeStore(directory, { processIdentityLookup: () => identity });
 }

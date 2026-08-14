@@ -14,7 +14,7 @@ afterEach(async () => {
 describe("control-plane schema", () => {
   it("declares metadata tables without secret or identity columns", async () => {
     expect(() => assertSchemaHasNoSecretColumns(SCHEMA_V1_SQL)).not.toThrow();
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-schema-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-schema-"));
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     try {

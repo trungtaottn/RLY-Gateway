@@ -27,7 +27,7 @@ async function availablePort(): Promise<number> {
 
 describe("codex oauth login", () => {
   it("refuses login when the oauth provider is omitted", async () => {
-    const directory = await tempDirectory("agent-gateway-oauth-kind-");
+    const directory = await tempDirectory("rly-gateway-oauth-kind-");
     directories.push(directory);
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
     await expect(broker.startLogin({
@@ -38,7 +38,7 @@ describe("codex oauth login", () => {
   });
 
   it("completes PKCE login through an exact loopback callback", async () => {
-    const directory = await tempDirectory("agent-gateway-oauth-ok-");
+    const directory = await tempDirectory("rly-gateway-oauth-ok-");
     directories.push(directory);
     const port = await availablePort();
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
@@ -57,7 +57,7 @@ describe("codex oauth login", () => {
   });
 
   it("fails closed on replay, mismatch, cancel, and callback collision", async () => {
-    const directory = await tempDirectory("agent-gateway-oauth-neg-");
+    const directory = await tempDirectory("rly-gateway-oauth-neg-");
     directories.push(directory);
     const port = await availablePort();
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
@@ -90,7 +90,7 @@ describe("codex oauth login", () => {
   });
 
   it("rejects expired and already-consumed state without persisting a credential", async () => {
-    const directory = await tempDirectory("agent-gateway-oauth-replay-");
+    const directory = await tempDirectory("rly-gateway-oauth-replay-");
     directories.push(directory);
     let now = Date.now();
     const { OAuthSessionStore } = await import("../../src/credentials/oauth-session.js");

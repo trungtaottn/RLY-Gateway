@@ -15,7 +15,7 @@ afterEach(async () => {
 
 describe("manual oauth route", () => {
   it("binds one selected account generation into the Anthropic route", async () => {
-    const directory = await tempDirectory("agent-gateway-oauth-route-");
+    const directory = await tempDirectory("rly-gateway-oauth-route-");
     directories.push(directory);
     const store = await ControlPlaneStore.open(directory);
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });

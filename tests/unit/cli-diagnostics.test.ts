@@ -6,7 +6,7 @@ import { runDoctor } from "../../src/cli/diagnostics.js";
 
 describe("CLI diagnostics", () => {
   it("prints secret-free doctor JSON without creating a control-plane store", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-doctor-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-doctor-"));
     const configPath = join(directory, "gateway.toml");
     await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);

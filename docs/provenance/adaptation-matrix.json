@@ -175,7 +175,7 @@
       "classification": "oracle-only",
       "verificationOwner": "protocols",
       "license": "MIT",
-      "kernelReview": "Existing Agent Gateway protocol kernel is stricter. Consult only where a missing event is proven."
+      "kernelReview": "Existing RLY Gateway protocol kernel is stricter. Consult only where a missing event is proven."
     },
     {
       "id": "opencodex-integrated-service",

@@ -1,4 +1,4 @@
-# Agent Gateway Technology Stack
+# RLY Gateway Technology Stack
 
 ## Approved stack
 

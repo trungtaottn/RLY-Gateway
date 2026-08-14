@@ -38,7 +38,7 @@ const auth = {
 
 describe("management credential operations", () => {
   it("imports, selects, and revokes through secret-free DTOs", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-mgmt-cred-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-mgmt-cred-"));
     directories.push(directory);
     store = await ControlPlaneStore.open(directory);
     broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
@@ -104,7 +104,7 @@ describe("management credential operations", () => {
   });
 
   it("imports Cline through the management API and refuses OAuth login", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-mgmt-cline-"));
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-mgmt-cline-"));
     directories.push(directory);
     store = await ControlPlaneStore.open(directory);
     broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });

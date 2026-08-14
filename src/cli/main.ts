@@ -14,7 +14,7 @@ const DIAGNOSTIC_COMMANDS = ["status", "doctor", "quota", "route-trace"] as cons
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: agent-gateway <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args]");
+  console.log("Usage: rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args]");
 }
 
 export type ParsedCliCommand =

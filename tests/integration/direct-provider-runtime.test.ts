@@ -35,7 +35,7 @@ describe("direct provider runtime", () => {
     ]);
     expect(text.statusCode).toBe(200); expect(text.json()).toMatchObject({ model: "nvidia/nemotron-3.5-lightning:free", content: [{ type: "text", text: "fixture" }] });
     expect(stream.statusCode).toBe(200); expect(stream.body).toContain("message_stop");
-    expect(count.headers["x-agent-gateway-token-count-quality"]).toBe("conservative-estimate");
+    expect(count.headers["x-rly-gateway-token-count-quality"]).toBe("conservative-estimate");
   });
 
   it("maps known Claude helper models to configured fast and primary routes", async () => {

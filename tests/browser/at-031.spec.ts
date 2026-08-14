@@ -6,7 +6,7 @@ test.describe("management UI AT-031", () => {
     const session = await startManagementBrowser();
     try {
       await page.goto(`${session.origin}/#t=${session.token}`);
-      await expect(page.getByRole("heading", { name: "Agent Gateway" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "RLY Gateway" })).toBeVisible();
       await expect(page).toHaveURL(`${session.origin}/?view=providers`);
 
       await page.setViewportSize({ width: 375, height: 812 });
@@ -40,6 +40,7 @@ test.describe("management UI AT-031", () => {
       await page.getByRole("navigation", { name: "Management" }).getByRole("button", { name: "Audit" }).focus();
       await page.keyboard.press("Enter");
       await expect(page.getByRole("heading", { name: "Audit" })).toBeVisible();
+      await expect(page.locator("#panel table")).toBeVisible();
 
       await page.getByRole("button", { name: "Logout" }).focus();
       await page.keyboard.press("Enter");
