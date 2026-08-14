@@ -78,6 +78,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 - Route selection is explicit by provider/model or approved model role.
 - Route and capability snapshot are immutable for one request.
 - Required unsupported semantics are rejected before upstream invocation.
+- Model capability selection (#68) is a deterministic stage before account selection: it picks one eligible physical model from the trusted model intelligence registry (capabilities, reasoning, compatibility) and freezes it into the effective request/route; the pool selector then chooses the account/credential without changing the model.
 - No prompt-derived routing or silent provider substitution.
 
 ### 6.2 Provider adapters

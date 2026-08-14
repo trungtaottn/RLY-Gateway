@@ -154,6 +154,15 @@ Code/live-provider compatibility.
 - [x] Registry revision bumped 3→4 with migration for static legacy documents; `ProviderRecord.capabilityEvidence` typed (was `unknown`) and schema-validated at the management boundary and row parse.
 - [x] Docs/RTM/AT identify the registry as the source of truth for #68-#72 and explain evidence ownership (reviewed vs discovered vs #24 canary). Evidence: `pnpm verify` — see PR.
 
+## Completed milestone: Phase 68 capability based model selection (#68)
+
+- [x] Deterministic model capability matching engine (`src/routing/model-selection/`): data-only `ModelSelectionInput` (access provider, preferred family, exact pin, required capabilities, reasoning intent, experimental opt-in), one frozen `ModelEvidence` result plus a secret-free decision trace.
+- [x] Hard eligibility before ranking: trusted registry evidence only; existing `CapabilityRequirement` semantics; reasoning semantics from `ReasoningCapabilityEvidence` (required + reasoning-with-tools); compatibility state (`BROKEN` always rejected, `EXPERIMENTAL` rejected by the default normal-user candidate policy, explicit opt-in or an exact pin to enable).
+- [x] Deterministic ranking in reviewed registry document order with stable tie-break; no invented quality scores; no cost/latency activation (#32 stays inert); typed failure taxonomy (`unknown-exact-model`, `no-trusted-evidence`, `capability-unsupported`, `reasoning-unsupported`, `compatibility-rejected`, `no-eligible-candidate`) mapped onto the existing `capability-rejected` profile error contract with the actionable reason attached.
+- [x] Two-stage boundary: `resolveProfileRoute` selects the physical model before `RouteSelector` account selection; the model is frozen in the effective request/route; account failover cannot change it; `/v1/route-traces` carries the model-selection decision beside the account decision.
+- [x] Exact physical model path preserved: exact pins resolve to the exact registry entry without rerouting and still validate capabilities/compatibility; existing Codex/Cline/profile-pool route behavior unchanged.
+- [x] Docs/RTM/AT: ARCHITECTURE two-stage boundary section, AT-040–AT-043 added, RTM Phase 68 evidence rows, TASKLIST milestone entry. Evidence: `tests/unit/model-selection.test.ts`, `tests/lifecycle/profile-pool-route.test.ts`, existing registry/router/lifecycle suites; `pnpm verify` green (see PR).
+
 ## Updating this file
 
 - Check an item only when evidence exists.
