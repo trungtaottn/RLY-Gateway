@@ -28,6 +28,13 @@
 - Diagnostics may include request ID, route/provider/model identifiers, capability/readiness state, timing, status, and version metadata.
 - Diagnostics exclude prompts, responses, credentials, authorization headers, email, and account identity.
 
+## Model tiers
+
+- Logical tiers (`haiku`/`sonnet`/`opus`/`fable`) are portable model classes resolved **inside the current execution context**: access provider first, then the parent model's model family when that provider exposes multiple families, then trusted capability evidence (#69). `fable` is never a hardcoded global alias for one vendor/model and never "the strongest model across all authenticated providers".
+- Tiers are not upstream model ids: an exact physical model request keeps the exact #68 path. Tiers resolve only to eligible trusted models under the current provider/family by default; cross-family and cross-provider fallback are explicit, trace-visible policies that are disabled by default.
+- Effective tier mappings are stable for an active session/policy revision: the built-in reviewed mapping and per-profile overrides are immutable per revision, and catalog refresh (#23) proposes better mappings without silently changing trusted tier mappings.
+- Existing `primary`/`fast`/`reasoning` profile roles remain unchanged; tier resolution is a parallel path for portable tier aliases (`model: fable`), and `profile.modelRoles` additionally accepts tier keys as per-profile user overrides (validated fail-closed through #68 exact evidence).
+
 ## Token counting
 
 Routes declare one quality level: `upstream`, `exact-local`, `conservative-estimate`, or `unsupported`. Conservative estimates are allowed with a safety margin and visible readiness warning; they are never labeled exact.
