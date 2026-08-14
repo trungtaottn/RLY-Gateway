@@ -1,0 +1,37 @@
+name: Project board
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled]
+  pull_request:
+    types: [opened, reopened, closed, converted_to_draft, ready_for_review, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Issue or pull request URL to sync
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add item and set Status
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          chmod +x scripts/sync-project-board.sh
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            url="${{ inputs.url }}"
+          elif [ "${GITHUB_EVENT_NAME}" = "issues" ]; then
+            url="${{ github.event.issue.html_url }}"
+          else
+            url="${{ github.event.pull_request.html_url }}"
+          fi
+          scripts/sync-project-board.sh "$url"

@@ -2,7 +2,7 @@
 
 Items here are not committed V1 scope. Promotion requires evidence, owner approval, and an update to SPEC/roadmap/plan as appropriate.
 
-GitHub board: [Agent Gateway Backlog](https://github.com/users/trungtaottn/projects/4) (private). Issues are labeled `backlog` and sit in the Backlog column until promoted.
+GitHub board: [Agent Gateway Backlog](https://github.com/users/trungtaottn/projects/4) (private). Every repo issue and PR is added automatically. Status is `Backlog` when the issue has the `backlog` label, `Todo` for other open issues, `In Progress` for open PRs, and `Done` when closed or merged.
 
 ## Near-term candidates
 
