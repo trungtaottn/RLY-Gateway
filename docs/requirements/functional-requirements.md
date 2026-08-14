@@ -150,6 +150,18 @@
 - Constraint: closing the config UI never stops the resident runtime; `--headless` prints the bootstrap URL without opening a browser.
 - Acceptance: AT-048, AT-049, AT-050, AT-051, AT-052.
 
+### FR-020 — Compose the RLY Claude configuration overlay
+
+- Traces: BR-008, BR-009, SR-F-015, SR-F-024, SR-NF-002.
+- Preconditions: a Claude launch is requested (`rly <profile>` or `rly run claude`) and the durable RLY control-plane directory is resolvable.
+- Behavior: before launching Claude, prepare the durable RLY Claude overlay under `<control-plane>/claude` (`0700` directories, `0600` files, atomic writes) and point the child `CLAUDE_CONFIG_DIR` at it; compose the native user Claude config root (parent `CLAUDE_CONFIG_DIR` or `~/.claude`) as read-only input through a typed allowlist: `settings.json` one-way merge (strip `env` keys that conflict with the child-only gateway contract; keep unrelated settings and the native `model` as user input; preserve a previously persisted RLY-only projection model as RLY-owned state); user `agents/*.md`, `commands/*.md`, and `skills/**` one-way refresh copies; `plugins/config.json` with only the enablement declaration (`enabledPlugins`/`marketplaces`) and credential-bearing keys dropped. Never copy unknown files, plugin cache/repos, history, or runtime state; never read or write `~/.claude.json`; never touch project-local `.claude`.
+- Refresh policy: an allowlisted file is composed when missing or when the native file is newer; unchanged native input leaves the overlay untouched so sibling sessions' `/model` writes survive; native deletions are not propagated (RLY state is additive); malformed native JSON surfaces are skipped, never rewritten or failed over.
+- Model isolation: an RLY-only projection model id persisted by Claude `/model` (Enter/direct) lives only in the overlay settings; RLY gateway `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` are child-env only and never persisted in overlay settings; a subsequent plain `claude` launch reads native state only.
+- Concurrency: RLY's own writes are atomic and deterministic from native input, so concurrent RLY launches converge without locks; RLY never copies back or restores native settings on exit.
+- Diagnostics: `rly status` reports overlay directory/source/allowlist version/composition timestamp only; no settings, agent, plugin, session, or credential content.
+- Failure: an unresolvable control-plane home or unreadable overlay write returns an actionable error and the launch does not proceed with a throwaway sandbox.
+- Acceptance: AT-057, AT-058, AT-059, AT-060, AT-061, AT-062, AT-063, AT-064.
+
 ## Unresolved questions
 
 - Exact quota-aware strategy behavior after live quota evidence is pinned.

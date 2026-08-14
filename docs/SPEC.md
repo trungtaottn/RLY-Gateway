@@ -44,7 +44,7 @@ Required behavior:
 - Usage and stop-reason fidelity.
 - Cancellation, backpressure, structured errors, and safe retry boundaries.
 - Explicit `primary`, `fast`, and `reasoning` model roles.
-- Transient child environment; global Claude configuration remains unchanged.
+- Child-only gateway environment over a durable RLY Claude configuration overlay (`~/.rly/claude`): the user's native Claude settings/agents/skills/plugins are composed as read-only input, RLY session/model state persists inside the overlay, and global Claude configuration remains unchanged.
 
 ### 4.2 Codex CLI — `rly run codex` escape hatch
 
@@ -132,6 +132,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 - Compatible concurrent sessions may reuse an attested instance.
 - `rly init` registers the per-user resident service (macOS LaunchAgent or Linux `systemd --user`) and starts it; the resident runtime owns a service lease renewed by its own process so the zero-lease idle shutdown never fires while the service is intentional.
 - `rly <profile>` and diagnostics reuse the same attested resident runtime; closing a Claude/Codex child releases only its launch/session lease and never stops the resident service.
+- RLY-launched Claude sessions point `CLAUDE_CONFIG_DIR` at the durable RLY Claude configuration overlay (composed from native user config through a typed allowlist; see FR-020/SR-F-024); RLY-only gateway/model state lives only in the overlay and a later plain `claude` launch is unaffected. Codex keeps its throwaway `CODEX_HOME` isolation.
 - Explicit service stop revokes launch sessions and closes boundedly through the existing shutdown safety logic; a foreign or unattested listener is never signaled.
 - Foreign listeners are never killed and do not cause port auto-increment.
 - Signals and cancellation propagate to active upstream work.
@@ -168,7 +169,7 @@ Forbidden by default:
 - Weighted, cost, prompt-derived, or unbounded automatic-failover routing.
 - Generic provider/plugin marketplace.
 - Silent credential discovery or import.
-- Persistent global Claude/Codex configuration.
+- Persistent global Claude/Codex configuration (RLY Claude configuration state lives only in the RLY-owned overlay under `~/.rly`; native Claude config is never rewritten).
 - Prompt-derived routing.
 - Hot reload within an active request.
 
