@@ -276,6 +276,18 @@ Structured logs default to metadata only. Route trace explains an explicit decis
 - Unknown required behavior disables readiness rather than silently degrading.
 - Protocol drift begins with a redacted reproducing fixture.
 
+## Runtime compatibility canary (#24)
+
+A runtime compatibility evidence gate (`src/canary/`, CLI `rly canary run|status`) separates client compatibility from model access-path compatibility and never collapses them into one global "model works" flag:
+
+- **Version detection** (`src/targets/versions.ts`): exact semantic/version read from the client's own `--version` output; binary presence is `found`, never `compatible`; unknown versions surface `unknown/not-tested` and never replace the tested baseline. The pinned fixture baseline is `claude-code-2.1.229`; observed clients (2.1.231, Codex `0.147.0-alpha.6.5`) are recorded separately and are not baselines.
+- **Pinned contract fixtures**: Claude Code session/agent/parent attribution headers, gateway `GET /v1/models` request/auth/response selection (id-prefix filter + startup cache), `fable`/`haiku`/`sonnet`/`opus` aliases, subagent/session `effort` additive field, streaming framing, and `--no-session-persistence`; a changed contract fails the exact gate with a typed reason.
+- **Deterministic fake gate matrix** per exact access path: text, streaming, cancellation, single/multi/parallel tool loops, reasoning, reasoning+tools, model discovery, session attribution, subagent routing, parallel subagents, effort signal, long-running session. Capability-dependent gates are `not-run` without reviewed evidence (never advertised stronger than proven).
+- **Classification**: `VERIFIED` = all required gates passed + live evidence where the provider class requires it; `EXPERIMENTAL` = partial/fake-only; `BROKEN` = a required contract fails; `unknown` = required gates unrun (never reported as passed).
+- **Evidence identity**: exact client kind/version + access provider + adapter + physical model (+ family); no cross-provider reuse.
+- **Artifacts**: `rly canary run` persists secret-free machine-readable evidence under `<control-plane>/canary/` for #23/#67 review tooling; `proposeCanaryState` reports drift and never mutates trusted registry evidence, tier mappings, or `/v1/models` projection. The #72 projection gate consumes canary-derived compatibility state (VERIFIED default, EXPERIMENTAL opt-in, BROKEN/unreviewed never). Live provider runs stay opt-in (`RLY_LIVE_CANARY=1`, skipped ≠ pass).
+- **Privacy**: artifacts/logs carry client/provider/model ids, gate names, status, fixture revision, and redacted error categories only — never prompts, responses, reasoning text, credentials, or account identity.
+
 ## Security boundaries
 
 - Loopback is not sufficient; transient authentication is mandatory.

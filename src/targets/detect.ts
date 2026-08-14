@@ -1,8 +1,21 @@
 import { accessSync, constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import type { LaunchPolicy } from "../profiles/schema.js";
+import type { VersionSource } from "./versions.js";
 
-export type ClaudeTarget = Readonly<{ found: boolean; executable: string }>;
+/**
+ * Detected harness target. `found` is binary presence only — never
+ * compatibility (#24). `version`/`versionSource` are optional exact-version
+ * metadata populated by an explicit probe (`probeClientVersion`); an unprobed
+ * or unknown client stays `undefined`/`unknown` and is never treated as a
+ * tested baseline.
+ */
+export type ClaudeTarget = Readonly<{
+  found: boolean;
+  executable: string;
+  version?: string;
+  versionSource?: VersionSource;
+}>;
 export type CodexTarget = ClaudeTarget;
 
 function isExecutable(path: string): boolean {

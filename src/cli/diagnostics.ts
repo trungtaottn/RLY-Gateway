@@ -12,6 +12,9 @@ import { serviceDetail } from "../service-manager/types.js";
 import { readInstallation } from "../storage/installation.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
+import { probeClientVersion } from "../targets/versions.js";
+import { RLY_LIVE_CANARY_ENV } from "../canary/run.js";
+import { CLAUDE_CODE_FIXTURE_BASELINE } from "../canary/client-fixtures.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
 
@@ -83,6 +86,11 @@ export async function runDoctor(path: string): Promise<number> {
       .map(([role]) => role);
     const target = detectClaudeTarget(process.env);
     const codex = detectCodexTarget(process.env);
+    // Exact installed client versions (#24): binary presence is `found`, never
+    // `compatible`; an unknown/newly installed version reports `unknown` and is
+    // never silently treated as the tested baseline.
+    const claudeProbe = target.found ? await probeClientVersion(target.executable) : undefined;
+    const codexProbe = codex.found ? await probeClientVersion(codex.executable) : undefined;
     console.log(JSON.stringify({
       ok: true,
       syntaxValid: true,
@@ -93,8 +101,22 @@ export async function runDoctor(path: string): Promise<number> {
       managementPort: config.gateway.managementPort,
       routes: Object.keys(config.routes).length,
       placeholderRoutes,
-      claudeTarget: { found: target.found },
-      codexTarget: { found: codex.found },
+      claudeTarget: {
+        found: target.found,
+        executable: target.executable,
+        ...(claudeProbe?.version === undefined ? {} : { version: claudeProbe.version }),
+        versionSource: target.found ? (claudeProbe?.source ?? "unknown") : "unknown",
+      },
+      codexTarget: {
+        found: codex.found,
+        executable: codex.executable,
+        ...(codexProbe?.version === undefined ? {} : { version: codexProbe.version }),
+        versionSource: codex.found ? (codexProbe?.source ?? "unknown") : "unknown",
+      },
+      canary: {
+        testedBaseline: CLAUDE_CODE_FIXTURE_BASELINE,
+        liveGateEnv: RLY_LIVE_CANARY_ENV,
+      },
       profiles: await profileInventory(config),
     }));
     return 0;

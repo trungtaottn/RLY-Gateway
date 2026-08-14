@@ -63,15 +63,25 @@
 - Each launch session pins its model-universe snapshot (policy revision/hash, registry revision, provider→pool bindings, experimental policy) at issue time; a registry/policy change during an active session never silently remaps an already-issued projection id, and removed/broken targets fail explicitly rather than substitute another model.
 - An RLY-only projection selected via `/model` persists only inside the RLY overlay; `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` is child-env only, and a plain `claude` launch never inherits RLY discovery env, auth, or projection ids (see Claude configuration overlay above).
 
+## Runtime compatibility canary (#24 / BL-043)
+
+- The canary is the runtime compatibility evidence gate: it reports exact installed client versions separately from binary `found` state (`src/targets/versions.ts`; version parsed from `--version` output only, never inferred from timestamps/paths), pins the supported baseline's wire contract with redacted fixtures, runs a deterministic fake gate matrix per exact access path, and classifies each path `VERIFIED`/`EXPERIMENTAL`/`BROKEN`/`unknown`. A newly installed unknown client version produces a visible `unknown/not-tested` status and does not silently replace the tested baseline; binary presence is never compatibility.
+- The pinned fixture baseline is `claude-code-2.1.229`. The observed local client `2.1.231` and Codex `0.147.0-alpha.6.5` are recorded as observed and are not tested baselines until the corresponding evidence gate passes.
+- `VERIFIED` requires every required gate for the advertised RLY use of that exact access path to pass AND live evidence where the provider class requires it (Codex OAuth, ClinePass, direct OpenRouter/DeepSeek). Fake-only evidence classifies `EXPERIMENTAL` at most; a failed required contract is `BROKEN`; missing/unrun evidence is `unknown` and never reported as passed.
+- Evidence is keyed by exact client kind/version + access provider + adapter/integration path + physical model; the same upstream model through two access providers never shares evidence. Capability-dependent gates stay `not-run` without reviewed evidence, so tool/reasoning capabilities are never advertised stronger than proven.
+- `rly canary run` emits secret-free machine-readable evidence artifacts under `<control-plane>/canary/` for #23/#67 review tooling; the canary reports evidence and drift and never mutates `directProviderRegistry`, trusted tier mappings, or `/v1/models` projection. Promotion of proposed compatibility state remains an explicit reviewed control-plane action.
+- The #72 projection gate consumes canary-derived compatibility state: `VERIFIED` by default, `EXPERIMENTAL` only with the explicit `gateway.modelDiscovery.experimentalModels` opt-in, `BROKEN`/unreviewed never.
+- `rly doctor` reports installed client versions, the tested baseline, and the live-gate env; canary diagnostics/artifacts carry client/provider/model ids, gate names, status, fixture revision, and redacted error categories only — never prompts, responses, reasoning text, credentials, or account identity.
+
 ## Token counting
 
 Routes declare one quality level: `upstream`, `exact-local`, `conservative-estimate`, or `unsupported`. Conservative estimates are allowed with a safety margin and visible readiness warning; they are never labeled exact.
 
 ## Provider sequencing
 
-- Claude Code is the single coding harness; the currently observed compatibility target is `2.1.229`. It becomes a tested baseline only after the Claude Code E2E gate passes.
+- Claude Code is the single coding harness; the currently observed compatibility target is `2.1.229` (protocol fixtures) with the observed local client `2.1.231` (#71). Neither is automatically a tested baseline: the pinned fixture baseline is `claude-code-2.1.229` and it becomes a tested baseline only through the #24 canary evidence gate (fake matrix + any required live gate). A newly installed Claude Code version reports `unknown/not-tested` and never silently replaces the tested baseline.
 - A profile name is the canonical user-facing alias (`rly <profile>`). Do not add a separate Alias type.
-- Codex CLI is an explicit `rly run codex` escape hatch, not a parallel product UX. The currently observed provisional target is `0.147.0-alpha.6.5`. It becomes a tested baseline only after the Codex E2E gate passes.
+- Codex CLI is an explicit `rly run codex` escape hatch, not a parallel product UX. The currently observed provisional target is `0.147.0-alpha.6.5`; it is recorded as observed, NOT a tested baseline, until the Codex E2E gate and #24 evidence pass.
 - Direct Claude routes: OpenRouter first, DeepSeek second.
 - Project-owned Codex OAuth through Claude Code is the first control-plane vertical slice.
 - Account metadata, credential records, profiles, pools, health, and policy are first-class product concepts.

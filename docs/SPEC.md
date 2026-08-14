@@ -157,6 +157,13 @@ Forbidden by default:
 - email or account identity;
 - captured real provider payloads.
 
+### 6.9 Runtime compatibility canary (#24)
+
+- RLY detects the exact installed Claude Code / Codex CLI version separately from binary `found` state (version parsed from the client's own `--version` output; never inferred from timestamps or paths; unknown when unparseable). Binary presence is never compatibility, and a newly installed unknown client version surfaces a visible `unknown/not-tested` status without silently replacing the tested baseline.
+- The canary pins the supported client baseline's wire contract with redacted fixtures (Claude Code session/agent/parent attribution headers; gateway `GET /v1/models` request/auth/response selection incl. the discovered-id prefix rule and startup cache; `fable`/`haiku`/`sonnet`/`opus` alias semantics; subagent/session `effort`; streaming framing; `--no-session-persistence`) and runs a deterministic fake gate matrix per exact access path (text, streaming, cancellation, single/multi/parallel tools, reasoning, reasoning+tools, model discovery, session attribution, subagent routing, parallel subagents, effort signal, long-running session).
+- Each exact access path is classified `VERIFIED` (all required gates + live evidence where the provider class requires it), `EXPERIMENTAL` (partial/fake-only), `BROKEN` (a required contract fails), or `unknown` (required gates unrun, never reported as passed). Evidence is keyed by exact client kind/version + access provider + adapter + physical model; the same upstream model through two access providers never shares evidence.
+- `rly canary run|status` emits secret-free, machine-readable evidence artifacts under `<control-plane>/canary/` consumable by #23/#67 review tooling; the canary reports evidence and drift and never mutates trusted registry evidence, tier mappings, or `/v1/models` projection. The #72 projection gate consumes canary-derived compatibility state (`VERIFIED` default, `EXPERIMENTAL` opt-in, `BROKEN`/unreviewed never). Live provider runs remain opt-in (`RLY_LIVE_CANARY=1`, skipped ≠ pass) and are never reported as passed when unrun.
+
 ## 7. Quality attributes
 
 - Correctness: byte/event-order golden contracts for supported client protocols.
@@ -189,6 +196,12 @@ Forbidden by default:
 - Global Claude configuration fingerprint is unchanged by controlled E2E.
 - Existing protected processes/ports are unchanged.
 - Offline protocol, lifecycle, privacy, lint, typecheck, and build gates pass.
+
+### Canary gate (BL-043 / #24)
+
+- Claude Code and Codex target detection reports exact installed version metadata separately from `found`; a newly installed unknown version surfaces `unknown/not-tested` and never silently replaces the tested baseline.
+- The supported baseline's wire contract is pinned with redacted fixtures (attribution headers, `/v1/models` discovery incl. id-prefix filter and startup cache, tier aliases incl. `fable`, subagent/session `effort`, streaming framing) and the deterministic fake matrix covers text, streaming, cancellation, tools, reasoning, reasoning+tools, model discovery, subagent routing, parallel subagents, effort signal, and long-running sessions; a deliberately changed fixture fails the exact gate with a typed reason.
+- Compatibility evidence is keyed by exact client version + access provider + adapter + physical model with no cross-provider reuse; `VERIFIED`/`EXPERIMENTAL`/`BROKEN`/`unknown` semantics are typed and missing/unrun live evidence is never reported as passed; the #72 projection gate consumes canary-derived state (VERIFIED default, EXPERIMENTAL opt-in, BROKEN never); `rly canary run|status` emits secret-free artifacts without mutating trusted registry evidence; live provider runs stay opt-in and `skipped ≠ pass`.
 
 ### V1
 

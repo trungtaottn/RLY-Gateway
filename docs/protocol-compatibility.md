@@ -220,6 +220,22 @@ prompt content:
   (`tests/e2e/claude-code/subagent-model.e2e.test.ts`, `RLY_CLAUDE_E2E=1`,
   skipped ≠ pass) pins the gateway plumbing on the observed local client.
 
+## Runtime compatibility canary (#24 / BL-043)
+
+The repository ships a runtime compatibility evidence gate (`src/canary/`, CLI `rly canary run|status`) that answers two separate questions and never collapses them:
+
+1. **Client compatibility**: does this Claude Code / Codex CLI version still produce/consume the wire behavior RLY expects?
+2. **Model access-path compatibility**: does this exact `(access provider, physical model, RLY adapter, client baseline)` support the runtime capabilities RLY claims?
+
+- **Observed vs tested baseline**: `src/targets/versions.ts::probeClientVersion` reads the exact version from the client's own `--version` output (bounded timeout). Binary presence is `found`, never `compatible`; an unknown/newly installed version reports `unknown/not-tested` and never silently replaces the tested baseline. The pinned fixture baseline is `claude-code-2.1.229` (contract fixtures + overlay composition); the observed local client (2.1.231) and Codex `0.147.0-alpha.6.5` are recorded separately and are not tested baselines.
+- **Pinned contract fixtures**: `tests/fixtures/upstream/claude-code/client-contract-2.1.229.json` (plus `model-discovery-shape.json`, `fable-subagent-shape.json`, `effort-signal-shape.json`, `streaming-framing.json`) and `tests/fixtures/upstream/codex/client-contract-observed.json` pin: session/agent/parent attribution headers; gateway `GET /v1/models` request/auth/response selection incl. the discovered-id prefix rule (`claude`/`anthropic`) and startup cache behavior; `fable`/`haiku`/`sonnet`/`opus` alias semantics; the subagent/session `effort` additive field; streaming framing; `--no-session-persistence`. A changed client contract fails the exact gate with a typed reason (`missing-agent-header`, `gateway-model-filter-changed`, `tool-result-invalid`, `reasoning-effort-clamped`, ...).
+- **Gate matrix**: deterministic fake gates cover text, streaming, cancellation, single/multi/parallel tool loops, reasoning, reasoning+tools, model discovery, session attribution, subagent routing, parallel subagents, effort signal, and long-running-session behavior. Capability-dependent gates are `not-run` (never passed) when the access path lacks reviewed evidence, so a model that handles one tool call but fails multi-tool/continuation, or supports reasoning but fails reasoning+tools, is never advertised stronger than proven.
+- **Classification**: `VERIFIED` requires every required gate for the advertised RLY use to pass AND live evidence where the provider class requires it (Codex OAuth, ClinePass, direct OpenRouter/DeepSeek all require live proof; a fake transport cannot prove a subscription/bridge path). Fake-only evidence is `EXPERIMENTAL` at most; a failed required contract is `BROKEN`; missing/unrun evidence is `unknown` and never reported as passed.
+- **Evidence identity**: each result is keyed by exact client kind/version + access provider + adapter/integration mode + physical model (+ family when known). The same upstream model through two access providers never shares evidence.
+- **Artifacts and handoff**: `rly canary run` persists secret-free, machine-readable evidence under `<control-plane>/canary/` and `rly canary status` prints tested baselines + per-path verdicts; artifacts are consumable by the #23/#67 review/proposal workflow and never mutate trusted registry evidence (`proposeCanaryState` reports drift only). `rly doctor` reports installed versions and the tested baseline.
+- **#72 gating**: the projection gate consumes canary-derived compatibility state (`VERIFIED` default, `EXPERIMENTAL` opt-in, `BROKEN`/unreviewed never); live provider runs stay opt-in (`RLY_LIVE_CANARY=1`, skipped ≠ pass).
+- **Privacy**: canary artifacts/logs carry client/provider/model ids, gate names, status, fixture revision, and redacted error categories only — never prompts, model responses, reasoning text, credentials, authorization headers, email, or account identity.
+
 ## Compatibility maintenance
 
 Protocol drift starts with a redacted reproducing fixture. Any newly observed
