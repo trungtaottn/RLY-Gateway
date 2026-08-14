@@ -3,6 +3,7 @@ import { constants as osConstants } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
+import { parseConfigArgs, runConfig, type ConfigCommand } from "./config.js";
 import { runDoctor, runQuota, runRouteTrace, runStatus } from "./diagnostics.js";
 import { runGatewayCommand, type GatewayAction } from "./gateway.js";
 import { runInit } from "./init.js";
@@ -25,7 +26,7 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless]");
 }
 
 export type ParsedCliCommand =
@@ -33,7 +34,8 @@ export type ParsedCliCommand =
   | Readonly<{ command: "run-claude" | "run-codex"; configPath: string; claudeArgs: readonly string[]; route?: string; profile?: string }>
   | Readonly<{ command: "init"; configPath: string }>
   | Readonly<{ command: "gateway"; action: GatewayAction; configPath: string }>
-  | AdminCommand;
+  | AdminCommand
+  | ConfigCommand;
 
 function isDiagnosticCommand(value: string | undefined): value is "status" | "doctor" | "quota" | "route-trace" {
   return value !== undefined && (DIAGNOSTIC_COMMANDS as readonly string[]).includes(value);
@@ -127,6 +129,7 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
   if (command === "admin") {
     return parseAdminArgs(args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config"), configPath(args, cwd));
   }
+  if (command === "config") return parseConfigArgs(args, cwd);
   if (command === "run") return parseRunCommand(args, cwd);
   if (command === "init") {
     const rest = args.slice(1);
@@ -270,6 +273,7 @@ export async function runCli(
   if (parsed.command === "init") return (dependencies.runInit ?? runInit)(parsed.configPath);
   if (parsed.command === "gateway") return (dependencies.runGateway ?? runGatewayCommand)(parsed.action, parsed.configPath);
   if (parsed.command === "admin") return runAdmin(parsed, await loadConfig(parsed.configPath));
+  if (parsed.command === "config") return runConfig(parsed);
   if (parsed.command === "doctor") return runDoctor(parsed.configPath);
   if (parsed.command === "status") return runStatus(parsed.configPath);
   if (parsed.command === "quota") return runQuota(parsed.configPath);

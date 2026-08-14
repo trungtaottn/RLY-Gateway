@@ -169,6 +169,12 @@ Code/live-provider compatibility.
 - [x] Exact physical model path preserved: exact pins resolve to the exact registry entry without rerouting and still validate capabilities/compatibility; existing Codex/Cline/profile-pool route behavior unchanged.
 - [x] Docs/RTM/AT: ARCHITECTURE two-stage boundary section, AT-044–AT-047 added, RTM Phase 68 evidence rows, TASKLIST milestone entry. Evidence: `tests/unit/model-selection.test.ts`, `tests/lifecycle/profile-pool-route.test.ts`, existing registry/router/lifecycle suites; `pnpm verify` green (see PR).
 
+## Completed milestone: Phase 66 `rly config` control plane (#66)
+
+- [x] `rly config` is the primary user-facing control plane after `rly init`: durable `~/.rly` configuration resolution from the installation record (no CWD `gateway.config.toml` on the normal installed path; explicit `--config` and the CWD file stay dev/operator fallbacks), resident-runtime ensure/recover (reuse attested launcher-owned or resident instances, start the registered service when down with a bounded readiness wait, session-scoped foreground fallback, occupied-foreign/attested-incompatible fail-closed), secret-free `status` summary, and a local loopback UI bootstrap through the existing single-use fragment session (`--headless` prints the URL without opening a browser; closing the UI never stops the resident runtime).
+- [x] Focused shortcuts `rly config providers|accounts|pools|profiles` create/list and credential login/import/refresh/revoke flows through the same management endpoints, DTOs, and policy revision as `rly admin` (shared `src/cli/management-client.ts`); stale versioned mutations surface `stale-version` explicitly; no new configuration database.
+- [x] Docs/RTM/AT: FR-019 / SR-F-023 added; AT-048–AT-052 added; README/CONTRIBUTING onboarding recipe is `rly init` once + `rly config` thereafter; ARCHITECTURE, ROADMAP, SPEC §6.6, RTM, TASKLIST updated. Evidence: `tests/unit/cli-config.test.ts`, `tests/lifecycle/config-recovery.test.ts`, existing admin/management/privacy suites; `pnpm verify` green.
+
 ## Updating this file
 
 - Check an item only when evidence exists.
