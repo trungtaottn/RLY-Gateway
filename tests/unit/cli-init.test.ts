@@ -6,6 +6,7 @@ import { runInit } from "../../src/cli/init.js";
 import { gatewayConfigSchema, type GatewayConfig } from "../../src/config/schema.js";
 import type { RuntimeInspection } from "../../src/runtime/gateway-lifecycle.js";
 import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
+import type { createServiceManager } from "../../src/service-manager/index.js";
 import type { ServiceManagerAdapter } from "../../src/service-manager/types.js";
 
 const directories: string[] = [];
@@ -144,6 +145,29 @@ describe("rly init", () => {
     const payload = parseOutput(output);
     expect(payload.ok).toBe(false);
     expect(payload.runtime?.state).toBe("occupied-foreign");
+  });
+
+  it("passes the durable log and working paths into the service manager", async () => {
+    const homeDir = await directory();
+    const controlPlaneDirectory = await directory();
+    const captured: { options?: Parameters<typeof createServiceManager>[0] } = {};
+    const createManager: (input: Parameters<typeof createServiceManager>[0]) => ServiceManagerAdapter = (input) => {
+      captured.options = input;
+      return fakeManager({ registered: 0, started: 0 });
+    };
+    const code = await runInit(join(homeDir, "gateway.config.toml"), {
+      home: homeDir,
+      loadConfig: () => Promise.resolve(config(controlPlaneDirectory)),
+      openControlPlane: () => Promise.resolve(undefined),
+      createServiceManager: createManager,
+      waitForReadiness: () => Promise.resolve(readyInspection()),
+    });
+    expect(code).toBe(0);
+    expect(captured.options).toMatchObject({
+      home: homeDir,
+      logPath: join(controlPlaneDirectory, "logs", "service.log"),
+      workingDirectory: controlPlaneDirectory,
+    });
   });
 
   it("skips service registration on unsupported platforms but still initializes the home", async () => {

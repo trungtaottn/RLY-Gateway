@@ -32,10 +32,21 @@ describe("service definition builders", () => {
       label: "com.rly.gateway",
       configPath: "/Users/a&b/work/gateway<1>.toml",
       logPath: "/Users/alice/.rly/logs/service.log",
+      workingDirectory: "/Users/alice/.rly",
     });
     expect(plist).toContain("/Users/a&amp;b/work/gateway&lt;1&gt;.toml");
     expect(plist).toContain("<key>StandardOutPath</key>");
     expect(plist).toContain("<string>/Users/alice/.rly/logs/service.log</string>");
+    expect(plist).toContain("<key>WorkingDirectory</key>");
+    expect(plist).toContain("<string>/Users/alice/.rly</string>");
+  });
+
+  it("bounds crash-restart with an explicit ThrottleInterval", () => {
+    const plist = buildLaunchAgentPlist({ ...input, label: "com.rly.gateway" });
+    expect(plist).toContain("<key>ThrottleInterval</key>");
+    expect(plist).toContain("<integer>10</integer>");
+    // WorkingDirectory stays absent unless the caller provides it.
+    expect(plist).not.toContain("WorkingDirectory");
   });
 
   it("contains no credentials, environment values, or account identity", () => {

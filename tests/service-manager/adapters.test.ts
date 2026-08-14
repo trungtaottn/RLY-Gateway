@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServiceManager } from "../../src/service-manager/index.js";
+import type { LaunchAgentAdapter } from "../../src/service-manager/launch-agent.js";
 import type { ServiceCommandRunner, ServiceDefinitionInput } from "../../src/service-manager/types.js";
 
 const directories: string[] = [];
@@ -66,13 +67,173 @@ describe("macOS LaunchAgent adapter", () => {
     await expect(manager.register(definition)).resolves.toBeUndefined();
   });
 
-  it("reports status from launchctl print", async () => {
+  it("reports running/stopped from the launchctl print state", async () => {
     const homeDir = await home();
-    const runner: ServiceCommandRunner = () => Promise.resolve({ code: 0, stdout: "", stderr: "" });
+    const runner: ServiceCommandRunner = vi.fn((_file: string, args: readonly string[]) => {
+      const printing = args[0] === "print";
+      return Promise.resolve(printing
+        ? { code: 0, stdout: "state = running\npid = 4242\n", stderr: "" }
+        : { code: 0, stdout: "", stderr: "" });
+    });
     const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
     expect(await manager.status()).toBe("not-registered");
     await manager.register(definition);
     expect(await manager.status()).toBe("running");
+  });
+
+  it("reports stopped when the job is loaded but has no running process", async () => {
+    const homeDir = await home();
+    const runner: ServiceCommandRunner = vi.fn((_file: string, args: readonly string[]) => {
+      const printing = args[0] === "print";
+      return Promise.resolve(printing
+        ? { code: 0, stdout: "state = waiting\n", stderr: "" }
+        : { code: 0, stdout: "", stderr: "" });
+    });
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
+    await manager.register(definition);
+    expect(await manager.status()).toBe("stopped");
+  });
+
+  it("reports label, load state, and pid separately from runtime readiness", async () => {
+    const homeDir = await home();
+    const runner: ServiceCommandRunner = vi.fn((_file: string, args: readonly string[]) => {
+      const printing = args[0] === "print";
+      return Promise.resolve(printing
+        ? { code: 0, stdout: "service = com.rly.gateway\nstate = running\npid = 4242\n", stderr: "" }
+        : { code: 0, stdout: "", stderr: "" });
+    });
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner }) as LaunchAgentAdapter;
+    expect(await manager.detail()).toMatchObject({ registered: false, loaded: false, running: false });
+    await manager.register(definition);
+    const detail = await manager.detail();
+    expect(detail).toMatchObject({
+      label: "com.rly.gateway",
+      registered: true,
+      loaded: true,
+      running: true,
+      pid: 4242,
+    });
+    expect(detail.definitionPath).toBe(join(homeDir, "Library", "LaunchAgents", "com.rly.gateway.plist"));
+  });
+
+  it("repairs a changed definition by unloading before reloading", async () => {
+    const homeDir = await home();
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const runner: ServiceCommandRunner = (file, args) => {
+      calls.push({ file, args: [...args] });
+      return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+    };
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
+    await manager.register(definition);
+    await manager.register({ ...definition, executable: "/usr/local/bin/node-v24" });
+    const bootstraps = calls.filter((call) => call.args[0] === "bootstrap");
+    const bootouts = calls.filter((call) => call.args[0] === "bootout");
+    expect(bootstraps).toHaveLength(2);
+    expect(bootouts).toHaveLength(1);
+    expect(calls.findIndex((call) => call.args[0] === "bootout"))
+      .toBeGreaterThan(calls.findIndex((call) => call.args[0] === "bootstrap"));
+    expect(calls.findLastIndex((call) => call.args[0] === "bootstrap"))
+      .toBeGreaterThan(calls.findIndex((call) => call.args[0] === "bootout"));
+    const plist = await readFile(join(homeDir, "Library", "LaunchAgents", "com.rly.gateway.plist"), "utf8");
+    expect(plist).toContain("/usr/local/bin/node-v24");
+  });
+
+  it("keeps an unchanged re-registration a no-op reload without duplicate labels", async () => {
+    const homeDir = await home();
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const runner: ServiceCommandRunner = (file, args) => {
+      calls.push({ file, args: [...args] });
+      return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+    };
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
+    await manager.register(definition);
+    await manager.register(definition);
+    const bootouts = calls.filter((call) => call.args[0] === "bootout");
+    const bootstraps = calls.filter((call) => call.args[0] === "bootstrap");
+    expect(bootouts).toHaveLength(0);
+    expect(bootstraps).toHaveLength(2);
+  });
+
+  it("falls back to legacy launchctl subcommands when v2 is unsupported", async () => {
+    const homeDir = await home();
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const runner: ServiceCommandRunner = (file, args) => {
+      calls.push({ file, args: [...args] });
+      const subcommand = args[0];
+      if (subcommand === "print" || subcommand === "bootstrap" || subcommand === "kickstart" || subcommand === "bootout") {
+        return Promise.resolve({ code: 64, stdout: "", stderr: `launchctl: The '${subcommand}' subcommand is not supported` });
+      }
+      if (subcommand === "list") {
+        return Promise.resolve({ code: 0, stdout: "4242\tcom.rly.gateway\t0\n", stderr: "" });
+      }
+      return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+    };
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
+    await manager.register(definition);
+    await manager.start();
+    await manager.stop();
+    expect(await manager.status()).toBe("running");
+    expect(calls.some((call) => call.args[0] === "load" && call.args[1] === "-w")).toBe(true);
+    expect(calls.some((call) => call.args[0] === "start" && call.args[1] === "com.rly.gateway")).toBe(true);
+    expect(calls.some((call) => call.args[0] === "unload")).toBe(true);
+    expect(calls.some((call) => call.args[0] === "list")).toBe(true);
+  });
+
+  it("restarts the job through kickstart -k for the #73 restart path", async () => {
+    const homeDir = await home();
+    const { runner, calls } = runnerMock();
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner }) as LaunchAgentAdapter;
+    await manager.restart();
+    expect(calls.at(-1)?.args).toEqual(["kickstart", "-k", `gui/${String(process.getuid?.() ?? 0)}`, "com.rly.gateway"]);
+  });
+
+  it("stop tolerates an already-unloaded job", async () => {
+    const homeDir = await home();
+    const runner: ServiceCommandRunner = () => Promise.resolve({ code: 3, stdout: "", stderr: "Boot-out failed: 3: No such process" });
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
+    await expect(manager.stop()).resolves.toBeUndefined();
+  });
+
+  it("writes working directory and the RLY log path into the plist", async () => {
+    const homeDir = await home();
+    const { runner } = runnerMock();
+    const manager = createServiceManager({
+      platform: "darwin",
+      home: homeDir,
+      runner,
+      workingDirectory: join(homeDir, ".rly"),
+      logPath: join(homeDir, ".rly", "logs", "service.log"),
+    });
+    await manager.register(definition);
+    const plist = await readFile(join(homeDir, "Library", "LaunchAgents", "com.rly.gateway.plist"), "utf8");
+    expect(plist).toContain("<key>WorkingDirectory</key>");
+    expect(plist).toContain(join(homeDir, ".rly"));
+    expect(plist).toContain("<key>StandardOutPath</key>");
+    expect(plist).toContain(join(homeDir, ".rly", "logs", "service.log"));
+    await expect(stat(join(homeDir, ".rly", "logs"))).resolves.toBeDefined();
+  });
+
+  it("unregister unloads and removes only the RLY-owned plist", async () => {
+    const homeDir = await home();
+    const { runner, calls } = runnerMock();
+    const manager = createServiceManager({ platform: "darwin", home: homeDir, runner });
+    await manager.register(definition);
+    expect(await manager.isRegistered()).toBe(true);
+    await manager.unregister();
+    expect(await manager.isRegistered()).toBe(false);
+    expect(calls.some((call) => call.args[0] === "bootout")).toBe(true);
+    await expect(readFile(join(homeDir, "Library", "LaunchAgents", "com.rly.gateway.plist"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.skipIf(typeof process.getuid !== "function")("refuses to run as root", async () => {
+    const homeDir = await home();
+    const getuid = vi.spyOn(process, "getuid").mockReturnValue(0);
+    try {
+      const manager = createServiceManager({ platform: "darwin", home: homeDir, runner: runnerMock().runner });
+      await expect(manager.register(definition)).rejects.toThrow(/must not run as root/);
+    } finally {
+      getuid.mockRestore();
+    }
   });
 });
 

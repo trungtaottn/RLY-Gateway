@@ -6,6 +6,7 @@ import { runGatewayCommand } from "../../src/cli/gateway.js";
 import { gatewayConfigSchema, type GatewayConfig } from "../../src/config/schema.js";
 import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
 import type { ResidentRuntimeHandle } from "../../src/runtime/resident-runtime.js";
+import { writeInstallation } from "../../src/storage/installation.js";
 
 const directories: string[] = [];
 
@@ -97,6 +98,54 @@ describe("rly gateway commands", () => {
     expect(stop).toHaveBeenCalledOnce();
     const payload = parseOutput(output);
     expect(payload.stopped).toBe(true);
+  });
+
+  it("reports macOS service label, load state, and pid separately from runtime readiness", async () => {
+    const homeDir = await directory();
+    const controlPlaneDirectory = await directory();
+    await writeInstallation(controlPlaneDirectory, {
+      schemaVersion: 1,
+      version: RUNTIME_VERSION,
+      configPath: join(homeDir, "gateway.config.toml"),
+      platform: "darwin",
+      serviceName: "com.rly.gateway",
+      registeredAt: new Date().toISOString(),
+    });
+    const output = vi.fn();
+    vi.spyOn(console, "log").mockImplementation(output);
+    const manager = {
+      platform: "darwin" as const,
+      serviceName: "com.rly.gateway",
+      isSupported: () => true,
+      isRegistered: () => Promise.resolve(true),
+      register: () => Promise.resolve(undefined),
+      unregister: () => Promise.resolve(undefined),
+      start: () => Promise.resolve(undefined),
+      stop: () => Promise.resolve(undefined),
+      status: () => Promise.resolve("running" as const),
+      detail: () => Promise.resolve({
+        label: "com.rly.gateway",
+        definitionPath: join(homeDir, "Library", "LaunchAgents", "com.rly.gateway.plist"),
+        registered: true,
+        loaded: true,
+        running: true,
+        pid: 4242,
+      }),
+    };
+    const code = await runGatewayCommand("status", join(homeDir, "gateway.config.toml"), {
+      loadConfig: () => Promise.resolve(config(controlPlaneDirectory)),
+      createServiceManager: () => manager,
+    });
+    expect(code).toBe(1); // no runtime is running, but service state is still reported
+    const payload = parseOutput(output);
+    expect(payload.service).toMatchObject({
+      registered: true,
+      platform: "darwin",
+      serviceName: "com.rly.gateway",
+      label: "com.rly.gateway",
+      loadState: "running",
+      pid: 4242,
+    });
   });
 
   it("reports not-running state for status without a runtime", async () => {
