@@ -28,9 +28,12 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 
 ## Git workflow
 
+- Handle one GitHub issue per isolated worktree and branch. See [AGENTS.md](./AGENTS.md) Issue delivery.
+- Branch from latest `origin/dev` as `<type>/<n>-<slug>`. Open one pull request into `dev`, never `main`.
 - Keep commits small and conventional.
-- Do not commit unless explicitly approved by the repository owner.
-- Never rewrite or discard unrelated local work.
+- Fill every required section in `.github/pull_request_template.md`. Thin or empty PR bodies are not reviewable.
+- Do not commit on `dev` directly. Merge to `dev` only through a reviewed PR.
+- Never rewrite or discard unrelated local work. Force-push, history rewrite, push/PR to `main`, and publish still need explicit owner authorization.
 - Do not add an upstream remote merely because code was studied or adapted.
 - Record copied or substantially adapted MIT code in `docs/provenance.md` and the adaptation matrix before commit. Retain the original notice in-file or in `docs/third-party-notices.md`.
 

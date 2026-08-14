@@ -40,10 +40,48 @@ If same-level authorities conflict, stop implementation and reconcile the owning
 - Credential import is explicit and read-only by default. Project-owned secret persistence belongs only to the credential broker.
 - Eligibility precedes pool strategy; no retry/account rotation after the first response byte or tool event.
 
+## Issue delivery
+
+Handle exactly one GitHub issue per worktree, branch, and pull request.
+
+1. Read the issue and the documents this contract routes for that work.
+2. Fast-forward from latest `origin/dev`. Create an isolated worktree. Do not implement the issue in the primary `dev` checkout.
+3. Branch name: `<type>/<n>-<slug>` (example: `feat/19-browser-at-031`). Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`. The issue number must appear in the branch name.
+4. Keep the worktree scoped to that issue. New work gets another issue and another worktree.
+5. Open one PR into `dev`, never `main`. Use `Closes #<n>` when the PR fully completes the issue; otherwise `Refs #<n>`.
+6. After the PR merges, remove the worktree and the local branch.
+
+Use the installed worktree helper when available. Otherwise:
+
+```text
+git fetch origin
+git worktree add -b <type>/<n>-<slug> <worktree-path> origin/dev
+```
+
+Do not mix issues, commit on `dev` directly, or leave abandoned worktrees.
+
+## Pull requests into `dev`
+
+A PR to `dev` for the issue owned by the current worktree is authorized by this contract. Still require explicit owner authorization for: push or PR to `main`, force-push of a shared branch, history rewrite, publish, or adding remotes.
+
+Every PR body must fill `.github/pull_request_template.md`. Do not open a PR with an empty or one-line body. Required content:
+
+- **Summary:** user-visible outcome and why the issue needs it.
+- **Issue link:** `Closes #<n>` or `Refs #<n>`.
+- **Changes:** what landed, grouped by concern, with owning paths.
+- **Requirements:** FR/SR/AT IDs touched, or `none` after checking the requirements pack.
+- **Testing and evidence:** exact commands and closing results. A skipped or unavailable gate is not a pass.
+- **Security and privacy:** secret-free confirmation when credentials, sessions, logs, fixtures, or redaction paths changed.
+- **Breaking changes / migration:** or `none` after checking public contracts.
+- **Out of scope / follow-ups:** leftover work and the issue that owns it.
+- **Review notes:** risky spots and how to verify them.
+
+Do not merge your own PR unless the owner asked. Do not commit `LICENSE` copyright flips, credentials, databases, logs, runtime state, user paths, or private fixtures.
+
 ## Git and public release
 
-- Develop and commit on `dev` or private branches. Do not develop on `main`.
+- Develop only on the issue worktree branch. Fast-forward `dev` only by merging reviewed PRs.
+- Do not develop on `main`.
 - `main` is an unrelated orphan public history. Never merge or rebase `dev` directly into `main`.
 - Public release: branch from `main`, copy the approved `dev` snapshot without Git history/local artifacts, create one commit, then open one PR to `main`.
-- Do not push, publish, create a PR, or rewrite remote history without explicit owner authorization.
 - `plans/` remains local-only. Public source and durable docs are tracked; credentials, databases, logs, runtime state, user paths, and private fixtures are never tracked.
