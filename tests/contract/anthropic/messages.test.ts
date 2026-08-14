@@ -20,6 +20,25 @@ describe("Anthropic Messages protocol", () => {
     expect(decoded.required).toEqual(["streaming", "tools", "images"]);
   });
 
+  it("captures Claude Code agent attribution headers without inspecting content (#71)", () => {
+    const decoded = decodeAnthropicRequest(body, {
+      "x-claude-code-session-id": "session-71",
+      "x-claude-code-agent-id": "kongming",
+      "x-claude-code-parent-agent-id": "main",
+    });
+    expect(decoded.request.agent).toEqual({
+      claudeSessionId: "session-71",
+      agentId: "kongming",
+      parentAgentId: "main",
+    });
+    // No attribution headers → no agent context; the existing path is unchanged.
+    const plain = decodeAnthropicRequest(body);
+    expect(plain.request.agent).toBeUndefined();
+    // Partial attribution (main agent) is preserved.
+    const main = decodeAnthropicRequest(body, { "x-claude-code-agent-id": "main" });
+    expect(main.request.agent).toEqual({ agentId: "main" });
+  });
+
   it("preserves role, tool-result content, cache placement and thinking preflight", () => {
     const decoded = decodeAnthropicRequest({ model: "fixture-model", max_tokens: 10, thinking: { type: "enabled" }, messages: [{ role: "assistant", content: [{ type: "tool_use", id: "tool_fixture", name: "fixture_tool", input: {} }] }, { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_fixture", content: [{ type: "text", text: "fixture result", cache_control: { type: "ephemeral" } }] }] }] });
     expect(decoded.request.messages.map((message) => message.role)).toEqual(["assistant", "user"]);
