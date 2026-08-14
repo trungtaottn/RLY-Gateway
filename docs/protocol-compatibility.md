@@ -64,6 +64,33 @@ ordering.
 `run codex` launches Codex with `OPENAI_BASE_URL` / `OPENAI_API_KEY` and a
 temporary `CODEX_HOME`. Global `~/.codex` is not mutated.
 
+## Claude configuration overlay (#74)
+
+RLY-launched Claude sessions do not use a throwaway `CLAUDE_CONFIG_DIR` temp
+directory. The launcher (`src/cli/main.ts`) prepares a durable RLY-owned
+overlay (`<control-plane>/claude`, `~/.rly/claude` by default) with
+[`src/runtime/claude-overlay.ts`](../src/runtime/claude-overlay.ts) and passes
+it as the child `CLAUDE_CONFIG_DIR`. The native user config root is composed
+as read-only input through a typed allowlist. `CLAUDE_CONFIG_DIR` layout pinned
+for the supported baseline (currently observed `2.1.229`, fixtures owned by
+#24):
+
+| Surface | RLY composition |
+| --- | --- |
+| `settings.json` | One-way merge: unrelated keys and native `model` preserved; `env` keys conflicting with the RLY gateway contract (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `CODEX_HOME`, `CODEX_API_KEY`) stripped; a persisted RLY-only `claude-rly-*` model is RLY-owned and wins on re-compose. Written only in the overlay. |
+| `agents/*.md`, `commands/*.md` | One-way refresh copy when missing or native is newer. |
+| `skills/**` | Allowlisted recursive copy of user-authored skills (`node_modules`, `.git` excluded; symlinks never followed). |
+| `plugins/config.json` | Only `enabledPlugins`/`marketplaces` carried; `oauthAccounts`/token-like keys and plugin cache/repos never copied (plugin runtime state stays native). |
+| `history`, `projects`, `shell-snapshots`, `todos`, `statsig`, `version`, unknown files | Never copied. |
+
+Other pinned behaviors:
+
+- Native `~/.claude/settings.json` (model key included), credentials, plugin metadata, history, and agent files are never rewritten by RLY; there is no post-exit restore of a saved global model (unsafe under concurrent sessions). The home-level `~/.claude.json` and project-local `.claude` are never touched.
+- `/model` Enter/direct persistence writes into the overlay settings only; RLY session/history state under the overlay survives RLY launches; session-only `s` selection behaves normally.
+- Refresh is deterministic and race-safe: unchanged native input is not rewritten (sibling `/model` writes survive); native deletions are not propagated; malformed native JSON surfaces are skipped.
+- RLY gateway URL/token are child-env only and never persisted in overlay settings/history; no RLY credential secret enters the overlay.
+- If a future Claude Code client changes this layout, RLY must pin the new baseline through #24 before composing; unknown surfaces are never recursively copied.
+
 ## Canonical reasoning contract (#70)
 
 Reasoning intent is a first-class canonical concern, separate from transport and

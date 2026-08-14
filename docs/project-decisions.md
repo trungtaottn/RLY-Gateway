@@ -28,6 +28,17 @@
 - Diagnostics may include request ID, route/provider/model identifiers, capability/readiness state, timing, status, and version metadata.
 - Diagnostics exclude prompts, responses, credentials, authorization headers, email, and account identity.
 
+## Claude configuration overlay (#74)
+
+- The historical throwaway `CLAUDE_CONFIG_DIR` temp directory (which proved RLY never mutates global Claude files but also threw away user settings/agents/plugins and all RLY session history) is replaced by a **durable RLY-owned Claude configuration namespace** under the durable RLY home: `<control-plane>/claude` (`~/.rly/claude` by default), `0700` directories and `0600` atomic files.
+- **Asymmetric ownership is the invariant**: native Claude config (`~/.claude` or the parent `CLAUDE_CONFIG_DIR`) is read/compose-only INPUT; RLY gateway/model state is written only inside the RLY namespace. RLY never overwrites native `settings.json` (model key included), credentials, plugin metadata, history, or agent files as part of launch/exit — including any “save old global model, rewrite it back” logic (unsafe under concurrent sessions).
+- Composition is a typed allowlist pinned to the supported Claude Code baseline (currently `2.1.229` through #24): `settings.json` one-way merge (gateway-conflict `env` keys stripped; unrelated settings and the native `model` stay user input; a persisted RLY-only `claude-rly-*` projection model is RLY-owned state and wins on re-compose), user `agents/*.md`, `commands/*.md`, and `skills/**` one-way refresh copies, and `plugins/config.json` enablement declaration only (`enabledPlugins`/`marketplaces`; `oauthAccounts`/token-like keys and plugin cache/repos are never copied — plugin runtime state stays native, a documented difference). Unknown files, `history`, `projects`, `shell-snapshots`, `todos`, `statsig`, and `version` are never copied. `~/.claude.json` (home level) and project-local `.claude` are never touched.
+- Refresh is deterministic and race-safe: a file composes when missing or when native is newer; unchanged native input is not rewritten, so sibling RLY sessions' `/model` writes into the shared overlay survive; native deletions are not propagated; malformed native JSON surfaces are skipped, never rewritten or failed over. RLY's own writes are atomic (temp + rename), so concurrent RLY launches converge without locks.
+- RLY gateway URL/token/model projection state is child-env only (`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`) and is never persisted into overlay settings/history; no RLY launch/management/provider credential secret enters the overlay.
+- RLY session/history state under the overlay is durable across RLY launches instead of being deleted at every child exit.
+- The rule against permanent global Claude/Codex configuration mutation is **retained** and now has an explicit overlay-based mechanism behind it.
+- `rly status` reports overlay paths/version/composition status only; no settings, agent prompts, plugin content, session transcripts, or credentials.
+
 ## Model tiers
 
 - Logical tiers (`haiku`/`sonnet`/`opus`/`fable`) are portable model classes resolved **inside the current execution context**: access provider first, then the parent model's model family when that provider exposes multiple families, then trusted capability evidence (#69). `fable` is never a hardcoded global alias for one vendor/model and never "the strongest model across all authenticated providers".

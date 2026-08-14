@@ -1,3 +1,6 @@
+import { access, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createClaudeChildEnvironment,
@@ -100,6 +103,31 @@ describe("Claude child launcher", () => {
     expect(suppliedArgs).toEqual(["--model", "quoted value", "--", "-not-a-gateway-flag"]);
     child.close(23, null);
     await expect(launched).resolves.toEqual({ code: 23, signal: null });
+  });
+
+  it("uses the durable overlay directory when provided and leaves it in place", async () => {
+    const child = new TestChild();
+    let suppliedOptions: Parameters<ChildSpawner>[2] | undefined;
+    const spawner: ChildSpawner = (_executable, _args, options) => {
+      suppliedOptions = options;
+      return child;
+    };
+    const overlay = join(tmpdir(), "rly-durable-claude-overlay");
+    await mkdir(overlay, { recursive: true });
+    const launched = launchClaude({
+      gatewayBaseUrl: "http://127.0.0.1:17871",
+      authToken: "transient-token",
+      args: [],
+      environment: { PATH: "/bin" },
+      configDirectory: overlay,
+      spawner,
+      signalSource: new TestSignals(),
+    });
+    expect(suppliedOptions?.env["CLAUDE_CONFIG_DIR"]).toBe(overlay);
+    child.close(0, null);
+    await expect(launched).resolves.toEqual({ code: 0, signal: null });
+    // Durable overlay is never removed by the launcher.
+    await expect(access(overlay)).resolves.toBeUndefined();
   });
 
   it("creates an isolated Codex child environment", async () => {
