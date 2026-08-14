@@ -33,21 +33,23 @@ const nvidiaNemotronCapabilities = conservativeCapabilities();
 const deepSeekFlashCapabilities = conservativeCapabilities({ tools: false });
 const nvidiaNemotronNanoCapabilities = conservativeCapabilities({ images: true });
 const openAiGptOssCapabilities = conservativeCapabilities({ structuredOutput: true });
+const codexGpt54Capabilities = conservativeCapabilities();
 
 /** Reviewed evidence only. Provider probes report drift but never mutate this document. */
 export const directProviderRegistry: RegistryDocument = Object.freeze({
-  registryRevision: 1,
+  registryRevision: 2,
   models: Object.freeze([
     Object.freeze({ logicalId: "openrouter/nvidia/nemotron-3.5-lightning:free", upstreamId: "nvidia/nemotron-3.5-lightning:free", verifiedAt: "2026-08-13", fixtureVersion: "openai-chat-v1", tokenCounting: "conservative-estimate", capabilities: nvidiaNemotronCapabilities }),
     Object.freeze({ logicalId: "openrouter/nvidia/nemotron-nano-12b-v2-vl:free", upstreamId: "nvidia/nemotron-nano-12b-v2-vl:free", verifiedAt: "2026-08-13", fixtureVersion: "openai-chat-v1", tokenCounting: "conservative-estimate", capabilities: nvidiaNemotronNanoCapabilities }),
     Object.freeze({ logicalId: "openrouter/openai/gpt-oss-20b:free", upstreamId: "openai/gpt-oss-20b:free", verifiedAt: "2026-08-13", fixtureVersion: "openai-chat-v1", tokenCounting: "conservative-estimate", capabilities: openAiGptOssCapabilities }),
     Object.freeze({ logicalId: "deepseek/deepseek-v4-flash", upstreamId: "deepseek-v4-flash", verifiedAt: "2026-08-13", fixtureVersion: "openai-chat-v1", tokenCounting: "conservative-estimate", capabilities: deepSeekFlashCapabilities }),
+    Object.freeze({ logicalId: "codex/gpt-5.4", upstreamId: "gpt-5.4", verifiedAt: "2026-08-14", fixtureVersion: "codex-oauth-chat-v1", tokenCounting: "conservative-estimate", capabilities: codexGpt54Capabilities }),
   ]),
 });
 
-/** Keeps probe observations separate from declarative evidence; callers must explicitly persist reviewed changes. */
+/** Exact `(providerId, modelId)` evidence only. Never match another provider by upstream id. */
 export function findModelEvidence(registry: RegistryDocument, providerId: string, modelId: string): ModelEvidence | undefined {
-  return registry.models.find((model) => model.logicalId === `${providerId}/${modelId}` || model.upstreamId === modelId);
+  return registry.models.find((model) => model.logicalId === `${providerId}/${modelId}`);
 }
 
 /** Config selects an evidence-backed route; unknown models have no route. */

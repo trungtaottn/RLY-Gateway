@@ -68,6 +68,22 @@ describe("profile activation", () => {
     })).toThrow(ProfileActivationError);
   });
 
+  it("maps Claude helpers onto Codex model roles without remapping unknown shortcuts", () => {
+    const codex = profile({
+      name: "codex",
+      modelRoles: { primary: "gpt-5.4", fast: "gpt-5.4" },
+    });
+    expect(resolveProfileRole("claude-haiku-4-5", codex.modelRoles)).toEqual({ role: "fast", modelId: "gpt-5.4" });
+    expect(resolveProfileRole("gpt-5.4", codex.modelRoles)).toEqual({ role: "primary", modelId: "gpt-5.4" });
+    expect(resolveProfileRole("claude-haiku-unknown", codex.modelRoles)).toBeUndefined();
+    expect(() => activateProfile([codex], {
+      name: "codex",
+      requestedModel: "primary",
+      required: ["images"],
+      baseCapabilities: { ...capabilities, images: false },
+    })).toThrow(ProfileActivationError);
+  });
+
   it("keeps launch sessions lease-scoped and account-free", () => {
     const active = new Set(["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"]);
     const registry = new LaunchSessionRegistry((leaseId) => active.has(leaseId));

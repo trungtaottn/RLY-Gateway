@@ -115,3 +115,15 @@ When a requirement changes, update its owning document and this matrix in the sa
 | Acceptance | Evidence | Status |
 | --- | --- | --- |
 | AT-033 | `tests/unit/cli-main.test.ts`, `tests/lifecycle/global-config-isolation.test.ts` | Verified `rly <profile>` launches Claude Code; reserved commands stay reserved; unknown profile fails closed; `rly run codex` unchanged; global Claude/Codex config byte-identical |
+
+## Phase 3 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| NX-001 / FR-008 | `README.md`, `CONTRIBUTING.md` | Operator recipe: `codex` OAuth provider, login or explicit import, pool, Claude profile named `codex`, `rly codex`. `rly run codex` remains Codex CLI |
+| AT-021 subset | `tests/lifecycle/codex-profile-route.test.ts`, `tests/e2e/claude-code/codex-oauth.e2e.test.ts` | Verified helper mapping, streaming, and tools through a Codex OAuth profile; Claude Code fake E2E is opt-in (`RLY_CLAUDE_E2E=1`) and skipped ≠ pass |
+| AT-022 subset | `tests/e2e/claude-code/codex-oauth.e2e.test.ts` | Verified cancellation aborts the Codex fake upstream; no global Claude/Codex config mutation |
+| AT-017 / AT-019 subset | `tests/lifecycle/codex-profile-route.test.ts` | Verified quota rotation and sticky session through existing pool machinery on a Codex profile |
+| NX-004 | `tests/unit/model-registry.test.ts`, `tests/lifecycle/codex-profile-route.test.ts` | Verified exact `(codex, gpt-5.4)` evidence; OpenRouter ids and unknown Codex models fail closed; images fail closed |
+| AT-027 subset / NX-005 | `tests/unit/cli-diagnostics.test.ts` | Verified `quota` and `route-trace` print only pseudonym, quota class, and decision reason for a Codex profile |
+| NX-003 live | `tests/e2e/claude-code/codex-oauth-live.e2e.test.ts`, `tests/contract/providers/codex-oauth/live-smoke.test.ts` | Skipped unless `RLY_LIVE_CODEX_OAUTH=1` (and a project-owned handle / `claude` binary); not passing evidence |

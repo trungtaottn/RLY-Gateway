@@ -42,6 +42,7 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 - Never signal a process based only on port occupancy.
 - Never use existing protected ports `10100`, `8317`, or `17870` for this project.
 - Never persist global Claude/Codex configuration in normal launch paths.
+- Codex through Claude Code is a Claude harness profile named `codex` launched as `rly codex`. Follow the README operator recipe: create the `codex` OAuth provider, login or explicit import (never paste tokens), pool, profile, then `rly codex`. `rly run codex` remains Codex CLI. `--profile` and `--route` stay exclusive.
 - Credential import/interoperability may read another client store only when explicitly requested by the owner and governed by the credential broker contract.
 - Never retry after response bytes or a tool event have been emitted.
 - Live tests are opt-in and must not log real content.

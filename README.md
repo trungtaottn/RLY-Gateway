@@ -91,13 +91,55 @@ rly run claude --profile <name> -- --help
 rly run codex -- --help
 ```
 
-`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` and `route-trace` print secret-free account quota classes and last-N in-memory route decisions from the running instance. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, and `run`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
+`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` prints pseudonym and quota class only. `route-trace` prints profile name, decision reason, and selected pseudonym only. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, and `run`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
 
 With configured direct routes or a selected Codex OAuth account, the lifecycle
 server also exposes authenticated Anthropic Messages and token-count endpoints.
 Configured routes are explicit `primary`, `fast`, and `reasoning` mappings; the
 gateway never auto-selects a model. Credential fields are `env:` or `handle:`
 references, never raw secrets.
+
+## Codex subscription through Claude Code
+
+Canonical launch is `rly codex`: Claude Code using a RLY Claude profile named `codex` against a Codex OAuth pool. `rly run codex` is Codex CLI and is not this path. `--profile` and `--route` stay exclusive.
+
+1. Create `gateway.toml` if needed, then start the gateway once so management is listening (`rly doctor` after, or any later `rly` command).
+2. Create the Codex OAuth provider:
+
+```bash
+rly admin providers create --name codex --mode oauth
+```
+
+3. Add accounts by PKCE login or explicit import. Do not paste access tokens, refresh tokens, emails, or account ids into the shell, docs, or tickets.
+
+```bash
+rly admin credentials login --provider-id <provider-id> --pseudonym acct-1
+```
+
+Or import a local Codex `auth.json` after previewing the fingerprint:
+
+```bash
+rly admin credentials preview --source /path/to/auth.json --provider-id <provider-id>
+rly admin credentials import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
+```
+
+Repeat login or import for each additional OAuth account you want in the pool.
+
+4. Create a pool that contains those account ids, then a Claude harness profile named `codex` whose model roles are reviewed Codex ids (today `gpt-5.4`):
+
+```bash
+rly admin pools create --name codex-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id> --retry-budget 1
+rly admin profiles create --name codex --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"gpt-5.4","fast":"gpt-5.4","reasoning":"gpt-5.4"}'
+```
+
+5. Launch Claude Code through that profile:
+
+```bash
+rly codex
+rly run claude --profile codex --
+```
+
+The second form is compatibility only. Unknown required capabilities fail closed. Codex models are not remapped onto OpenRouter or other provider evidence.
 
 ## Verification
 

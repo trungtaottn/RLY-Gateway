@@ -51,7 +51,7 @@ describe.skipIf(!enabled || !handle)("Codex OAuth live pool smoke", () => {
         harness: "claude",
         providerId: provider.id,
         poolId: pool.id,
-        modelRoles: { primary: "gpt-5.4" },
+        modelRoles: { primary: "gpt-5.4", fast: "gpt-5.4", reasoning: "gpt-5.4" },
       }, "cli");
       const sessions = new LaunchSessionRegistry();
       const traces = new RouteTraceRing();
