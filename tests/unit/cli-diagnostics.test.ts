@@ -10,6 +10,7 @@ import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { CredentialBroker } from "../../src/credentials/broker.js";
 import { acquireGateway, runtimeDirectory } from "../../src/runtime/gateway-lifecycle.js";
 import { prepareClaudeOverlay, CLAUDE_OVERLAY_ALLOWLIST_VERSION } from "../../src/runtime/claude-overlay.js";
+import { CLAUDE_CODE_FIXTURE_BASELINE } from "../../src/canary/client-fixtures.js";
 import { seedCodexClaudeProfile, sseFixture } from "../helpers/codex-profile-seed.js";
 
 const directories: string[] = [];
@@ -47,6 +48,38 @@ describe("CLI diagnostics", () => {
       expect(printed).toContain('"claudeTarget"');
       expect(printed).toContain('"codexTarget"');
       expect(printed).not.toMatch(/OPENROUTER_API_KEY|accessToken|authorization|prompt/i);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("reports exact client version metadata and the canary baseline in doctor (#24)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-doctor-version-"));
+    directories.push(directory);
+    const configPath = join(directory, "gateway.toml");
+    await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(runDoctor(configPath)).resolves.toBe(0);
+      const printed = String(log.mock.calls[0]?.[0]);
+      const doctor = JSON.parse(printed) as {
+        claudeTarget: { found: boolean; executable: string; version?: string; versionSource: string };
+        codexTarget: { found: boolean; executable: string; version?: string; versionSource: string };
+        canary: { testedBaseline: string; liveGateEnv: string };
+      };
+      // Binary presence and exact version metadata are separate fields; a
+      // machine may legitimately have an installed client (versionSource
+      // "cli-output") or none ("unknown") — presence never implies baseline.
+      expect(doctor.claudeTarget).toHaveProperty("found");
+      expect(doctor.claudeTarget).toHaveProperty("executable");
+      expect(["cli-output", "unknown"]).toContain(doctor.claudeTarget.versionSource);
+      expect(["cli-output", "unknown"]).toContain(doctor.codexTarget.versionSource);
+      if (doctor.claudeTarget.versionSource === "cli-output") {
+        expect(doctor.claudeTarget["version"]).toEqual(expect.any(String));
+      }
+      expect(doctor.canary.testedBaseline).toBe(CLAUDE_CODE_FIXTURE_BASELINE);
+      expect(doctor.canary.liveGateEnv).toBe("RLY_LIVE_CANARY");
+      expect(printed).not.toMatch(/Bearer|accessToken|authorization|prompt/i);
     } finally {
       log.mockRestore();
     }
