@@ -1,12 +1,17 @@
 import type { GatewayConfig } from "../config/schema.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
-import { managementOrigin } from "../management/origin.js";
 import { createCatalogSource } from "../providers/catalog-discovery.js";
 import { proposeCatalogDrift, type CatalogProposalReport } from "../registry/catalog-proposal.js";
 import { ProposalStore, readDiscoverySnapshotFile } from "../registry/proposal-store.js";
-import { runtimeDirectory } from "../runtime/gateway-lifecycle.js";
-import { RuntimeStore } from "../runtime/runtime-store.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
+import {
+  issueBootstrapUrl,
+  managementBaseUrl,
+  managementRequest,
+  parseFields,
+  printManagementResult,
+  readManagementToken,
+} from "./management-client.js";
 
 export type AdminCommand = Readonly<{
   command: "admin";
@@ -46,44 +51,39 @@ export async function runAdmin(command: AdminCommand, config: GatewayConfig): Pr
     throw new Error("pause and resume apply only to accounts");
   }
   if (command.resource === "models") return runModelsAdmin(command, config);
-  const store = new RuntimeStore(runtimeDirectory(config.gateway.port));
-  const token = await store.readManagementSecret();
+  const token = await readManagementToken(config);
   if (!token) {
     console.log(JSON.stringify({ ok: false, error: "management is not running" }));
     return 1;
   }
-  const origin = managementOrigin(config.gateway.host, config.gateway.managementPort);
-  const baseUrl = origin;
+  const baseUrl = managementBaseUrl(config);
+  const origin = baseUrl;
   if (command.resource === "ui") {
-    const issued = await managementRequest(baseUrl, token, origin, "POST", "/auth/bootstrap");
-    if (!issued.ok) return 1;
-    const body = issued.body as { token?: string };
-    if (typeof body.token !== "string") {
+    const url = await issueBootstrapUrl(baseUrl, token, origin);
+    if (!url) {
       console.log(JSON.stringify({ ok: false, error: "bootstrap failed" }));
       return 1;
     }
-    console.log(JSON.stringify({ ok: true, url: `${baseUrl}/#t=${body.token}` }));
+    console.log(JSON.stringify({ ok: true, url }));
     return 0;
   }
   if (command.resource === "credentials") {
     if (command.action === "preview") {
-      return (await managementRequest(baseUrl, token, origin, "POST", "/v1/credentials/import/preview", bodyFromFields(command))).ok ? 0 : 1;
+      return requestOk(baseUrl, token, origin, "POST", "/v1/credentials/import/preview", bodyFromFields(command));
     }
     if (command.action === "import") {
-      return (await managementRequest(baseUrl, token, origin, "POST", "/v1/credentials/import", bodyFromFields(command))).ok ? 0 : 1;
+      return requestOk(baseUrl, token, origin, "POST", "/v1/credentials/import", bodyFromFields(command));
     }
     const started = await managementRequest(baseUrl, token, origin, "POST", "/v1/credentials/login", bodyFromFields(command));
     if (!started.ok) return 1;
-    return (await managementRequest(baseUrl, token, origin, "POST", "/v1/credentials/login/complete", {})).ok ? 0 : 1;
+    return requestOk(baseUrl, token, origin, "POST", "/v1/credentials/login/complete", {});
   }
   const path = `/v1/${command.resource}`;
   if (command.action === "list") {
-    const result = await managementRequest(baseUrl, token, origin, "GET", path);
-    return result.ok ? 0 : 1;
+    return requestOk(baseUrl, token, origin, "GET", path);
   }
   if (command.action === "create") {
-    const result = await managementRequest(baseUrl, token, origin, "POST", path, bodyFromFields(command));
-    return result.ok ? 0 : 1;
+    return requestOk(baseUrl, token, origin, "POST", path, bodyFromFields(command));
   }
   const id = command.fields["id"];
   const version = command.fields["version"];
@@ -93,24 +93,22 @@ export async function runAdmin(command: AdminCommand, config: GatewayConfig): Pr
   if (command.action === "resume") payload["state"] = "ready";
   payload["version"] = Number(version);
   if (command.action === "revoke" || command.action === "refresh" || command.action === "select") {
-    const result = await managementRequest(baseUrl, token, origin, "POST", `${path}/${id}/${command.action}`, payload);
-    return result.ok ? 0 : 1;
+    return requestOk(baseUrl, token, origin, "POST", `${path}/${id}/${command.action}`, payload);
   }
-  const result = await managementRequest(baseUrl, token, origin, "PATCH", `${path}/${id}`, payload);
-  return result.ok ? 0 : 1;
+  return requestOk(baseUrl, token, origin, "PATCH", `${path}/${id}`, payload);
 }
 
-function parseFields(args: readonly string[]): Record<string, string> {
-  const fields: Record<string, string> = {};
-  for (let index = 0; index < args.length; index += 1) {
-    const key = args[index];
-    if (key === undefined || !key.startsWith("--")) continue;
-    const value = args[index + 1];
-    if (value === undefined || value.startsWith("--")) throw new Error(`${key} requires a value`);
-    fields[key.slice(2)] = value;
-    index += 1;
-  }
-  return fields;
+async function requestOk(
+  baseUrl: string,
+  token: string,
+  origin: string,
+  method: "GET" | "POST" | "PATCH",
+  path: string,
+  body?: Readonly<Record<string, unknown>>,
+): Promise<number> {
+  const result = await managementRequest(baseUrl, token, origin, method, path, body);
+  printManagementResult(result);
+  return result.ok ? 0 : 1;
 }
 
 function bodyFromFields(command: AdminCommand): Record<string, unknown> {
@@ -141,28 +139,6 @@ function bodyFromFields(command: AdminCommand): Record<string, unknown> {
 function copyString(body: Record<string, unknown>, fields: Readonly<Record<string, string>>, from: string, to = from): void {
   const value = fields[from];
   if (value !== undefined) body[to] = value;
-}
-
-async function managementRequest(
-  baseUrl: string,
-  token: string,
-  origin: string,
-  method: "GET" | "POST" | "PATCH",
-  path: string,
-  body?: Readonly<Record<string, unknown>>,
-): Promise<{ ok: boolean; body: unknown }> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      origin,
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const payload: unknown = await response.json().catch(() => ({ error: "invalid-response" }));
-  console.log(JSON.stringify(payload));
-  return { ok: response.ok, body: payload };
 }
 
 // ---------------------------------------------------------------------------
