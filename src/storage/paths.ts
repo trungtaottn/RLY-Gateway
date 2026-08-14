@@ -16,6 +16,7 @@ export const SELECTOR_AFFINITY_NAME = "selector-affinity.json";
 export const RESPONSES_DIRECTORY = "responses";
 export const LOG_DIRECTORY = "logs";
 export const RETENTION_MARKER_NAME = "retention.marker";
+export const INSTALLATION_NAME = "installation.json";
 export const RLY_STATE_DIRECTORY_NAME = ".rly";
 export const LEGACY_STATE_DIRECTORY_NAME = ".agent-gateway";
 
@@ -180,6 +181,7 @@ export function controlPlanePaths(directory: string): Readonly<{
   responses: string;
   logs: string;
   retentionMarker: string;
+  installation: string;
 }> {
   const credentials = join(directory, CREDENTIAL_DIRECTORY);
   return {
@@ -196,5 +198,6 @@ export function controlPlanePaths(directory: string): Readonly<{
     responses: join(directory, RESPONSES_DIRECTORY),
     logs: join(directory, LOG_DIRECTORY),
     retentionMarker: join(directory, RETENTION_MARKER_NAME),
+    installation: join(directory, INSTALLATION_NAME),
   };
 }

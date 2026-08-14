@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
 import { runDoctor, runQuota, runRouteTrace, runStatus } from "./diagnostics.js";
+import { runGatewayCommand, type GatewayAction } from "./gateway.js";
+import { runInit } from "./init.js";
 import { loadConfig } from "../config/load-config.js";
 import { ProfileActivationError } from "../profiles/errors.js";
 import { launchClaude, launchCodex, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
@@ -23,12 +25,14 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path]");
 }
 
 export type ParsedCliCommand =
   | Readonly<{ command: "status" | "doctor" | "quota" | "route-trace"; configPath: string }>
   | Readonly<{ command: "run-claude" | "run-codex"; configPath: string; claudeArgs: readonly string[]; route?: string; profile?: string }>
+  | Readonly<{ command: "init"; configPath: string }>
+  | Readonly<{ command: "gateway"; action: GatewayAction; configPath: string }>
   | AdminCommand;
 
 function isDiagnosticCommand(value: string | undefined): value is "status" | "doctor" | "quota" | "route-trace" {
@@ -124,6 +128,21 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
     return parseAdminArgs(args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config"), configPath(args, cwd));
   }
   if (command === "run") return parseRunCommand(args, cwd);
+  if (command === "init") {
+    const rest = args.slice(1);
+    if (rest.length > 0 && rest[0] !== "--config") throw new Error("init accepts only --config");
+    return { command: "init", configPath: configPath(rest, cwd) };
+  }
+  if (command === "gateway") {
+    const rest = args.slice(1);
+    const action = rest[0];
+    if (action !== "start" && action !== "stop" && action !== "status") {
+      throw new Error("gateway requires start, stop, or status");
+    }
+    const options = rest.slice(1);
+    if (options.length > 0 && options[0] !== "--config") throw new Error(`unknown option ${String(options[0])}`);
+    return { command: "gateway", action, configPath: configPath(options, cwd) };
+  }
   if (command === undefined || command.startsWith("-")) return undefined;
   return parseBareProfileCommand(command, args, cwd);
 }
@@ -204,6 +223,8 @@ export type CliDependencies = Readonly<{
     environment: Readonly<NodeJS.ProcessEnv>,
     harness?: "claude" | "codex",
   ) => Promise<{ token: string; args: readonly string[]; executable: string | undefined }>;
+  runInit?: (configPath: string) => Promise<number>;
+  runGateway?: (action: GatewayAction, configPath: string) => Promise<number>;
 }>;
 
 async function runHarnessCommand(
@@ -246,6 +267,8 @@ export async function runCli(
     return 2;
   }
   if (parsed.command === "run-claude" || parsed.command === "run-codex") return runHarnessCommand(parsed, dependencies);
+  if (parsed.command === "init") return (dependencies.runInit ?? runInit)(parsed.configPath);
+  if (parsed.command === "gateway") return (dependencies.runGateway ?? runGatewayCommand)(parsed.action, parsed.configPath);
   if (parsed.command === "admin") return runAdmin(parsed, await loadConfig(parsed.configPath));
   if (parsed.command === "doctor") return runDoctor(parsed.configPath);
   if (parsed.command === "status") return runStatus(parsed.configPath);
