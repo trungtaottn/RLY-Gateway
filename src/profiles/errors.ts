@@ -20,6 +20,13 @@ export class ProfileActivationError extends Error {
      * `mapping-invalid`, or the underlying `tier-unavailable` cause).
      */
     readonly tierFailure?: TierResolutionFailure,
+    /**
+     * Underlying #68 model-selection failure code when the tier stage failed
+     * validating a mapped/derived target for THIS request (e.g.
+     * `reasoning-unsupported` for a tools+effort subagent). Surfaces on the
+     * HTTP contract as an additive `cause` for actionability.
+     */
+    readonly tierCause?: string,
   ) {
     super(message);
   }

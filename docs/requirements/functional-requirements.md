@@ -162,6 +162,17 @@
 - Failure: an unresolvable control-plane home or unreadable overlay write returns an actionable error and the launch does not proceed with a throwaway sandbox.
 - Acceptance: AT-065, AT-066, AT-067, AT-068, AT-069, AT-070, AT-071, AT-072.
 
+### FR-021 — Resolve Claude Code subagent model requests
+
+- Traces: BR-001, BR-005, BR-008, BR-009, SR-F-025, SR-NF-002.
+- Preconditions: a launch session with an activated Claude profile is bound to a live lease; the request carries the launch child token.
+- Behavior: capture Claude Code agent attribution headers (`X-Claude-Code-Session-Id`, `X-Claude-Code-Agent-Id`, `X-Claude-Code-Parent-Agent-Id`) at the Anthropic ingress as typed runtime context on the canonical request, without inspecting prompt content; maintain a session-scoped in-memory execution-context registry bound to the launch session/lease (access provider, frozen physical model id, model family, effective tier, mapping/registry revisions) that disappears on lease revocation or runtime restart; resolve a subagent request's tier in its parent's execution context (exact parent-agent match, then the session's main context, then the launch session's profile-default model when unambiguous); pass the parent's resolved model/family into #69 tier resolution, then #68 capability selection and #70 reasoning translation, then the existing account pool for the frozen target.
+- Isolation: a subagent's resolution never mutates the parent/main session's model, profile mapping, or global Claude settings; concurrent subagents with different agent ids resolve independently without context leakage.
+- Reasoning: explicit subagent `effort` (documented `low`/`medium`/`high`/`xhigh`/`max`) is preserved through the canonical reasoning request and #70 translation; a tool-using subagent with an explicit reasoning intent requires reasoning-with-tools evidence and fails closed otherwise.
+- Failure: unknown tier, missing evidence, unsatisfied capability, reasoning-with-tools gap, or an undeterminable parent/session family produce actionable typed errors (`tier-unavailable`, `capability-rejected`, plus the underlying cause); there is no silent fallback to the parent model, no global subagent model override, and no prompt-derived routing.
+- Trace/privacy: route traces may carry allowlisted pseudonyms (hashes) of Claude session/agent/parent ids plus the parent model/family that scoped tier resolution; never prompts, credentials, or durable user identity.
+- Acceptance: AT-084, AT-085, AT-086, AT-087, AT-088, AT-089, AT-090.
+
 ### FR-021 — Expose the trusted RLY model universe through Claude gateway discovery
 
 - Traces: BR-001, BR-005, BR-009, SR-F-025, SR-NF-002.

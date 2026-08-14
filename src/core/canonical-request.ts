@@ -1,5 +1,6 @@
 import type { ReasoningRequest } from "./reasoning.js";
 import type { LogicalTier } from "../routing/model-tiers/types.js";
+import type { AgentContext } from "./agent-context.js";
 
 export type ModelRole = "primary" | "fast" | "reasoning" | LogicalTier | "unknown";
 
@@ -54,4 +55,6 @@ export type CanonicalRequest = Readonly<{
     cacheControl?: readonly Readonly<{ scope: "system" | "message"; index: number }> [];
   }>;
   continuation?: Readonly<{ previousResponseId: string }>;
+  /** Claude Code agent attribution context (#71). Runtime data; never authorization. */
+  agent?: AgentContext;
 }>;

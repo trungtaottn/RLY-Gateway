@@ -177,6 +177,49 @@ model tiers** — never as four globally fixed physical models:
   native `fable` alias behavior is classified by #24; a client without it is
   surfaced as incompatible rather than silently forced through a global override.
 
+## Claude Code agent attribution and subagent model resolution (#71)
+
+Claude Code sends runtime attribution headers on gateway requests; RLY uses
+them to distinguish concurrent/nested subagent requests without inspecting
+prompt content:
+
+- **Ingress**: `X-Claude-Code-Session-Id`, `X-Claude-Code-Agent-Id`, and
+  `X-Claude-Code-Parent-Agent-Id` are parsed at the Anthropic decoder into a
+  typed `AgentContext` on the canonical request (`src/core/agent-context.ts`;
+  case-insensitive, partial attribution allowed, empty/missing → no context).
+  They are runtime attribution data, never authorization: authentication stays
+  with RLY launch/gateway tokens.
+- **Execution-context registry** (`src/profiles/agent-contexts.ts`): in-memory,
+  lease-scoped; after a successful resolution each agent's context (launch
+  binding, access provider, frozen physical model, model family, effective
+  tier, mapping/registry revisions) is recorded; entries are valid only while
+  the owning lease is active and are removed on lease revocation/expiry and
+  runtime restart. Never stores credentials, account ids, or identity.
+- **Parent-context resolution**: a subagent tier request resolves in its
+  parent's execution context — exact `(session, parentAgentId)` match, then
+  the session's main context, then the launch session's unambiguous
+  profile-default model. The parent model/family feeds #69 tier resolution;
+  when no parent/session family is determinable on a multi-family provider,
+  resolution fails closed (`tier-unavailable` + `family-unknown` cause).
+- **Routing**: the resolved tier target goes through #68 exact capability/
+  compatibility validation and #70 reasoning translation, then the existing
+  account pool for the frozen physical model. The parent/main session's model,
+  profile mapping, and global Claude settings are never mutated; concurrent
+  subagents resolve independently. Explicit subagent `effort` is preserved
+  into the canonical reasoning request; a tool-using subagent with explicit
+  reasoning demands `reasoningWithTools` evidence and fails closed otherwise.
+- **No global override**: RLY never uses a global `CLAUDE_CODE_SUBAGENT_MODEL`
+  or similar env that forces all subagents to one model; the source agent/skill
+  definition (`model: fable`) is never rewritten to a physical model.
+- **Diagnostics**: `/v1/route-traces` may carry allowlisted pseudonyms
+  (sha256 hashes) for Claude session/agent/parent linkage plus the parent
+  model/family used for tier resolution; never prompts, reasoning text,
+  credentials, or durable user identity.
+- The exact native `fable` alias behavior of a given Claude Code baseline is
+  classified by #24 canary fixtures; the gated real-client E2E
+  (`tests/e2e/claude-code/subagent-model.e2e.test.ts`, `RLY_CLAUDE_E2E=1`,
+  skipped ≠ pass) pins the gateway plumbing on the observed local client.
+
 ## Compatibility maintenance
 
 Protocol drift starts with a redacted reproducing fixture. Any newly observed
