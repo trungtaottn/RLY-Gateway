@@ -128,6 +128,17 @@
 - Constraint: deletion evidence proves application-level reachability/removal, not forensic media erasure.
 - Acceptance: AT-032.
 
+### FR-018 — Bootstrap and operate the persistent per-user runtime service
+
+- Traces: BR-008, SR-F-022, SR-NF-001/002.
+- Preconditions: `rly init` is invoked with a valid configuration; deterministic ports are available or owned by a compatible attested resident instance.
+- Behavior: settle the durable `~/.rly` home; validate the control-plane store; register the per-user service idempotently (macOS LaunchAgent or Linux `systemd --user`, no root); start the resident runtime; wait for an attested compatible resident instance; expose `rly gateway start|stop|status`; report version/resident state.
+- Resident ownership: the service holds a service-owned lease renewed by its own process, so the zero-lease idle shutdown never fires while the service is intentional; child launch/session leases stay independent and revocable.
+- Failure: foreign or unattested listener fails closed without signaling the owner; a launcher-owned instance is never reused or killed by the service; stale records are recovered with startup-lock/process-identity rules.
+- Shutdown: explicit service stop revokes launch sessions and closes boundedly (revoke, bounded close, broker/control-plane close, artifact cleanup).
+- Prohibition: no credential, token, or account identity in service definitions, logs, or diagnostics.
+- Acceptance: AT-034.
+
 ## Unresolved questions
 
 - Exact quota-aware strategy behavior after live quota evidence is pinned.

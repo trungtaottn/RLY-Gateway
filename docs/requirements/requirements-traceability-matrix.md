@@ -28,6 +28,15 @@
 | BR-R05 Unverified/incompatible route is unavailable | SR-F-003/004; FR-002/009 | AT-004/018/024 |
 | BR-R06 Public snapshot excludes local/private artifacts | SR-F-019/020; FR-015/016 | AT-028–AT-030 |
 
+## Phase 65 executable evidence (persistent runtime service)
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-034 / FR-018 / SR-F-022 | `tests/lifecycle/resident-runtime.test.ts` | Verified resident lease prevents zero-lease idle shutdown after launcher release; concurrent launchers reuse one runtime with independent leases; explicit shutdown revokes sessions, closes listeners, and cleans artifacts; idempotent shutdown; authenticated `/shutdown` route; already-running resident is a no-op; foreign listener fails closed without authorization; stale-record recovery; stop refuses launcher-owned instances; bounded launcher drain |
+| AT-034 service definitions | `tests/service-manager/definitions.test.ts`, `tests/service-manager/adapters.test.ts` | Verified LaunchAgent plist and systemd user unit content (absolute paths, restart-on-failure, no credentials/identity/env), idempotent register, launchctl/systemctl command sequences with fake runner, already-loaded tolerance, file modes, unsupported-platform actionability |
+| AT-034 init/CLI | `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts`, `tests/unit/cli-main.test.ts` | Verified `rly init` registers/starts service, writes `installation.json`, reports readiness, idempotent re-init, unsupported platform skip, readiness failure; `rly gateway start|stop|status` flows; reserved-command parsing |
+| AT-034 identity handshake | `tests/lifecycle/gateway-server.test.ts`, `tests/lifecycle/gateway-lifecycle.test.ts` | Verified `/identity` carries `runtimeVersion` + `resident`; `inspectGateway` distinguishes `attested-incompatible` from `occupied-foreign`; `/shutdown` authz and 202-then-close |
+
 ## Maintenance rule
 
 When a requirement changes, update its owning document and this matrix in the same change. When implementation completes, add the executable evidence reference without replacing the stable acceptance ID. If a Must requirement lacks downstream coverage or current evidence, the phase/release cannot be marked accepted.

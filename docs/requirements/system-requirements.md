@@ -38,6 +38,7 @@ This SRS defines externally verifiable system behavior for the local RLY Gateway
 | SR-F-019 | Record exact provenance and required notices for substantially reused source. | Must | Release provenance inspection |
 | SR-F-020 | Produce a public release snapshot without connecting private `dev` history to public `main`. | Must | Git topology verification |
 | SR-F-021 | Apply versioned retention and deletion policy to logs, audit, continuation state, backups, revoked credentials, and migration artifacts. | Must | Retention/deletion acceptance tests |
+| SR-F-022 | Bootstrap and operate a per-user resident runtime service: idempotent `rly init`, macOS LaunchAgent / Linux `systemd --user` registration without root, a service-owned lease that prevents zero-lease idle shutdown while the service is intentional, independent launch/session leases, an identity/version handshake, crash/stale-record recovery, and bounded explicit shutdown that never signals an unknown port owner. | Must | Service-manager, lifecycle, and CLI tests |
 
 ## Non-functional requirements
 
@@ -73,6 +74,7 @@ This SRS defines externally verifiable system behavior for the local RLY Gateway
 - Management browser: launcher fragment bootstrap exchanged for an `HttpOnly`, `SameSite=Strict` cookie; exact Origin and CSRF required.
 - Provider interfaces: documented direct API, project-owned OAuth, explicit interoperability, or attested bridge, selected per provider.
 - Configuration import/export: metadata and handles only; never raw credentials.
+- Per-user service managers: macOS launchd (user LaunchAgent) and Linux `systemd --user` with injectable command runners; definitions contain absolute executable/entrypoint/config paths only and never credentials or account identity.
 
 ## Assumptions
 

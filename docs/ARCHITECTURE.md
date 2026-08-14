@@ -44,6 +44,17 @@ The foreground launcher, runtime ownership store, and loopback server establish 
 - Runtime files are outside Git, restricted to the current user, and reject link replacement. Startup and lease mutations use ownership-aware locking.
 - Leases are heartbeated, expire after launcher loss, and trigger bounded idle cleanup. Diagnostics surface only an attested-compatible, foreign, stale, or absent lifecycle state.
 
+## Persistent per-user resident runtime
+
+`rly init` promotes the same foreground gateway into a per-user resident service without a second daemon or data plane:
+
+- `rly init` settles the durable `~/.rly` home, validates the control-plane store, registers the per-user service (macOS LaunchAgent / Linux `systemd --user`, idempotent, no root), starts it, and waits for an attested compatible resident runtime.
+- Resident ownership is a service lease renewed by the resident process itself, so the zero-lease idle shutdown never fires while the service is intentional. Child launch/session leases stay independent and revocable; closing a Claude/Codex child releases only its lease.
+- `rly <profile>`, `rly config`, and diagnostics reuse the same attested resident runtime; the foreground launcher remains the fallback when no service is initialized.
+- Explicit service stop is an attested, authenticated in-process `/shutdown` request: revoke launch sessions, bounded close, close broker/control-plane, clean owned runtime artifacts. An unknown port owner is never signaled.
+- Crash recovery uses service-manager restart plus the existing startup-lock/process-identity rules; stale records are recovered and foreign listeners fail closed.
+- `/identity` carries `runtimeVersion` and `resident` metadata for the version/protocol handshake (#73 update decisions). Platform specifics are owned by #33 (launchd) and #34 (systemd). See [ADR 0006](./adr/0006-persistent-user-runtime-service.md).
+
 ## Core contracts
 
 ### Client protocol adapter
@@ -124,7 +135,7 @@ Unknown identity or protocol-breaking version fails closed.
 - Ownership record must include PID/start identity, instance UUID, executable/config fingerprint, nonce hash, launcher owner, and active leases.
 - Reuse must require matching attestation and config.
 - Foreign port owner must never be signaled.
-- Gateway must shut down only according to its own leases and grace period.
+- Gateway must shut down only according to its own leases and grace period; an intentional resident service holds a service lease so it never enters zero-lease idle shutdown.
 
 ## Data and persistence
 
@@ -160,6 +171,7 @@ Structured logs default to metadata only. Route trace explains an explicit decis
 - [Transient launcher ownership](./adr/0003-transient-launcher-ownership.md)
 - [Self-owned control plane and credentials](./adr/0004-self-owned-control-plane-and-credentials.md)
 - [Request-time account routing](./adr/0005-request-time-account-routing.md)
+- [Persistent per-user runtime service](./adr/0006-persistent-user-runtime-service.md)
 
 ## Unresolved questions
 
