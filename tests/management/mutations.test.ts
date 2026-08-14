@@ -122,7 +122,7 @@ describe("management mutations", () => {
       method: "POST",
       url: "/v1/providers",
       headers: auth,
-      payload: { name: "keep", integrationMode: "direct" },
+      payload: { name: "openrouter", integrationMode: "direct" },
     });
     const unauthorized = await app.inject({
       method: "POST",
@@ -141,7 +141,45 @@ describe("management mutations", () => {
     expect(asRecord(stale.json())["error"]).toBe("stale-version");
     const listed = await app.inject({ method: "GET", url: "/v1/providers", headers: auth });
     expect(asItems(listed.json())).toHaveLength(1);
-    expect(asRecord(asItems(listed.json())[0])).toMatchObject({ name: "keep", enabled: true, version: 1 });
+    expect(asRecord(asItems(listed.json())[0])).toMatchObject({ name: "openrouter", enabled: true, version: 1 });
+  });
+
+  it("rejects uncatalogued names and Cline create without a safe endpoint", async () => {
+    await start();
+    if (!app) throw new Error("missing app");
+    const unknown = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "keep", integrationMode: "direct" },
+    });
+    expect(unknown.statusCode).toBe(400);
+    expect(asRecord(unknown.json())["error"]).toBe("invalid");
+    const missingEndpoint = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "cline", integrationMode: "oauth" },
+    });
+    expect(missingEndpoint.statusCode).toBe(400);
+    const protectedPort = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "cline", integrationMode: "oauth", endpointPolicy: "http://127.0.0.1:8317" },
+    });
+    expect(protectedPort.statusCode).toBe(400);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "cline", integrationMode: "oauth", endpointPolicy: "https://example.invalid/clinepass" },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(asRecord(created.json())).toMatchObject({
+      name: "cline",
+      endpointPolicy: "https://example.invalid/clinepass",
+    });
   });
 
   it("applies catalog terms and rejects a catalog name with the wrong mode", async () => {

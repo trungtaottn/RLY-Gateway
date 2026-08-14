@@ -1,6 +1,7 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SecretHandle } from "../../../src/credentials/env-resolver.js";
 import { decideRoute } from "../../../src/core/router.js";
@@ -58,6 +59,19 @@ describe("provider expansion contracts", () => {
       .resolves.toMatchObject({ readiness: "unavailable" });
   });
 
+  it("marks Antigravity ready only when the attested identity matches", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      product: "agent-gateway-antigravity-bridge", protocolVersion: 1,
+    }), { status: 200 }));
+    const adapter = new AntigravityBridgeAdapter(fetchImpl, {
+      baseUrl: "http://127.0.0.1:17874",
+      expectedIdentity: "agent-gateway-antigravity-bridge",
+      expectedProtocolVersion: 1,
+    });
+    await expect(adapter.probe(decision("antigravity", "antigravity-bridge"), new AbortController().signal))
+      .resolves.toMatchObject({ readiness: "ready" });
+  });
+
   it("imports Cline only from an explicit path and restores a lock backup", async () => {
     expect(() => rejectSilentClineDiscovery(undefined)).toThrow(/explicit source path/);
     const directory = await mkdtemp(join(tmpdir(), "agent-gateway-cline-"));
@@ -78,6 +92,16 @@ describe("provider expansion contracts", () => {
     const linked = join(directory, "cline-link.json");
     await symlink(source, linked);
     await expect(readClineSource(linked)).rejects.toThrow(/unreadable/);
+    const shapePath = join(dirname(fileURLToPath(import.meta.url)), "../../fixtures/upstream/clinepass/auth-shape.json");
+    const shape = JSON.parse(await readFile(shapePath, "utf8")) as {
+      schema: string;
+      requiredKeys: string[];
+      tokens: Record<string, string>;
+    };
+    expect(shape.schema).toBe("cline-oauth-v1");
+    expect(shape.requiredKeys).toEqual(["tokens.access_token", "tokens.refresh_token"]);
+    expect(shape.tokens["access_token"]).toBe("<omitted>");
+    expect(shape.tokens["refresh_token"]).toBe("<omitted>");
   });
 
   it("keeps OpenCode Go and Alibaba on isolated OpenAI-compatible transports", async () => {

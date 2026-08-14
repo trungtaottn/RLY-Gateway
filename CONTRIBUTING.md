@@ -28,8 +28,8 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 
 ## Git workflow
 
-- Handle one GitHub issue per isolated worktree and branch. See [AGENTS.md](./AGENTS.md) Issue delivery.
-- Branch from latest `origin/dev` as `<type>/<n>-<slug>`. Open one pull request into `dev`, never `main`.
+- Handle one plan phase per isolated worktree and branch. That worktree may include every issue in the phase. See [AGENTS.md](./AGENTS.md) Issue delivery.
+- Branch from latest `origin/dev` as `<type>/<phase>-<slug>`. Open one pull request into `dev`, never `main`.
 - Keep commits small and conventional.
 - Fill every required section in `.github/pull_request_template.md`. Thin or empty PR bodies are not reviewable.
 - Do not commit on `dev` directly. Merge to `dev` only through a reviewed PR.

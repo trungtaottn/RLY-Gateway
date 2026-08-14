@@ -34,8 +34,8 @@ Already in tree: explicit Cline import, `cline` credential provider, no Codex re
 
 | ID | Issue | Task | Acceptance |
 | --- | --- | --- | --- |
-| NX-010 | [#6](https://github.com/trungtaottn/agent-gateway/issues/6) | Pin a redacted ClinePass source schema from a real `auth.json` shape | Fixture synthetic only; provenance row if we adapt parser details |
-| NX-011 | [#7](https://github.com/trungtaottn/agent-gateway/issues/7) | Declare the ClinePass upstream endpoint policy | Documented loopback or HTTPS endpoint; never ports `10100`/`8317`/`17870` |
+| NX-010 | [#6](https://github.com/trungtaottn/agent-gateway/issues/6) | Pin a redacted ClinePass source schema from a real `auth.json` shape | Done: `tests/fixtures/upstream/clinepass/auth-shape.json` (synthetic; tokens omitted) |
+| NX-011 | [#7](https://github.com/trungtaottn/agent-gateway/issues/7) | Declare the ClinePass upstream endpoint policy | Done: create requires explicit loopback or HTTPS endpoint; protected ports rejected |
 | NX-012 | [#8](https://github.com/trungtaottn/agent-gateway/issues/8) | Operator recipe: explicit preview+import with `providerId`, pool, Claude profile | Preview without `providerId` stays rejected; import does not write the Cline store |
 | NX-013 | [#9](https://github.com/trungtaottn/agent-gateway/issues/9) | Fake-upstream Claude Code E2E through `cline-interop` | Text + tools; Cline failure does not touch Codex credential files |
 | NX-014 | [#10](https://github.com/trungtaottn/agent-gateway/issues/10) | Opt-in live smoke: Claude Code → gateway → ClinePass | Gated env; skipped ≠ pass |
@@ -56,11 +56,9 @@ Code exists (`src/providers/oauth/claude/`, catalog `claude`) but is **text-only
 
 ### Other Phase 10 leftovers
 
-- Gemini project-owned OAuth live smoke and README for `AGENT_GATEWAY_GEMINI_OAUTH_CLIENT_ID` ([#16](https://github.com/trungtaottn/agent-gateway/issues/16)).
-- Antigravity attested-bridge success-path identity probe + live opt-in ([#17](https://github.com/trungtaottn/agent-gateway/issues/17)).
-- OpenCode Go / Alibaba: reviewed model evidence before TOML routes; Alibaba stays terms-gated ([#18](https://github.com/trungtaottn/agent-gateway/issues/18)).
-- Real-browser management UI (keyboard, 375/1024) for AT-031 ([#19](https://github.com/trungtaottn/agent-gateway/issues/19)). Evidence: `pnpm test:browser` (`tests/browser/at-031.spec.ts`).
-- Reject uncatalogued provider names at create time (invoke already fail-closed) ([#20](https://github.com/trungtaottn/agent-gateway/issues/20)).
+Closed in the Phase 10 worktree: #16 README + skipped live smoke, #17 success probe + skipped live smoke, #18 no TOML routes without reviewed models, #19 Chromium AT-031 subset, #20 create-time catalog reject, #6 synthetic ClinePass shape, #7 explicit Cline endpoint policy.
+
+Still next-focus, not Phase 10 close: Cline Claude Code E2E/live (#8–#10), continuous Cline store (#11), parked Claude OAuth (#12–#15). Live Gemini/Antigravity smokes remain opt-in; skipped ≠ pass.
 
 ## Provider expansion
 

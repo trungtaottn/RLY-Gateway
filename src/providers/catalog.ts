@@ -119,6 +119,23 @@ export function providerContract(name: string): ProviderContract | undefined {
   return PROVIDER_CATALOG.find((item) => item.name === name || item.id === name);
 }
 
+const PROTECTED_PORTS = new Set([10100, 8317, 17870]);
+
+export function assertSafeEndpointPolicy(endpoint: string): void {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new ValidationError("endpoint policy must be a URL");
+  }
+  const port = url.port ? Number(url.port) : (url.protocol === "https:" ? 443 : url.protocol === "http:" ? 80 : Number.NaN);
+  if (PROTECTED_PORTS.has(port)) throw new ValidationError("endpoint policy cannot use a protected port");
+  const loopback = url.hostname === "127.0.0.1";
+  if (!loopback && url.protocol !== "https:") {
+    throw new ValidationError("endpoint policy must be loopback or https");
+  }
+}
+
 export function applyCatalogDefaults(input: Readonly<{
   name: string;
   integrationMode: IntegrationMode;
@@ -129,12 +146,16 @@ export function applyCatalogDefaults(input: Readonly<{
   requiredTermsRevision: string | undefined;
 }> {
   const contract = providerContract(input.name);
-  if (contract && contract.integrationMode !== input.integrationMode) {
+  if (!contract) throw new ValidationError(`unknown provider ${input.name}`);
+  if (contract.integrationMode !== input.integrationMode) {
     throw new ValidationError(`provider ${input.name} requires integration mode ${contract.integrationMode}`);
   }
+  const endpointPolicy = input.endpointPolicy || contract.defaultEndpoint || undefined;
+  if (!endpointPolicy) throw new ValidationError(`provider ${input.name} requires an endpoint policy`);
+  assertSafeEndpointPolicy(endpointPolicy);
   return {
-    endpointPolicy: input.endpointPolicy ?? contract?.defaultEndpoint,
-    requiredTermsRevision: input.requiredTermsRevision ?? contract?.defaultTermsRevision,
+    endpointPolicy,
+    requiredTermsRevision: input.requiredTermsRevision ?? contract.defaultTermsRevision,
   };
 }
 
