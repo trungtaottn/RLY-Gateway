@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 
 const root = process.cwd();
@@ -32,9 +32,9 @@ try {
   const consumer = join(directory, "consumer");
   await mkdir(consumer);
   await writeFile(join(consumer, "package.json"), `${JSON.stringify({ private: true, packageManager: "pnpm@11.16.0" })}\n`, "utf8");
-  // Pass the absolute tarball path: a bare filename is interpreted by pnpm as
-  // a registry spec and the consumer directory never contains the tarball.
-  execFileSync("pnpm", ["add", join(directory, packageTarball)], { cwd: consumer, stdio: "inherit" });
+  // pnpm pack reports the tarball path relative to the consumer dir on Linux but
+  // absolute on macOS; resolve() handles both without doubling the temp prefix.
+  execFileSync("pnpm", ["add", resolve(directory, packageTarball)], { cwd: consumer, stdio: "inherit" });
   const output = execFileSync("pnpm", ["exec", "rly", "doctor", "--config", "../gateway.config.example.toml"], { cwd: consumer, encoding: "utf8" });
   if (!output.includes('"ok":true') || !output.includes('"codexTarget"')) {
     process.stderr.write(`clean-install doctor output unexpected: ${output}\n`);
