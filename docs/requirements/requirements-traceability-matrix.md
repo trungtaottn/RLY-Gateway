@@ -37,6 +37,15 @@
 | AT-035 init/CLI | `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts`, `tests/unit/cli-main.test.ts` | Verified `rly init` registers/starts service, writes `installation.json`, reports readiness, idempotent re-init, unsupported platform skip, readiness failure; `rly gateway start|stop|status` flows; reserved-command parsing |
 | AT-035 identity handshake | `tests/lifecycle/gateway-server.test.ts`, `tests/lifecycle/gateway-lifecycle.test.ts` | Verified `/identity` carries `runtimeVersion` + `resident`; `inspectGateway` distinguishes `attested-incompatible` from `occupied-foreign`; `/shutdown` authz and 202-then-close |
 
+## Phase 33 executable evidence (macOS launchd adapter, #33)
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-036 / FR-018 / SR-F-022 definitions | `tests/service-manager/definitions.test.ts` | Verified plist renders stable Label, absolute ProgramArguments, RunAtLoad, KeepAlive, explicit bounded ThrottleInterval, WorkingDirectory, StandardOut/ErrPath; no credentials/env/account identity; WorkingDirectory omitted unless provided |
+| AT-036 / FR-018 / SR-F-022 adapter | `tests/service-manager/adapters.test.ts` | Verified idempotent register without duplicate labels; changed-definition repair unloads before reloading; unchanged re-registration stays a no-op reload; launchctl v2 bootstrap/kickstart/bootout/print with legacy load/start/unload/list fallback; restart via `kickstart -k`; status parses `state = running` and pid from `print` (and legacy `list`); loaded-but-not-running reports stopped; stop tolerates an unloaded job; root refusal; 0600 plist / 0700 LaunchAgents dir; unregister removes only the RLY plist |
+| AT-036 init/CLI | `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts` | Verified `rly init` passes the durable log path (`~/.rly/logs/service.log`) and working directory into the adapter; `rly gateway status` reports service label/load state/pid on macOS separately from runtime readiness; secret-free output |
+| AT-036 live smoke | `tests/service-manager/launch-agent-live.test.ts` | macOS-only, opt-in `RLY_LIVE_LAUNCHAGENT_SMOKE=1`; skipped ≠ pass. Proves real launchd bootstrap → running → idempotent start → restart → stop → unregister in a GUI user session when CI/runtime permits |
+
 ## Maintenance rule
 
 When a requirement changes, update its owning document and this matrix in the same change. When implementation completes, add the executable evidence reference without replacing the stable acceptance ID. If a Must requirement lacks downstream coverage or current evidence, the phase/release cannot be marked accepted.
@@ -47,6 +56,7 @@ When a requirement changes, update its owning document and this matrix in the sa
 - Control-plane foundation evidence exists for schema/migrations, authenticated management, CLI administration, and secret-free DTOs.
 - Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, Claude Code profile integration, and the secret-free local UI are implemented; `rly <profile>` is the canonical Claude Code alias and Codex CLI remains `rly run codex`.
 - The model intelligence registry (`src/registry/model-registry.ts`) is the canonical model-data layer and the source of truth for #68-#72: exact access-provider identity, upstream model id/family, capability/limits/reasoning evidence, typed compatibility state, deterministic query helpers, and a discovery→proposal boundary that never mutates reviewed evidence (#23). `ProviderRecord.capabilityEvidence` is typed against the registry schema (was `unknown`).
+- The macOS LaunchAgent adapter is delivered by #33 on top of the #65 service-manager contract: one per-user `com.rly.gateway` plist without root, launchctl v2/legacy tolerance, idempotent repair that unloads before reloading, bounded crash-restart, secret-free paths, and service load state/pid reported separately from runtime readiness (AT-036). Linux `systemd --user` specifics remain #34.
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
 
 ## Phase 67 executable evidence (model foundation, #67)

@@ -15,6 +15,7 @@ export type CreateServiceManagerOptions = Readonly<{
   home?: string;
   runner?: ServiceCommandRunner;
   logPath?: string;
+  workingDirectory?: string;
   serviceName?: string;
   label?: string;
 }>;
@@ -27,6 +28,7 @@ export function createServiceManager(options: CreateServiceManagerOptions = {}):
       ...(options.label === undefined ? {} : { label: options.label }),
       ...(options.runner === undefined ? {} : { runner: options.runner }),
       ...(options.logPath === undefined ? {} : { logPath: options.logPath }),
+      ...(options.workingDirectory === undefined ? {} : { workingDirectory: options.workingDirectory }),
     });
   }
   if (platform === "linux") {

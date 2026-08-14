@@ -1,10 +1,13 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
+import { homedir } from "node:os";
 import type { GatewayConfig } from "../config/schema.js";
 import { loadConfig } from "../config/load-config.js";
 import { managementOrigin } from "../management/origin.js";
 import { inspectRuntimeGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
+import { createServiceManager } from "../service-manager/index.js";
+import { serviceDetail } from "../service-manager/types.js";
 import { readInstallation } from "../storage/installation.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
@@ -111,6 +114,12 @@ export async function runStatus(path: string): Promise<number> {
   const running = state.state === "attested-compatible";
   const extras = running ? await secretFreeInventory(config) : {};
   const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
+  // macOS: service label/load state/pid are reported separately from runtime
+  // readiness and only when an installation record exists (never runs launchctl
+  // against a fresh home).
+  const detail = installation?.platform === "darwin"
+    ? await serviceDetail(createServiceManager({ home: homedir() }))
+    : undefined;
   console.log(JSON.stringify({
     configured: true,
     running,
@@ -120,7 +129,18 @@ export async function runStatus(path: string): Promise<number> {
       : {}),
     service: installation === undefined
       ? { registered: false }
-      : { registered: true, platform: installation.platform, serviceName: installation.serviceName },
+      : {
+          registered: true,
+          platform: installation.platform,
+          serviceName: installation.serviceName,
+          ...(detail === undefined
+            ? {}
+            : {
+                label: detail.label,
+                loadState: detail.loaded ? (detail.running ? "running" : "stopped") : "not-loaded",
+                ...(detail.pid === undefined ? {} : { pid: detail.pid }),
+              }),
+        },
     host: config.gateway.host,
     port: config.gateway.port,
     managementPort: config.gateway.managementPort,
