@@ -112,12 +112,12 @@
 - Failure: unknown CLIProxy Plus or other component license blocks copying that component.
 - Acceptance: AT-028.
 
-### FR-016 — Publish one clean public snapshot
+### FR-016 — Bootstrap a clean public baseline and promote releases
 
 - Traces: BR-011, SR-F-020.
 - Preconditions: approved `dev` snapshot passes release/privacy/provenance gates.
-- Behavior: create release branch from orphan `main`; copy approved tracked snapshot without `.git` history/local artifacts; create one commit; open one PR to `main`.
-- Prohibition: never merge/rebase `dev` into `main` or push private branches as part of public release.
+- Behavior: for the one-time baseline, create a release branch from orphan `main`; copy the approved tracked snapshot without `.git` history/local artifacts; create one commit; open one PR to `main`. After that baseline, promote `dev` to `main` only through a reviewed PR that preserves ancestry.
+- Prohibition: never merge/rebase historical private `dev` into `main` or push private branches as part of the first public baseline.
 - Acceptance: AT-029, AT-030.
 
 ### FR-017 — Enforce retention and deletion

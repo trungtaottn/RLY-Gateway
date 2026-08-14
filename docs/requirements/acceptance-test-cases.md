@@ -32,7 +32,7 @@ These are acceptance scenarios, not hand-maintained implementation test names. T
 | AT-026 | Attempt cross-origin, invalid-CSRF, expired/replayed bootstrap, stale-version, logout/shutdown session use | Every attempt fails and no mutation occurs |
 | AT-027 | Inspect status, trace, logs, audit, error, UI, export, and package | No raw credential, account identity, prompt, response, or tool argument is present |
 | AT-028 | Adapt a substantial upstream module | Exact source/hash/license/path/classification/notice and verification owner are recorded in `docs/provenance.md`, `docs/provenance/adaptation-matrix.json`, and `docs/third-party-notices.md` |
-| AT-029 | Build public snapshot branch from orphan main | Snapshot contains approved public files in one commit and has no `dev` ancestor |
+| AT-029 | Bootstrap public baseline, then promote releases | Baseline snapshot contains approved public files in one commit and has no private `dev` ancestor; later reviewed promotion preserves normal ancestry |
 | AT-030 | Execute release/traceability gate | Must requirements have evidence; verify/privacy/license/migration/recovery/package/clean-install gates pass |
 | AT-031 | Operate every supported UI workflow with keyboard and accessibility inspection | Focus is visible/predictable; controls have programmatic labels; status/errors are textual; desktop/mobile layouts remain usable |
 | AT-032 | Apply and interrupt retention/deletion policy across every durable class | Expired data becomes unreachable and is removed per policy; cleanup resumes idempotently after interruption; no revoked/expired secret becomes active |

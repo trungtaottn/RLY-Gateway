@@ -75,9 +75,9 @@ Update the RTM whenever an approved requirement, design owner, or acceptance sce
 ## Public-release Git policy
 
 - Development history lives on `dev` and private feature branches.
-- Public `main` is an unrelated orphan history.
-- A public release branch starts from `main`, receives the approved `dev` snapshot as one commit, and enters `main` through one PR.
-- Never merge or rebase `dev` directly into `main`; doing so would connect or expose private history.
+- The first public `main` baseline is a one-time clean snapshot with no private `dev` ancestor.
+- After that bootstrap, public `dev` → `main` promotion uses reviewed PRs and preserves ancestry for normal release alignment.
+- Before the baseline, never merge or rebase historical private `dev` directly into `main`; the bootstrap must exclude local plans, credentials, databases, logs, runtime state, user paths, and private fixtures.
 - Before snapshotting, exclude local plans, credentials, databases, logs, runtime state, user paths, and private fixtures; run privacy, license, build, and clean-install gates.
 
 ## Unresolved questions

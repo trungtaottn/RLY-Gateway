@@ -114,6 +114,10 @@ pnpm build
 
 Contract and integration script names already exist and intentionally allow zero tests until their owning phases add real protocol/provider behavior.
 
+## Release lanes
+
+`dev` is the Beta lane and `main` is the Stable lane. Full verification runs once on PRs targeting either lane; trusted post-merge updates release without repeating the suite. The first future public Stable baseline is a separate clean-snapshot operation that keeps historical private development commits private. After that bootstrap, normal promotion preserves branch ancestry.
+
 ## License
 
 MIT. Adapted upstream code, when introduced, must be recorded in [`docs/provenance.md`](./docs/provenance.md) with its original notice, pinned artifact hash, and a row in the [adaptation matrix](./docs/source-adaptation-matrix.md).

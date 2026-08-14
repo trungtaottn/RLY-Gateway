@@ -99,10 +99,10 @@ Every PR body must fill `.github/pull_request_template.md`. Do not open a PR wit
 
 Do not merge your own PR unless the owner asked. Do not commit `LICENSE` copyright flips, credentials, databases, logs, runtime state, user paths, or private fixtures.
 
-## Git and public release
+## Git and release lanes
 
-- Develop only on the phase worktree branch. Fast-forward `dev` only by merging reviewed PRs.
-- Do not develop on `main`.
-- `main` is an unrelated orphan public history. Never merge or rebase `dev` directly into `main`.
-- Public release: branch from `main`, copy the approved `dev` snapshot without Git history/local artifacts, create one commit, then open one PR to `main`.
+- `dev` is the Beta lane and `main` is the Stable lane. Both accept normal changes only through PRs with the required `required-ci` check green; direct and force pushes are forbidden.
+- Full `pnpm verify` runs only on PRs targeting `dev` or `main`. A trusted post-merge branch update performs release responsibilities only; it must not rerun the full suite.
+- Feature/fix/chore branches merge into `dev` with a Conventional Commit-compatible PR title; squash merge is preferred so that title is the release commit message.
+- The future first public `main` baseline is a one-time clean-snapshot operation that must not expose historical private `dev` commits. After that bootstrap, normal `dev` → `main` promotion preserves ancestry for release alignment.
 - `plans/` remains local-only. Public source and durable docs are tracked; credentials, databases, logs, runtime state, user paths, and private fixtures are never tracked.
