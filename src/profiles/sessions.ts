@@ -1,9 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { ModelUniverseSnapshot } from "../routing/model-projection/types.js";
 
 export type LaunchSession = Readonly<{
   profileId: string;
   profileName: string;
   leaseId: string;
+  /**
+   * Session-pinned model universe (#72): compiled at issue time from the
+   * control-plane policy so an active session never sees a silently remapped
+   * projection target.
+   */
+  modelUniverse: ModelUniverseSnapshot;
 }>;
 
 function tokenHash(token: string): string {
@@ -16,13 +23,14 @@ export class LaunchSessionRegistry {
 
   public constructor(private readonly leaseActive: (leaseId: string) => boolean = () => true) {}
 
-  public issue(input: Readonly<{ profileId: string; profileName: string; leaseId: string }>): string {
+  public issue(input: Readonly<{ profileId: string; profileName: string; leaseId: string; modelUniverse: ModelUniverseSnapshot }>): string {
     if (!this.leaseActive(input.leaseId)) throw new Error("lease-not-active");
     const token = randomBytes(32).toString("base64url");
     this.sessions.set(tokenHash(token), {
       profileId: input.profileId,
       profileName: input.profileName,
       leaseId: input.leaseId,
+      modelUniverse: input.modelUniverse,
     });
     return token;
   }
