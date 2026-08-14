@@ -187,6 +187,20 @@ describe("profile pool route", () => {
     expect(tools.statusCode).toBe(200);
     expect(tools.body).toContain("POOL_OK");
 
+    // #69: a logical tier request fails closed when no eligible same-family
+    // target exists under the profile's provider (all-EXPERIMENTAL nvidia
+    // family, fallback disabled) — no silent cross-provider substitution.
+    const tierUnavailable = await app.inject({
+      method: "POST",
+      url: "/v1/messages",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      payload: { model: "fable", max_tokens: 8, messages: [{ role: "user", content: "fixture" }] },
+    });
+    expect(tierUnavailable.statusCode).toBe(400);
+    const tierError: { error?: { type?: string; reason?: string } } = tierUnavailable.json();
+    expect(tierError.error?.type).toBe("tier-unavailable");
+    expect(tierError.error?.reason).toBe("tier-unavailable");
+
     const siblingLease = "00000000-0000-4000-8000-000000000012";
     await leases.add(siblingLease);
     const sibling = await app.inject({

@@ -1,6 +1,7 @@
 import type { ReasoningRequest } from "./reasoning.js";
+import type { LogicalTier } from "../routing/model-tiers/types.js";
 
-export type ModelRole = "primary" | "fast" | "reasoning" | "unknown";
+export type ModelRole = "primary" | "fast" | "reasoning" | LogicalTier | "unknown";
 
 export type CanonicalContent =
   | { type: "text"; text: string }

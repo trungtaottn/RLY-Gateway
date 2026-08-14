@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import type { CapabilityRequirement, ProviderCapabilities } from "../core/capabilities.js";
 import type { ProfileRecord } from "../control-plane/types.js";
+import type { LogicalTier } from "../routing/model-tiers/types.js";
 import { ProfileActivationError } from "./errors.js";
 import { resolveProfileRole } from "./helper-map.js";
 import {
@@ -9,12 +10,16 @@ import {
   parseCapabilityPolicy,
   parseLaunchPolicy,
   type LaunchPolicy,
+  type ProfileModelRole,
 } from "./schema.js";
+
+/** Role of the activated route: an existing profile role or a resolved logical tier (#69). */
+export type ActivatedRole = ProfileModelRole | LogicalTier;
 
 export type ActivatedProfile = Readonly<{
   profile: ProfileRecord;
   poolId: string;
-  role: "primary" | "fast" | "reasoning";
+  role: ActivatedRole;
   modelId: string;
   capabilities: ProviderCapabilities;
   launchPolicy: LaunchPolicy;
@@ -58,6 +63,8 @@ export function activateProfile(
     required: readonly CapabilityRequirement[];
     baseCapabilities: ProviderCapabilities;
     requireClaude?: boolean;
+    /** Pre-resolved role/model for #69 logical tier requests; bypasses the role helper. */
+    resolved?: Readonly<{ role: ActivatedRole; modelId: string }>;
   }>,
 ): ActivatedProfile {
   const named = input.profileId === undefined
@@ -71,8 +78,11 @@ export function activateProfile(
   if (input.profileId !== undefined && profile.id !== input.profileId) {
     throw new ProfileActivationError("profile-not-found");
   }
-  const mapped = resolveProfileRole(input.requestedModel, profile.modelRoles);
-  if (!mapped) throw new ProfileActivationError("role-unmapped");
+  // #69: a pre-resolved logical tier target bypasses the role helper (the
+  // requested model is a portable tier alias, not a profile role or helper).
+  // Capability policy is still applied and validated below.
+  const mapped = input.resolved ?? resolveProfileRole(input.requestedModel, profile.modelRoles);
+  if (mapped === undefined) throw new ProfileActivationError("role-unmapped");
   let capabilities: ProviderCapabilities;
   try {
     capabilities = applyCapabilityPolicy(input.baseCapabilities, parseCapabilityPolicy(profile.capabilityPolicy));
