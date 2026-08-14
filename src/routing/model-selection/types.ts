@@ -2,11 +2,12 @@ import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CompatibilityState, ModelEvidence } from "../../registry/model-registry.js";
 
 /**
- * Minimal reasoning intent for #68. #70 owns the full intent → provider
- * control translation; this contract only carries what eligibility needs:
- * whether reasoning is demanded and whether it must interleave with tool use.
+ * Minimal reasoning requirement for #68 eligibility. #70 owns the canonical
+ * `ReasoningIntent` (src/core/reasoning.ts); this contract only carries what
+ * eligibility needs: whether reasoning is demanded and whether it must
+ * interleave with tool use.
  */
-export type ReasoningIntent = Readonly<{
+export type ReasoningRequirement = Readonly<{
   /** Reasoning is demanded by the request (e.g. thinking enabled). */
   required: boolean;
   /** Reasoning must interleave with tool use. */
@@ -27,8 +28,8 @@ export type ModelSelectionInput = Readonly<{
   exactModelId?: string;
   /** Required protocol capabilities from the decoded request. */
   requiredCapabilities: readonly CapabilityRequirement[];
-  /** Reasoning requirement/intent (#70 when available). */
-  reasoning?: ReasoningIntent;
+  /** Reasoning requirement from the canonical request (#70 feeds eligibility). */
+  reasoning?: ReasoningRequirement;
   /**
    * Explicit opt-in for EXPERIMENTAL compatibility candidates on the
    * candidate-selection path. Default normal-user policy is VERIFIED only.

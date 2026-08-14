@@ -148,6 +148,30 @@ describe("profile pool route", () => {
     expect(body.traces[0]?.modelSelection?.source).toBe("exact");
     expect(JSON.stringify(body)).not.toMatch(/fixture-key|OPENROUTER_API_KEY|prompt|authorization/i);
 
+    // #70: an explicit thinking request carries deterministic reasoning
+    // translation metadata (intent/mapping kind/fallback reason) in the trace,
+    // never reasoning text, prompts, responses, or credentials.
+    const thinking = await app.inject({
+      method: "POST",
+      url: "/v1/messages",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      payload: { model: "primary", max_tokens: 8, stream: true, thinking: { type: "enabled" }, messages: [{ role: "user", content: "fixture" }] },
+    });
+    expect(thinking.statusCode).toBe(200);
+    const traced = await app.inject({
+      method: "GET",
+      url: "/v1/route-traces",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const tracedBody: unknown = traced.json();
+    const reasoning = tracedBody && typeof tracedBody === "object" && "traces" in tracedBody
+      ? (tracedBody as { traces: { reasoning?: { canonicalIntent?: string; mappingKind?: string; fallbackReason?: string } }[] }).traces.at(-1)?.reasoning
+      : undefined;
+    expect(reasoning?.canonicalIntent).toBe("BALANCED");
+    expect(reasoning?.mappingKind).toBe("normalized");
+    expect(reasoning?.fallbackReason).toMatch(/binary reasoning control has no effort granularity/);
+    expect(JSON.stringify(tracedBody)).not.toMatch(/fixture-key|OPENROUTER_API_KEY|prompt|authorization|fixture reasoning|thinking text/i);
+
     const tools = await app.inject({
       method: "POST",
       url: "/v1/messages",

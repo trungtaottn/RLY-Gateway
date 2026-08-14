@@ -1,4 +1,5 @@
-import { missingCapabilities, type CapabilityRequirement, type ProviderCapabilities } from "./capabilities.js";
+import { missingCapabilities, type CapabilityRequirement, type ProviderCapabilities, type ReasoningCapabilityEvidence } from "./capabilities.js";
+import type { ResolvedReasoning } from "./reasoning.js";
 import { createRouteDecision, type RouteDecision } from "./route-decision.js";
 import type { CredentialRef } from "../credentials/credential-ref.js";
 
@@ -9,6 +10,8 @@ export type RouteRecord = Readonly<{
   adapterId: string;
   credentialRef: CredentialRef;
   capabilities: ProviderCapabilities;
+  /** Exact selected-model reasoning evidence when the route is registry-backed (#70). */
+  reasoningEvidence?: ReasoningCapabilityEvidence;
 }>;
 
 export class UnsupportedRouteError extends Error {
@@ -26,6 +29,8 @@ export function decideRoute(input: {
   now?: Date;
   accountPseudonym?: string;
   credentialGeneration?: number;
+  /** Pre-computed intent→native translation (#70); copied into the decision. */
+  resolvedReasoning?: ResolvedReasoning;
 }): RouteDecision {
   const missing = missingCapabilities(input.route.capabilities, input.required);
   if (missing.length > 0) throw new UnsupportedRouteError(missing);
@@ -42,6 +47,8 @@ export function decideRoute(input: {
     decidedAt: (input.now ?? new Date()).toISOString(),
     ...(input.accountPseudonym === undefined ? {} : { accountPseudonym: input.accountPseudonym }),
     ...(input.credentialGeneration === undefined ? {} : { credentialGeneration: input.credentialGeneration }),
+    ...(input.route.reasoningEvidence === undefined ? {} : { reasoningEvidence: input.route.reasoningEvidence }),
+    ...(input.resolvedReasoning === undefined ? {} : { resolvedReasoning: input.resolvedReasoning }),
   });
 }
 

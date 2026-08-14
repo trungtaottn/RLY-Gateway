@@ -1,6 +1,7 @@
 import type { CanonicalEvent } from "../core/canonical-event.js";
 import type { CanonicalRequest } from "../core/canonical-request.js";
 import type { CapabilityRequirement } from "../core/capabilities.js";
+import { reasoningRequestFromWire } from "../core/reasoning.js";
 import { decideRoute, type RouteRecord } from "../core/router.js";
 import { conservativeTokenCount } from "../core/token-counting.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
@@ -9,11 +10,12 @@ import type { CredentialBroker } from "../credentials/broker.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
+import { ReasoningTranslationError, resolveReasoning } from "../providers/reasoning.js";
 import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route.js";
 import type { CredentialSnapshot } from "../routing/eligibility/reasons.js";
 import { isModelSelectionError } from "../routing/model-selection/errors.js";
 import { selectModel } from "../routing/model-selection/selector.js";
-import type { ModelSelectionResult, ReasoningIntent } from "../routing/model-selection/types.js";
+import type { ModelSelectionResult, ReasoningRequirement } from "../routing/model-selection/types.js";
 import { streamPoolRequest } from "../routing/pools/execute.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 import { activateProfile, findProfileById, inspectLaunchableProfile } from "./activate.js";
@@ -53,8 +55,27 @@ export async function resolveProfileRoute(
   // Stage 1: deterministic model capability selection (#68) against the trusted
   // registry, BEFORE any account/pool selection. The selected physical model is
   // frozen into the effective request/route; account failover can never change it.
-  const selection = selectModelForRequest(mapped.modelId, provider.name, dependencies.required ?? []);
+  const reasoningRequest = canonical.inference.reasoning ?? reasoningRequestFromWire({});
+  const selection = selectModelForRequest(mapped.modelId, provider.name, dependencies.required ?? [], canonical);
   const modelEvidence = selection.model;
+  // Stage 1b (#70): translate the canonical reasoning intent into the selected
+  // model's native control through the provider-owned boundary, BEFORE account
+  // selection, so the decision and trace carry deterministic mapping metadata.
+  // Fail-closed: an untranslatable explicit intent never becomes a silent
+  // downgrade; the typed reason surfaces on the existing profile error contract.
+  let resolvedReasoning: ReturnType<typeof resolveReasoning>;
+  try {
+    resolvedReasoning = resolveReasoning(reasoningRequest, modelEvidence.reasoning);
+  } catch (error) {
+    if (error instanceof ReasoningTranslationError) {
+      throw new ProfileActivationError(
+        "capability-rejected",
+        `Reasoning translation failed (${error.code}: ${provider.name}/${modelEvidence.identity.upstreamModelId})`,
+        translationFailureCode(error.code),
+      );
+    }
+    throw error;
+  }
   const activated = activateProfile(policy.snapshot.profiles, {
     profileId: session.profileId,
     name: session.profileName,
@@ -71,12 +92,14 @@ export async function resolveProfileRoute(
     adapterId,
     credentialRef: { kind: "handle", handle: "cred-profile-policy" },
     capabilities,
+    reasoningEvidence: modelEvidence.reasoning,
   };
   decideRoute({
     requestId: canonical.id,
     route,
     required: dependencies.required ?? [],
     configFingerprint: dependencies.configFingerprint,
+    resolvedReasoning,
   });
   const environment = dependencies.environment ?? process.env;
   const members = policy.snapshot.accounts.filter((account) => pool.memberships.some((item) => item.accountId === account.id));
@@ -104,6 +127,8 @@ export async function resolveProfileRoute(
             role: activated.role,
             credentialSnapshots: snapshots,
             sessionKey: session.leaseId,
+            reasoningEvidence: modelEvidence.reasoning,
+            resolvedReasoning,
           },
           invoke: (selected, invokeSignal) => invokeSelected(
             effectiveRequest,
@@ -114,7 +139,7 @@ export async function resolveProfileRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -126,8 +151,21 @@ function envCredentialName(handle: string): string | undefined {
   return handle.startsWith("env:") ? handle.slice(4) : undefined;
 }
 
-/** Builds the minimal reasoning intent (#70 extends this) from decoded request requirements. */
-function reasoningIntentFrom(required: readonly CapabilityRequirement[]): ReasoningIntent | undefined {
+function translationFailureCode(code: "unsupported-reasoning" | "no-budget-policy"): "reasoning-translation-unsupported" | "reasoning-budget-policy-missing" {
+  return code === "no-budget-policy" ? "reasoning-budget-policy-missing" : "reasoning-translation-unsupported";
+}
+
+/**
+ * Builds the reasoning requirement for #68 eligibility from the canonical
+ * request (#70): explicit non-OFF/non-AUTO intents demand reasoning; when the
+ * request also uses tools, reasoning must interleave with tool use (#24/#67
+ * evidence gate). OFF and AUTO delegate to the decoded capability list.
+ */
+function reasoningRequirementFrom(request: CanonicalRequest, required: readonly CapabilityRequirement[]): ReasoningRequirement | undefined {
+  const reasoning = request.inference.reasoning;
+  if (reasoning !== undefined && reasoning.intent !== "OFF" && reasoning.intent !== "AUTO") {
+    return { required: true, ...(request.tools.length > 0 ? { withTools: true } : {}) };
+  }
   return required.includes("reasoning") ? { required: true } : undefined;
 }
 
@@ -135,14 +173,18 @@ function reasoningIntentFrom(required: readonly CapabilityRequirement[]): Reason
  * Runs the deterministic model selection engine (#68) for an exact pinned
  * model, mapping typed selection failures onto the existing profile error
  * contract (`capability-rejected` plus the actionable `modelFailure` reason).
+ * #70 additionally fails closed when the canonical reasoning intent cannot be
+ * translated for the selected model (unsupported control or missing budget
+ * policy), never silently.
  */
 function selectModelForRequest(
   modelId: string,
   providerId: string,
   required: readonly CapabilityRequirement[],
+  request: CanonicalRequest,
 ): ModelSelectionResult {
   try {
-    const reasoning = reasoningIntentFrom(required);
+    const reasoning = reasoningRequirementFrom(request, required);
     return selectModel({
       accessProviderId: providerId,
       exactModelId: modelId,
@@ -155,6 +197,13 @@ function selectModelForRequest(
         "capability-rejected",
         `Model selection failed (${error.code}: ${providerId}/${modelId})`,
         error.code,
+      );
+    }
+    if (error instanceof ReasoningTranslationError) {
+      throw new ProfileActivationError(
+        "capability-rejected",
+        `Reasoning translation failed (${error.code}: ${providerId}/${modelId})`,
+        translationFailureCode(error.code),
       );
     }
     throw error;

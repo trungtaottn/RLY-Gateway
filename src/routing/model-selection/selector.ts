@@ -13,7 +13,7 @@ import type {
   ModelSelectionInput,
   ModelSelectionResult,
   ModelSelectionTrace,
-  ReasoningIntent,
+  ReasoningRequirement,
 } from "./types.js";
 
 /**
@@ -35,7 +35,7 @@ const COMPATIBILITY_FAILURES = {
   experimental: "experimental",
 } as const;
 
-function reasoningFailure(reasoning: ReasoningIntent, model: ModelEvidence): string | undefined {
+function reasoningFailure(reasoning: ReasoningRequirement, model: ModelEvidence): string | undefined {
   if (reasoning.required && !model.reasoning.supported) return REASONING_FAILURES["reasoning-not-supported"];
   if (reasoning.withTools === true && !model.reasoning.reasoningWithTools) {
     return REASONING_FAILURES["reasoning-with-tools-not-supported"];

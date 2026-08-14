@@ -1,4 +1,5 @@
-import type { ProviderCapabilities } from "../core/capabilities.js";
+import type { ProviderCapabilities, ReasoningCapabilityEvidence } from "../core/capabilities.js";
+import type { ResolvedReasoning } from "../core/reasoning.js";
 import type { RouteDecision } from "../core/route-decision.js";
 import { createRouteDecision } from "../core/route-decision.js";
 import type { RouteRecord } from "../core/router.js";
@@ -18,6 +19,10 @@ export type EffectiveRoute = Readonly<{
   capabilitySnapshot: ProviderCapabilities;
   decidedAt: string;
   outputStarted: boolean;
+  /** Exact selected-model reasoning evidence (#70). */
+  reasoningEvidence?: ReasoningCapabilityEvidence;
+  /** Deterministic intent→native translation result (#70). */
+  resolvedReasoning?: ResolvedReasoning;
 }>;
 
 export function createEffectiveRoute(route: EffectiveRoute): EffectiveRoute {
@@ -55,5 +60,7 @@ export function toRouteDecision(route: EffectiveRoute, configFingerprint: string
     decidedAt: route.decidedAt,
     accountPseudonym: route.accountPseudonym,
     credentialGeneration: route.credentialGeneration,
+    ...(route.reasoningEvidence === undefined ? {} : { reasoningEvidence: route.reasoningEvidence }),
+    ...(route.resolvedReasoning === undefined ? {} : { resolvedReasoning: route.resolvedReasoning }),
   });
 }

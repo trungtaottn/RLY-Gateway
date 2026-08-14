@@ -72,6 +72,8 @@ export function bindRoute(
     capabilitySnapshot: input.capabilities,
     decidedAt,
     outputStarted: false,
+    ...(input.reasoningEvidence === undefined ? {} : { reasoningEvidence: input.reasoningEvidence }),
+    ...(input.resolvedReasoning === undefined ? {} : { resolvedReasoning: input.resolvedReasoning }),
   });
 }
 

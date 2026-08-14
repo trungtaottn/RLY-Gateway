@@ -8,6 +8,8 @@ export const MODEL_SELECTION_FAILURES = [
   "no-trusted-evidence",
   "capability-unsupported",
   "reasoning-unsupported",
+  "reasoning-translation-unsupported",
+  "reasoning-budget-policy-missing",
   "compatibility-rejected",
   "no-eligible-candidate",
 ] as const;
