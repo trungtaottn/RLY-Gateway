@@ -45,7 +45,7 @@ export function bindClientAbort(request: Closeable, response: Closeable, control
 function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string } } {
   if (error instanceof AnthropicProtocolError) return { type: "error", error: { type: error.code, message: error.message } };
   if (error instanceof UnsupportedRouteError) return { type: "error", error: { type: "unsupported_feature", message: "Request requires an unavailable capability" } };
-  if (error instanceof ProfileActivationError) return { type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined && error.tierFailure === undefined ? {} : { reason: error.tierFailure ?? error.modelFailure }) } };
+  if (error instanceof ProfileActivationError) return { type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined && error.tierFailure === undefined ? {} : { reason: error.tierFailure ?? error.modelFailure }), ...(error.tierCause === undefined ? {} : { cause: error.tierCause }) } };
   if (error instanceof NoEligibleAccountError) return { type: "error", error: { type: "no_eligible_account", message: "No eligible account is available" } };
   if (error instanceof ProviderAdapterError) return { type: "error", error: { type: error.code, message: "Gateway upstream failed" } };
   return { type: "error", error: { type: "api_error", message: "Gateway upstream failed" } };

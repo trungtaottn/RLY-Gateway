@@ -1,6 +1,7 @@
 import type { CanonicalEvent } from "../core/canonical-event.js";
 import type { CanonicalRequest } from "../core/canonical-request.js";
 import type { CapabilityRequirement } from "../core/capabilities.js";
+import { agentPseudonym, type AgentContext } from "../core/agent-context.js";
 import { reasoningRequestFromWire } from "../core/reasoning.js";
 import { decideRoute, type RouteRecord } from "../core/router.js";
 import { conservativeTokenCount } from "../core/token-counting.js";
@@ -22,10 +23,11 @@ import { isTierResolutionError } from "../routing/model-tiers/errors.js";
 import { resolveTier } from "../routing/model-tiers/resolver.js";
 import { LOGICAL_TIERS, parseLogicalTier, type LogicalTier, type TierResolutionTrace } from "../routing/model-tiers/types.js";
 import { activateProfile, findProfileById, inspectLaunchableProfile } from "./activate.js";
+import type { AgentExecutionContextRegistry, ExecutionContext, ParentExecutionReference } from "./agent-contexts.js";
 import { ProfileActivationError } from "./errors.js";
 import { resolveProfileRole } from "./helper-map.js";
 import type { LaunchSession } from "./sessions.js";
-import type { RouteTraceRing } from "./traces.js";
+import type { AgentTraceLinkage, RouteTraceRing } from "./traces.js";
 
 export type ProfileRouteDependencies = Readonly<{
   store: ControlPlaneStore;
@@ -36,6 +38,8 @@ export type ProfileRouteDependencies = Readonly<{
   environment?: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
   required?: readonly CapabilityRequirement[];
+  /** Session-scoped Claude Code agent execution contexts (#71). */
+  agentContexts?: AgentExecutionContextRegistry;
 }>;
 
 export type ResolvedProfileRoute = Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }>;
@@ -54,11 +58,16 @@ export async function resolveProfileRoute(
   if (!pool) throw new ProfileActivationError("profile-has-no-pool");
   const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
   if (!provider) throw new ProfileActivationError("profile-has-no-pool");
+  // #71: a subagent request inherits the parent agent's frozen physical
+  // model/family for #69 tier family affinity. Parent resolution never
+  // mutates the parent's own context: each request resolves independently and
+  // only records its own context after success (see below).
+  const parentReference = resolveParentExecutionReference(canonical.agent, session, dependencies.agentContexts);
   // #69: a logical tier request (`model: fable`) resolves contextually inside
   // the profile's access provider and parent model family BEFORE #68 exact
   // selection. Non-tier requests keep the existing role/helper mapping.
   const tierResolution = mapped === undefined
-    ? resolveTierForRequest(canonical, provider.name, inspected.profile, dependencies.required ?? [])
+    ? resolveTierForRequest(canonical, provider.name, inspected.profile, dependencies.required ?? [], parentReference?.context)
     : undefined;
   const resolvedModelId = mapped?.modelId ?? tierResolution?.modelId;
   const resolvedRole = mapped?.role ?? tierResolution?.role;
@@ -115,6 +124,29 @@ export async function resolveProfileRoute(
     configFingerprint: dependencies.configFingerprint,
     resolvedReasoning,
   });
+  // #71: record the resolved execution context for this agent so nested and
+  // subsequent subagents inherit the correct provider/family affinity. The
+  // physical model is frozen at this point; credentials/account ids are never
+  // stored. Only fully resolved requests (activation + route decision) record.
+  const agentContext = canonical.agent;
+  if (dependencies.agentContexts !== undefined && agentContext?.claudeSessionId !== undefined && agentContext.agentId !== undefined) {
+    dependencies.agentContexts.record(session, {
+      claudeSessionId: agentContext.claudeSessionId,
+      agentId: agentContext.agentId,
+      ...(agentContext.parentAgentId === undefined ? {} : { parentAgentId: agentContext.parentAgentId }),
+      role: agentContext.parentAgentId === undefined ? "main" : "subagent",
+      accessProviderId: provider.name,
+      resolvedModelId: activated.modelId,
+      ...(modelEvidence.identity.modelFamily === undefined ? {} : { modelFamily: modelEvidence.identity.modelFamily }),
+      ...(tierResolution === undefined ? {} : { effectiveTier: tierResolution.role }),
+      ...(tierResolution === undefined ? {} : { mappingRevision: tierResolution.trace.mappingRevision }),
+      ...(tierResolution === undefined ? {} : { registryRevision: tierResolution.trace.registryRevision }),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  // #71: allowlisted agent linkage for diagnostics — pseudonyms only, plus the
+  // parent model/family that scoped tier resolution. Never prompts or identity.
+  const agentLinkage = agentTraceLinkage(agentContext, parentReference);
   const environment = dependencies.environment ?? process.env;
   const members = policy.snapshot.accounts.filter((account) => pool.memberships.some((item) => item.accountId === account.id));
   const snapshots = await credentialSnapshots(dependencies, members, environment);
@@ -153,7 +185,7 @@ export async function resolveProfileRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace, agentLinkage),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -200,28 +232,79 @@ function parentModelForProfile(modelRoles: Readonly<Record<string, string>>): st
 }
 
 /**
+ * Resolves the parent execution context for #69 tier family affinity (#71).
+ *
+ * A subagent request inherits the parent agent's frozen physical model:
+ * exact `(session, parentAgentId)` match first, then the session's main-agent
+ * context (the session's current/default context). With no recorded context
+ * the caller falls back to the profile default model — the launch session's
+ * unambiguous default execution context. The fallback never selects another
+ * subagent's context, so one subagent's model can never leak into another's
+ * tier resolution. When the profile default itself cannot determine a parent
+ * family on a multi-family provider, #69 fails closed (`family-unknown` →
+ * `tier-unavailable`) rather than choosing a global strongest model.
+ */
+function resolveParentExecutionReference(
+  agent: AgentContext | undefined,
+  session: LaunchSession,
+  registry: AgentExecutionContextRegistry | undefined,
+): ParentExecutionReference | undefined {
+  if (agent === undefined || agent.claudeSessionId === undefined || registry === undefined) return undefined;
+  // Main-agent requests have no parent; #69 uses the profile default parent.
+  if (agent.parentAgentId === undefined) return undefined;
+  const exact = registry.resolve(session, agent.claudeSessionId, agent.parentAgentId);
+  if (exact !== undefined) return { context: exact, source: "parent-agent" };
+  const main = registry.mainContext(session, agent.claudeSessionId);
+  if (main !== undefined) return { context: main, source: "session-default" };
+  return undefined;
+}
+
+/** Allowlisted agent linkage for the decision trace (#71). */
+function agentTraceLinkage(
+  agent: AgentContext | undefined,
+  parent: ParentExecutionReference | undefined,
+): AgentTraceLinkage | undefined {
+  if (agent === undefined) return undefined;
+  return Object.freeze({
+    claudeSessionPseudonym: agentPseudonym(agent.claudeSessionId ?? agent.agentId ?? "session"),
+    agentPseudonym: agentPseudonym(agent.agentId ?? agent.claudeSessionId ?? "agent"),
+    ...(agent.parentAgentId === undefined ? {} : { parentAgentPseudonym: agentPseudonym(agent.parentAgentId) }),
+    contextSource: parent?.source ?? "profile-default",
+    ...(parent === undefined ? {} : { parentModelId: parent.context.resolvedModelId }),
+    ...(parent === undefined ? {} : { parentModelFamily: parent.context.modelFamily }),
+  });
+}
+
+/**
  * Resolves a logical tier request (#69) inside the current execution context:
  * access provider first, then the parent model's family, then trusted tier
  * mapping/capability evidence. The tier target is an exact physical model that
  * then goes through the same #68 exact-selection and #70 reasoning stages.
  * Fail-closed: an unresolvable tier maps onto the existing profile error
  * contract (`tier-unavailable` plus the typed tier reason).
+ *
+ * #71: a subagent request passes the parent agent's frozen physical
+ * model/family (from the execution-context registry) instead of the profile
+ * default; the main request keeps the profile default parent (#69).
  */
 function resolveTierForRequest(
   canonical: CanonicalRequest,
   providerName: string,
   profile: ProfileRecord,
   required: readonly CapabilityRequirement[],
+  parent?: ExecutionContext,
 ): Readonly<{ role: LogicalTier; modelId: string; trace: TierResolutionTrace }> {
   const tier = parseLogicalTier(canonical.requestedModel);
   if (tier === undefined) throw new ProfileActivationError("role-unmapped");
-  const parentModelId = parentModelForProfile(profile.modelRoles);
+  const parentModelId = parent?.resolvedModelId ?? parentModelForProfile(profile.modelRoles);
+  const parentFamily = parent?.modelFamily;
   const reasoning = reasoningRequirementFrom(canonical, required);
   try {
     const resolution = resolveTier({
       requestedTier: tier,
       accessProviderId: providerName,
       ...(parentModelId === undefined ? {} : { parentModelId }),
+      ...(parentFamily === undefined ? {} : { modelFamily: parentFamily }),
       ...(profile.modelRoles[tier] === undefined ? {} : { explicitUserMapping: profile.modelRoles[tier] }),
       allowCrossFamilyFallback: false,
       allowCrossProviderFallback: false,
@@ -237,6 +320,7 @@ function resolveTierForRequest(
         `Tier resolution failed (${error.code}: ${providerName}/${tier})`,
         undefined,
         error.code,
+        error.causeCode,
       );
     }
     throw error;

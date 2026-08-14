@@ -8,6 +8,7 @@ import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { registerLaunchSessionRoutes } from "../profiles/http.js";
 import { resolveProfileRoute } from "../profiles/resolve-route.js";
+import type { AgentExecutionContextRegistry } from "../profiles/agent-contexts.js";
 import type { LaunchSessionRegistry } from "../profiles/sessions.js";
 import type { RouteTraceRing } from "../profiles/traces.js";
 import { createDirectRouteResolver, type ResolvedDirectRoute } from "../providers/direct/direct-upstream.js";
@@ -32,6 +33,8 @@ export type GatewayServerOptions = Readonly<{
   broker?: CredentialBroker;
   selector?: RouteSelector;
   launchSessions?: LaunchSessionRegistry;
+  /** Session-scoped Claude Code agent execution contexts (#71). */
+  agentContexts?: AgentExecutionContextRegistry;
   traces?: RouteTraceRing;
   continuationDirectory?: string;
   /** True when this instance is owned by the per-user resident service. */
@@ -95,6 +98,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
   const broker = options.broker;
   const selector = options.selector;
   const launchSessions = options.launchSessions;
+  const agentContexts = options.agentContexts;
   const traces = options.traces;
   const profileReady = controlPlane !== undefined
     && broker !== undefined
@@ -123,6 +127,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
           configFingerprint: options.configFingerprint,
           ...(options.environment === undefined ? {} : { environment: options.environment }),
           ...(required === undefined ? {} : { required }),
+          ...(agentContexts === undefined ? {} : { agentContexts }),
         });
       }
       return resolveDirect?.(request) ?? await options.resolveOauthRoute?.(request);
@@ -211,6 +216,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
     const lease = await authorizeLease(request, reply);
     if (!lease) return;
     options.launchSessions?.dropLease(lease.leaseId);
+    options.agentContexts?.dropLease(lease.leaseId);
     await lease.leases.release(lease.leaseId);
     return reply.code(204).send();
   });

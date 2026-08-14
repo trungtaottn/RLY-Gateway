@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { parseAgentContext } from "../../core/agent-context.js";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
 import { reasoningRequestFromWire } from "../../core/reasoning.js";
@@ -88,12 +89,17 @@ export function decodeAnthropicRequest(raw: unknown, headers: Record<string, str
     ...(value.system && typeof value.system !== "string" ? value.system.flatMap((item, index) => item.cache_control ? [{ scope: "system" as const, index }] : []) : []),
     ...value.messages.flatMap((message, index) => typeof message.content === "string" || !JSON.stringify(message.content).includes("\"cache_control\"") ? [] : [{ scope: "message" as const, index }]),
   ];
+  // #71: Claude Code agent attribution headers become typed runtime context on
+  // the canonical request. These identifiers are parsed from headers only —
+  // never from prompt/body content — and carry no authorization meaning.
+  const agent = parseAgentContext(headers);
   return {
     request: {
       id: randomUUID(), source: { protocol: "anthropic-messages", ...(typeof headers["anthropic-version"] === "string" ? { protocolVersion: headers["anthropic-version"] } : {}) }, requestedModel: value.model, modelRole: "unknown",
       system, input, messages, tools: (value.tools ?? []).map((item) => ({ name: item.name, ...(item.description === undefined ? {} : { description: item.description }), inputSchema: item.input_schema })), ...(choice === undefined ? {} : { toolChoice: choice }),
       stream: value.stream ?? false, inference: { maxOutputTokens: value.max_tokens, ...(value.temperature === undefined ? {} : { temperature: value.temperature }), ...(value.top_p === undefined ? {} : { topP: value.top_p }), ...(value.stop_sequences === undefined ? {} : { stopSequences: value.stop_sequences }), ...(value.thinking?.type === undefined ? {} : { thinking: value.thinking.type }), reasoning },
       metadata: { ...(betaValues.length === 0 ? {} : { beta: betaValues }), ...(cacheControl.length === 0 ? {} : { cacheControl }) },
+      ...(agent === undefined ? {} : { agent }),
     }, required, ignoredAdditiveFields: ignored,
   };
 }
