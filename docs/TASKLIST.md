@@ -91,6 +91,13 @@ Code/live-provider compatibility.
 - [x] Release hardening, packaging, provenance, migration, recovery, and daily workflow gates. Evidence: `pnpm test:release`, `tests/storage/retention.test.ts`, existing migration/crash suites plus license/package/clean-install scripts.
 - [x] Release-lane automation and post-Stable alignment. Evidence: `tests/unit/release-automation.test.ts`, `.github/workflows/release-beta.yml`, `.github/workflows/release-stable.yml`; Slack delivery requires the repository `SLACK_WEBHOOK_URL` secret and the documented GitHub Actions ruleset bypass.
 
+## Completed milestone: Phase 1 core correctness
+
+- [x] Provider-scoped account identity `(provider_id, pseudonym)` with fail-closed credential/provider mismatch (#55).
+- [x] Crash-recoverable credential locks using ownership-aware pid/start-identity reclaim (#57).
+- [x] Refresh before immutable EffectiveRoute; invoke binds the frozen generation (#56).
+- [x] Recoverable quota/cooldown: exhausted is a probe after cooldown; success restores healthy (#58).
+
 ## Updating this file
 
 - Check an item only when evidence exists.

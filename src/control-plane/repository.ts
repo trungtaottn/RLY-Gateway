@@ -85,7 +85,7 @@ export class ControlPlaneRepository {
         record.termsAcknowledgedRevision ?? null, record.version, record.createdAt, record.updatedAt,
       );
     } catch (error) {
-      rethrowConstraint(error, "account pseudonym already exists");
+      rethrowConstraint(error, "account already exists for this provider");
     }
   }
 

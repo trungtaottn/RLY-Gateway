@@ -2,7 +2,6 @@ import type { ProviderCapabilities, CapabilityRequirement } from "../../core/cap
 import { missingCapabilities } from "../../core/capabilities.js";
 import type { AccountRecord, ProviderRecord } from "../../control-plane/types.js";
 import type { HealthRecord } from "../../control-plane/health/types.js";
-import { isQuotaExhausted } from "../pools/quota.js";
 import type { CandidateAssessment, CredentialSnapshot, EligibilityReason } from "./reasons.js";
 
 export type EligibilityInput = Readonly<{
@@ -32,7 +31,6 @@ export function evaluateEligibility(input: EligibilityInput): CandidateAssessmen
   }
   if (generation < 1) reasons.push("generation-unbound");
   if (isExpired(input.credential, input.now)) reasons.push("expired");
-  if (isQuotaExhausted(input.account.quotaClass)) reasons.push("quota-exhausted");
   if (isCooling(input.account.cooldownUntil, input.health?.cooldownUntil, input.now)) reasons.push("cooling");
   if (missingCapabilities(input.capabilities, input.required).length > 0) reasons.push("capability-incompatible");
   const requiredTerms = input.provider?.requiredTermsRevision;

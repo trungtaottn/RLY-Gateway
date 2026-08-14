@@ -25,5 +25,7 @@ export function cooldownUntilFor(
 }
 
 export function nextQuotaClass(outcome: RouteOutcomeClass, current: string): string {
-  return outcome === "quota" ? "exhausted" : current;
+  if (outcome === "success") return "healthy";
+  if (outcome === "quota") return "exhausted";
+  return current;
 }

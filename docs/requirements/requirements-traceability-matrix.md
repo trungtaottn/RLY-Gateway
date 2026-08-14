@@ -68,11 +68,12 @@ When a requirement changes, update its owning document and this matrix in the sa
 | --- | --- | --- |
 | AT-005, AT-006 | `tests/credentials/import.test.ts` | Verified explicit Codex import leaves the source byte-identical; malformed/oversized/changed sources fail without a usable project record |
 | AT-007, AT-008 | `tests/credentials/oauth.test.ts` | Verified PKCE/S256 exact loopback login; state mismatch, replay after close, cancel, callback collision, and bounded token bodies fail closed |
-| AT-009, AT-010 | `tests/credentials/refresh.test.ts`, `tests/credentials/store.test.ts` | Verified single-flight refresh commits one generation; stale commit cannot overwrite a newer record |
+| AT-009, AT-010 | `tests/credentials/refresh.test.ts`, `tests/credentials/store.test.ts` | Verified single-flight refresh commits one generation; stale commit cannot overwrite a newer record; crashed credential locks are reclaimed and live locks are not stolen |
 | AT-011 | `tests/credentials/revoke.test.ts`, `tests/management/credentials.test.ts` | Verified revoke removes usable active/temp/backup project records and excludes the account |
 | AT-012 | `tests/credentials/store.test.ts` | Verified corrupt active restores the last valid backup, or marks the handle unready |
 | AT-013 subset | `tests/management/credentials.test.ts`, `tests/management/mutations.test.ts` | Verified pause/select/revoke and secret-free readiness on account DTOs |
 | AT-014 subset | `src/credentials/service.ts` readiness | Terms-unaccepted accounts are unready for manual selection |
+| Provider-scoped identity | `tests/credentials/identity.test.ts`, `tests/control-plane/repositories.test.ts`, `tests/control-plane/migrations.test.ts` | Verified `(provider, pseudonym)` uniqueness, cross-provider reuse, credential/provider mismatch fail-closed, and v2 migration keeps valid accounts |
 | AT-027 subset | `tests/privacy/credentials.test.ts` | Verified DTO/audit/policy JSON contain no access or refresh material |
 | Codex OAuth adapter | `tests/contract/providers/codex-oauth/adapter.test.ts`, `tests/credentials/route.test.ts` | Verified request-scoped secret use and one selected account bound into the Anthropic route |
 | Live Codex smoke | `tests/contract/providers/codex-oauth/live-smoke.test.ts` | Skipped unless `RLY_LIVE_CODEX_OAUTH=1`; not passing evidence |
@@ -82,9 +83,9 @@ When a requirement changes, update its owning document and this matrix in the sa
 | Acceptance | Evidence | Status |
 | --- | --- | --- |
 | AT-014 request-time | `tests/routing/eligibility.test.ts` | Verified unaccepted and stale terms acknowledgement are ineligible; current required revision enables selection |
-| AT-017 | `tests/routing/strategies.test.ts`, `tests/routing/effective-route.test.ts` | Verified deterministic manual/round-robin/fill-first selection binds one credential generation |
-| AT-018 | `tests/routing/eligibility.test.ts` | Verified paused, expired, unready, exhausted, cooling, incompatible, and unaccepted candidates are excluded before strategy |
-| AT-019 | `tests/routing/retry.test.ts`, `tests/routing/outcomes.test.ts` | Verified pre-output auth/quota/transient failure records a transactional outcome and rotates within budget |
+| AT-017 | `tests/routing/strategies.test.ts`, `tests/routing/effective-route.test.ts`, `tests/credentials/route.test.ts`, `tests/credentials/refresh.test.ts` | Verified deterministic manual/round-robin/fill-first selection binds one credential generation after refresh and before invoke |
+| AT-018 | `tests/routing/eligibility.test.ts` | Verified paused, expired, unready, cooling, incompatible, and unaccepted candidates are excluded before strategy; exhausted without cooldown is a recovery probe |
+| AT-019 | `tests/routing/retry.test.ts`, `tests/routing/outcomes.test.ts` | Verified pre-output auth/quota/transient failure records a transactional outcome; success restores healthy; probe failure extends cooldown |
 | AT-020 | `tests/routing/retry.test.ts` | Verified failure after text or tool event does not invoke a second account |
 | AT-027 subset | `tests/privacy/routing.test.ts` | Verified decision traces and outcome audit contain no secret or identity fields |
 | SR-NF-006 / SR-NF-008 | `tests/routing/race.test.ts`, `tests/routing/restart.test.ts`, `tests/routing/outcomes.test.ts` | Verified selector isolation, durable pause/cooldown across restart, and interrupted health writes roll back |

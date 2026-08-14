@@ -147,20 +147,20 @@ async function snapshotForAccount(
   dependencies: ProfileRouteDependencies,
   environment: NodeJS.ProcessEnv,
 ): Promise<CredentialSnapshot> {
-  const envName = envCredentialName(account.credentialHandle);
-  if (envName !== undefined) {
-    return { present: Boolean(environment[envName]), generation: Math.max(account.credentialGeneration, 1) };
-  }
-  try {
-    const metadata = await dependencies.broker.metadata(account.credentialHandle);
-    return {
-      present: metadata !== undefined && metadata.generation >= 1,
-      generation: metadata?.generation ?? 0,
-      ...(metadata?.expiresAt === undefined ? {} : { expiresAt: metadata.expiresAt }),
-    };
-  } catch {
-    return { present: false, generation: 0 };
-  }
+    const envName = envCredentialName(account.credentialHandle);
+    if (envName !== undefined) {
+      return { present: Boolean(environment[envName]), generation: Math.max(account.credentialGeneration, 1) };
+    }
+    try {
+      const metadata = await dependencies.broker.prepare(account.credentialHandle);
+      return {
+        present: metadata.generation >= 1,
+        generation: metadata.generation,
+        ...(metadata.expiresAt === undefined ? {} : { expiresAt: metadata.expiresAt }),
+      };
+    } catch {
+      return { present: false, generation: 0 };
+    }
 }
 
 async function* invokeSelected(
@@ -174,8 +174,8 @@ async function* invokeSelected(
   const decision = toRouteDecision(route, dependencies.configFingerprint);
   if (provider.integrationMode === "oauth" || provider.integrationMode === "bridge") {
     const scoped = provider.integrationMode === "oauth"
-      ? await dependencies.broker.resolve(route.credentialHandle)
-      : await dependencies.broker.resolve(route.credentialHandle).catch(() => undefined);
+      ? await dependencies.broker.bind(route.credentialHandle, route.credentialGeneration)
+      : await dependencies.broker.bind(route.credentialHandle, route.credentialGeneration).catch(() => undefined);
     try {
       const adapter = createProviderAdapter({
         provider,

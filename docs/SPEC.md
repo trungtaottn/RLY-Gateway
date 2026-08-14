@@ -96,7 +96,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 
 ### 6.4 Pools and request-time routing
 
-- Eligibility filtering precedes account selection. Paused, expired, authentication-unready, quota-exhausted, cooling, capability-incompatible, or terms-unaccepted accounts are ineligible.
+- Eligibility filtering precedes account selection. Paused, expired, authentication-unready, cooling, capability-incompatible, or terms-unaccepted accounts are ineligible. Quota-exhausted accounts are ineligible only while cooling; after cooldown they are recovery probes. Success restores healthy; probe failure extends cooldown.
 - Initial selection supports manual pinning, `round-robin`, and `fill-first`; quota-aware selection follows only with evidence-backed quota state.
 - One request binds one account pseudonym and credential generation in an immutable `EffectiveRoute`.
 - Retry or account rotation is allowed only before the first response byte or tool event and within a bounded, auditable budget.

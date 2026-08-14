@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
-  createExclusivePrivateFile,
   ensurePrivateDirectory,
   fileMode,
   fsyncPrivateDirectory,
@@ -11,6 +10,7 @@ import {
   removePrivateFileIfPresent,
   writePrivateTextAtomically,
 } from "../storage/private-files.js";
+import { acquireOwnershipLock, reclaimStaleLockFile } from "../storage/ownership-lock.js";
 import { controlPlanePaths } from "../storage/paths.js";
 import { lstat } from "node:fs/promises";
 import { CredentialError, CredentialUnreadyError, StaleGenerationError } from "./errors.js";
@@ -86,6 +86,7 @@ export class CredentialStore {
 
   public async recoverAll(): Promise<void> {
     for (const handle of await this.listedHandles()) await this.recover(handle);
+    await this.reclaimStaleLocks();
   }
 
   public async listHandles(): Promise<string[]> {
@@ -172,12 +173,26 @@ export class CredentialStore {
 
   private async withLock<T>(handle: string, work: () => Promise<T>): Promise<T> {
     const lockPath = join(this.paths().credentialLocks, `${handle}.lock`);
-    const created = await createExclusivePrivateFile(lockPath, handle);
-    if (!created) throw new CredentialError("credential is locked", 409, "locked");
+    const lock = await acquireOwnershipLock(lockPath, {
+      resource: handle,
+      attempts: 8,
+      waitMs: 0,
+      onLive: "reject",
+      identityError: () => new CredentialError("unable to read process identity for credential lock", 500, "lock-identity"),
+      liveError: () => new CredentialError("credential is locked", 409, "locked"),
+    });
     try {
       return await work();
     } finally {
-      await removePrivateFileIfPresent(lockPath);
+      await lock.release();
+    }
+  }
+
+  private async reclaimStaleLocks(): Promise<void> {
+    const names = await listPrivateDirectory(this.paths().credentialLocks);
+    for (const name of names) {
+      if (!name.endsWith(".lock")) continue;
+      await reclaimStaleLockFile(join(this.paths().credentialLocks, name));
     }
   }
 

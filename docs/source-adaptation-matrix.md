@@ -71,7 +71,8 @@ must preserve:
    that substitute a different model stay rejected.
 5. Refresh is single-flight with generation compare-and-swap.
 6. Eligibility filtering precedes strategy. Paused, expired, unready,
-   exhausted, cooling, incompatible, or terms-unaccepted accounts are ineligible.
+   cooling, incompatible, or terms-unaccepted accounts are ineligible.
+   Quota-exhausted accounts are recovery probes after cooldown.
 7. One request binds one account pseudonym and credential generation. No
    rotation after the first response byte or tool event.
 8. Management is a separate authenticated boundary with Origin/CSRF and

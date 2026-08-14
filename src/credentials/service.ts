@@ -201,7 +201,10 @@ export class CredentialService {
     metadata: CredentialMetadata,
     actor: ManagementActor,
   ): AccountRecord {
-    const existing = this.store.listAccounts().find((account) => account.pseudonym === pseudonym);
+    this.assertCredentialMatchesProvider(providerId, metadata);
+    const existing = this.store.listAccounts().find(
+      (account) => account.providerId === providerId && account.pseudonym === pseudonym,
+    );
     if (existing) {
       const previous = existing.credentialHandle;
       const bound = this.bindReady(existing, existing.version, metadata, actor);
@@ -215,6 +218,13 @@ export class CredentialService {
       state: "unready",
     }, actor);
     return this.bindReady(created, created.version, metadata, actor);
+  }
+
+  private assertCredentialMatchesProvider(providerId: string, metadata: CredentialMetadata): void {
+    const expected = providerContract(this.providerName(providerId) ?? "")?.credentialProvider;
+    if (expected === undefined || metadata.provider !== expected) {
+      throw new ValidationError("credential provider does not match account provider");
+    }
   }
 
   private account(id: string): AccountRecord {

@@ -95,4 +95,33 @@ describe("credential refresh", () => {
     expect((await broker.store.read(imported.handle)).generation).toBe(1);
     await broker.close();
   });
+
+  it("refreshes before bind and refuses a different generation at invoke", async () => {
+    const directory = await tempDirectory("rly-gateway-bind-generation-");
+    directories.push(directory);
+    const oauth = fakeOauth();
+    const broker = await CredentialBroker.open(directory, { oauth, clock: () => new Date("2026-08-13T00:00:00.000Z") });
+    const source = await writeCodexSource(directory);
+    const imported = await broker.importCodex({
+      sourcePath: source.path,
+      pseudonym: "acct-fixture-001",
+      sourceFingerprint: source.sourceFingerprint,
+    });
+    const current = await broker.store.read(imported.handle);
+    await broker.store.commit(imported.handle, current.generation, {
+      ...current,
+      generation: current.generation + 1,
+      expiresAt: "2026-08-13T00:00:30.000Z",
+    });
+    expect(oauth.refreshCalls).toBe(0);
+    const prepared = await broker.prepare(imported.handle);
+    expect(oauth.refreshCalls).toBe(1);
+    expect(prepared.generation).toBe(current.generation + 2);
+    const scoped = await broker.bind(imported.handle, prepared.generation);
+    expect(scoped.generation).toBe(prepared.generation);
+    expect(oauth.refreshCalls).toBe(1);
+    await expect(broker.bind(imported.handle, prepared.generation - 1)).rejects.toBeInstanceOf(StaleGenerationError);
+    scoped.dispose();
+    await broker.close();
+  });
 });

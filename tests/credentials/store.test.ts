@@ -86,4 +86,32 @@ describe("credential store", () => {
     expect(names.some((name) => name.endsWith(".tmp"))).toBe(false);
     expect((await recovered.read("cred-fixture-001")).generation).toBe(1);
   });
+
+  it("reclaims a crashed-process lock and refuses to steal a live lock", async () => {
+    const directory = await tempDirectory("rly-gateway-cred-lock-");
+    directories.push(directory);
+    const store = await CredentialStore.open(directory);
+    await store.commit("cred-fixture-001", 0, record(1));
+    const { writePrivateTextAtomically } = await import("../../src/storage/private-files.js");
+    const lockPath = join(store.paths().credentialLocks, "cred-fixture-001.lock");
+    await writePrivateTextAtomically(lockPath, "cred-fixture-001");
+    const recovered = await CredentialStore.open(directory);
+    const next = await recovered.commit("cred-fixture-001", 1, record(2, FIXTURE_REFRESH_NEXT));
+    expect(next.generation).toBe(2);
+
+    const { readProcessIdentity } = await import("../../src/runtime/process-identity.js");
+    const owner = await readProcessIdentity(process.pid);
+    if (!owner) throw new Error("expected process identity");
+    await writePrivateTextAtomically(lockPath, `${JSON.stringify({
+      lockId: "00000000-0000-4000-8000-000000000099",
+      createdAt: "2026-08-13T00:00:00.000Z",
+      owner,
+      resource: "cred-fixture-001",
+    })}\n`);
+    await expect(recovered.commit("cred-fixture-001", 2, {
+      ...record(3, "refresh-token-live-lock-not-secret"),
+      refreshFingerprint: fingerprintRefreshToken("refresh-token-live-lock-not-secret"),
+    })).rejects.toMatchObject({ statusCode: 409, code: "locked" });
+    expect((await recovered.read("cred-fixture-001")).generation).toBe(2);
+  });
 });

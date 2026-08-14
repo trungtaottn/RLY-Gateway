@@ -38,7 +38,7 @@
 
 - Traces: BR-003, SR-F-007/008, SR-NF-006.
 - Preconditions: refreshable current generation and refresh requirement.
-- Behavior: acquire per-credential single-flight; refresh; validate response; commit only if stored generation still matches; atomically replace and retire transient backup.
+- Behavior: acquire per-credential single-flight and an ownership-aware lock (lock id, credential handle, owner pid, process start identity, timestamp); never steal a live lock; reclaim a lock only when pid/start identity proves the owner is gone; refresh; validate response; commit only if stored generation still matches; atomically replace and retire transient backup.
 - Failure: stale refresh cannot overwrite a newer generation; invalid grant marks account authentication-unready without exposing upstream body.
 - Acceptance: AT-009, AT-010.
 
@@ -52,8 +52,8 @@
 ### FR-007 — Manage accounts and terms
 
 - Traces: BR-002, BR-010, SR-F-005/010.
-- Behavior: list pseudonymous accounts; show readiness/quota class/pause/cooldown/terms state; pause/resume; acknowledge a specific provider terms revision; invalidate acceptance when required revision changes.
-- Failure: UI/CLI never returns raw identity or secret.
+- Behavior: list pseudonymous accounts keyed by `(provider, pseudonym)` so the same pseudonym may exist on another provider; show readiness/quota class/pause/cooldown/terms state; pause/resume; acknowledge a specific provider terms revision; invalidate acceptance when required revision changes.
+- Failure: credential/provider mismatch fails closed; UI/CLI never returns raw identity or secret.
 - Acceptance: AT-013, AT-014.
 
 ### FR-008 — Configure pools and profiles
@@ -66,14 +66,14 @@
 ### FR-009 — Select an account per request
 
 - Traces: BR-005/010, SR-F-010/012/013.
-- Main flow: decode request; derive capabilities; load one policy revision; filter eligibility including terms; apply deterministic strategy; bind account pseudonym and credential generation; create immutable EffectiveRoute.
+- Main flow: decode request; derive capabilities; load one policy revision; refresh the selected credential to a final generation; filter eligibility including terms; apply deterministic strategy; bind account pseudonym and that credential generation; create immutable EffectiveRoute; invoke using the frozen generation without a further refresh.
 - Failure: no eligible account returns a structured, secret-free error; no silent provider/model substitution.
 - Acceptance: AT-017, AT-018.
 
 ### FR-010 — Handle provider outcome and bounded rotation
 
 - Traces: BR-005/012, SR-F-013/014.
-- Behavior: classify pre-output authentication/quota/transient failures; transactionally update health/cooldown; rotate only within configured budget and only before first output/tool event; seal route after output begins.
+- Behavior: classify pre-output authentication/quota/transient failures; transactionally update health/cooldown; rotate only within configured budget and only before first output/tool event; seal route after output begins. Quota failure marks `exhausted` and starts cooldown; after cooldown the account is a recovery probe; success restores `healthy`; probe failure extends cooldown. Authentication, quota, and transient stay classified separately; invalid-grant may mark authentication-unready without treating that as quota death.
 - Failure: post-output failure propagates without another account invocation.
 - Acceptance: AT-019, AT-020.
 
