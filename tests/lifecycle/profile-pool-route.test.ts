@@ -139,10 +139,13 @@ describe("profile pool route", () => {
     });
     const listedBody: unknown = listed.json();
     const body = listedBody && typeof listedBody === "object" && "traces" in listedBody
-      ? listedBody as { traces: { profileName?: string; selected?: { accountPseudonym?: string } }[] }
+      ? listedBody as { traces: { profileName?: string; selected?: { accountPseudonym?: string }; modelSelection?: { selectedLogicalId?: string; source?: string } }[] }
       : { traces: [] };
     expect(body.traces[0]?.profileName).toBe("work");
     expect(body.traces[0]?.selected?.accountPseudonym).toBe("acct-pool-a");
+    // Two-stage boundary: the #68 model selection decision feeds account selection.
+    expect(body.traces[0]?.modelSelection?.selectedLogicalId).toBe("openrouter/nvidia/nemotron-nano-12b-v2-vl:free");
+    expect(body.traces[0]?.modelSelection?.source).toBe("exact");
     expect(JSON.stringify(body)).not.toMatch(/fixture-key|OPENROUTER_API_KEY|prompt|authorization/i);
 
     const tools = await app.inject({
