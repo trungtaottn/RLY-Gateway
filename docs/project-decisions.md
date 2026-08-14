@@ -46,6 +46,15 @@
 - Effective tier mappings are stable for an active session/policy revision: the built-in reviewed mapping and per-profile overrides are immutable per revision, and catalog refresh (#23) proposes better mappings without silently changing trusted tier mappings.
 - Existing `primary`/`fast`/`reasoning` profile roles remain unchanged; tier resolution is a parallel path for portable tier aliases (`model: fable`), and `profile.modelRoles` additionally accepts tier keys as per-profile user overrides (validated fail-closed through #68 exact evidence).
 
+## Gateway model discovery and projection (#72)
+
+- RLY exposes the configured, trusted model universe to Claude Code through authenticated `GET /v1/models` on the gateway listener using the supported Anthropic Messages discovery wire contract. Discovery is a **presentation + exact-target selection surface**: #67 remains canonical evidence, #69 remains contextual tier resolution, #23 refresh stays propose-only and never mutates projections, and the account selector remains the account/credential authority.
+- Every discoverable id uses the Claude-compatible `claude-rly-...` namespace (the supported client only adds ids beginning with `claude`/`anthropic`). Ids are transport/user-selection handles only; an explicit reverse mapping resolves each id to one exact access-provider/model target and provider pool, and routing never parses id strings or derives security decisions from them.
+- A model is discoverable only when its access provider is enabled in the active policy, the session has an explicit provider→pool route for that provider (the profile's own pool, or a single eligible default pool per provider — RLY never picks an arbitrary pool), the model has trusted registry evidence, and compatibility is `VERIFIED` by default (`EXPERIMENTAL` requires the explicit `gateway.modelDiscovery.experimentalModels` config opt-in; `BROKEN`/unreviewed never).
+- The same upstream model through two access providers appears as two distinct selectable targets (distinct ids/display labels) because auth/pool/endpoint/terms are different execution paths.
+- Each launch session pins its model-universe snapshot (policy revision/hash, registry revision, provider→pool bindings, experimental policy) at issue time; a registry/policy change during an active session never silently remaps an already-issued projection id, and removed/broken targets fail explicitly rather than substitute another model.
+- An RLY-only projection selected via `/model` persists only inside the RLY overlay; `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` is child-env only, and a plain `claude` launch never inherits RLY discovery env, auth, or projection ids (see Claude configuration overlay above).
+
 ## Token counting
 
 Routes declare one quality level: `upstream`, `exact-local`, `conservative-estimate`, or `unsupported`. Conservative estimates are allowed with a safety margin and visible readiness warning; they are never labeled exact.
