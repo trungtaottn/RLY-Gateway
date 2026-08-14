@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ControlPlaneStore } from "../control-plane/store.js";
 import { loadConfig } from "../config/load-config.js";
@@ -9,7 +9,7 @@ import { inspectRuntimeGateway, type RuntimeInspection } from "../runtime/gatewa
 import { createServiceManager } from "../service-manager/index.js";
 import type { ServiceManagerAdapter, ServiceDefinitionInput } from "../service-manager/types.js";
 import { readInstallation, writeInstallation } from "../storage/installation.js";
-import { resolveDefaultControlPlaneDirectory } from "../storage/paths.js";
+import { LOG_DIRECTORY, resolveDefaultControlPlaneDirectory, SERVICE_LOG_NAME } from "../storage/paths.js";
 
 export type InitDependencies = Readonly<{
   loadConfig?: typeof loadConfig;
@@ -64,6 +64,11 @@ export async function runInit(configPath: string, dependencies: InitDependencies
   const entrypoint = dependencies.entrypoint ?? fileURLToPath(import.meta.url);
   const manager = (dependencies.createServiceManager ?? createServiceManager)({
     home,
+    // macOS LaunchAgent: service stdout/stderr land in the durable RLY log
+    // directory and the process runs from the durable home. Paths only;
+    // never credentials, environment values, or account identity.
+    logPath: join(controlPlaneDirectory, LOG_DIRECTORY, SERVICE_LOG_NAME),
+    workingDirectory: controlPlaneDirectory,
   });
   const absoluteConfigPath = resolve(configPath);
   const record = {
