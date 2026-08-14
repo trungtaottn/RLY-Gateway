@@ -13,3 +13,9 @@ gateway.live.toml
 
 # Local execution plans
 plans
+
+# Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

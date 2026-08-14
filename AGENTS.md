@@ -42,23 +42,23 @@ If same-level authorities conflict, stop implementation and reconcile the owning
 
 ## Issue delivery
 
-Handle exactly one GitHub issue per worktree, branch, and pull request.
+Handle one active plan phase per worktree, branch, and pull request. A phase worktree may close multiple GitHub issues that belong to that phase.
 
-1. Read the issue and the documents this contract routes for that work.
-2. Fast-forward from latest `origin/dev`. Create an isolated worktree. Do not implement the issue in the primary `dev` checkout.
-3. Branch name: `<type>/<n>-<slug>` (example: `feat/19-browser-at-031`). Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`. The issue number must appear in the branch name.
-4. Keep the worktree scoped to that issue. New work gets another issue and another worktree.
-5. Open one PR into `dev`, never `main`. Use `Closes #<n>` when the PR fully completes the issue; otherwise `Refs #<n>`.
+1. Read the phase file, its issues, and the documents this contract routes for that work.
+2. Fast-forward from latest `origin/dev`. Create an isolated worktree. Do not implement the phase in the primary `dev` checkout.
+3. Branch name: `<type>/<phase>-<slug>` (example: `feat/10-ui-and-provider-expansion`). Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
+4. Keep the worktree scoped to that phase. A new phase gets another worktree. Do not start the next phase in the same worktree.
+5. Open one PR into `dev`, never `main`. The PR body must list every issue: `Closes #<n>` when that issue is fully done, otherwise `Refs #<n>`.
 6. After the PR merges, remove the worktree and the local branch.
 
 Use the installed worktree helper when available. Otherwise:
 
 ```text
 git fetch origin
-git worktree add -b <type>/<n>-<slug> <worktree-path> origin/dev
+git worktree add -b <type>/<phase>-<slug> <worktree-path> origin/dev
 ```
 
-Do not mix issues, commit on `dev` directly, or leave abandoned worktrees.
+Do not mix phases, commit on `dev` directly, or leave abandoned worktrees.
 
 ## Pull requests into `dev`
 
@@ -80,7 +80,7 @@ Do not merge your own PR unless the owner asked. Do not commit `LICENSE` copyrig
 
 ## Git and public release
 
-- Develop only on the issue worktree branch. Fast-forward `dev` only by merging reviewed PRs.
+- Develop only on the phase worktree branch. Fast-forward `dev` only by merging reviewed PRs.
 - Do not develop on `main`.
 - `main` is an unrelated orphan public history. Never merge or rebase `dev` directly into `main`.
 - Public release: branch from `main`, copy the approved `dev` snapshot without Git history/local artifacts, create one commit, then open one PR to `main`.

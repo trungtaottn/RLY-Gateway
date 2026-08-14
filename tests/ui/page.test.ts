@@ -20,6 +20,8 @@ describe("management UI page", () => {
     expect(html).toContain('for="view-select"');
     expect(html).toContain("Skip to main content");
     expect(html).toContain("aria-live");
+    expect(html).toContain('role="status"');
+    expect(html).toContain('id="main" tabindex="-1"');
     expect(html).toContain("Logout");
     expect(html).not.toContain("localStorage");
     expect(html).not.toContain("sessionStorage");
@@ -28,6 +30,7 @@ describe("management UI page", () => {
     expect(html).toContain(MANAGEMENT_CSP);
     expect(html).toContain("viewport");
     expect(html).toContain("--target:44px");
+    expect(html).toContain("#main:focus-visible");
     expect(html).toContain("min-height:var(--target)");
     expect(html).toContain("@media (min-width:1024px)");
   });

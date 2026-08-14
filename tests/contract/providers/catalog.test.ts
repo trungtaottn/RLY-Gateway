@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { adapterIdForProvider, PROVIDER_CATALOG, providerContract } from "../../../src/providers/catalog.js";
+import {
+  adapterIdForProvider,
+  applyCatalogDefaults,
+  PROVIDER_CATALOG,
+  providerContract,
+} from "../../../src/providers/catalog.js";
 
 describe("provider catalog contracts", () => {
   it("declares ownership, isolation, and import mode for each planned provider", () => {
@@ -29,6 +34,14 @@ describe("provider catalog contracts", () => {
     expect(adapterIdForProvider("gemini", "oauth")).toBe("gemini-oauth");
     expect(() => adapterIdForProvider("not-a-provider", "direct")).toThrow(/unknown provider/);
     expect(() => adapterIdForProvider("antigravity", "oauth")).toThrow(/unknown provider/);
+    expect(() => applyCatalogDefaults({ name: "keep", integrationMode: "direct" })).toThrow(/unknown provider/);
+    expect(() => applyCatalogDefaults({ name: "cline", integrationMode: "oauth" })).toThrow(/endpoint policy/);
+    expect(() => applyCatalogDefaults({
+      name: "cline", integrationMode: "oauth", endpointPolicy: "http://127.0.0.1:10100",
+    })).toThrow(/protected port/);
+    expect(applyCatalogDefaults({
+      name: "cline", integrationMode: "oauth", endpointPolicy: "http://127.0.0.1:17874",
+    }).endpointPolicy).toBe("http://127.0.0.1:17874");
     expect(JSON.stringify(PROVIDER_CATALOG)).not.toMatch(/accessToken|refreshToken|email/i);
   });
 });

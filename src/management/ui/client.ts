@@ -12,7 +12,7 @@ export function managementUiScript(): string {
     node.textContent = text;
     node.setAttribute("data-kind", kind || "info");
     if (kind === "alert") node.setAttribute("role", "alert");
-    else node.removeAttribute("role");
+    else node.setAttribute("role", "status");
   }
   function qsView() {
     var value = new URLSearchParams(location.search).get("view");

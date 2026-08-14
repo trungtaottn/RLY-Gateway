@@ -57,6 +57,7 @@ describe("upstream fixtures stay synthetic", () => {
       "tests/fixtures/upstream/claude-proxy/sse-event-shape.json",
       "tests/fixtures/upstream/rejected-patterns.json",
       "tests/fixtures/upstream/cliproxy-plus/bridge-only.json",
+      "tests/fixtures/upstream/clinepass/auth-shape.json",
     ]));
   });
 

@@ -10,7 +10,7 @@
 | HTTP server | Fastify | Streaming, hooks, lifecycle, and low framework overhead |
 | HTTP client | Native fetch/Undici | Standards-based streaming and cancellation |
 | Boundary validation | Zod | Validate config and external payload boundaries only |
-| Tests | Vitest | Unit, contract, integration, lifecycle, and E2E orchestration |
+| Tests | Vitest; Playwright Chromium for management UI AT-031 | Unit, contract, integration, lifecycle, E2E orchestration, and real-browser keyboard/viewport gates |
 | Lint | ESLint flat config | TypeScript correctness and maintainability checks |
 | Launch config | TOML, schema version 1 | Human-editable bootstrap and launch settings without raw secrets |
 | Control-plane data | SQLite with explicit migrations | Provider/account/profile/pool/health/policy/audit metadata only |
@@ -27,7 +27,7 @@
 
 ## Repository shape
 
-Use one modular TypeScript package. No monorepo, workspace orchestrator, generated SDK, or plugin SDK in V1. The local UI consumes the same versioned management contract and does not create a separate secret-owning backend.
+Use one modular TypeScript package. No monorepo, workspace orchestrator, generated SDK, or plugin SDK in V1. `pnpm-workspace.yaml` is settings-only (`allowBuilds` for esbuild); it does not add workspace packages. The local UI consumes the same versioned management contract and does not create a separate secret-owning backend.
 
 Modules are created only when their phase owns real behavior:
 
@@ -55,6 +55,7 @@ pnpm test:contract
 pnpm test:integration
 pnpm test:lifecycle
 pnpm test:privacy
+pnpm test:browser
 pnpm lint
 pnpm typecheck
 pnpm build

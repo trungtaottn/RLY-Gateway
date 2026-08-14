@@ -124,7 +124,7 @@ describe("management credential operations", () => {
       method: "POST",
       url: "/v1/providers",
       headers: auth,
-      payload: { name: "cline", integrationMode: "oauth" },
+      payload: { name: "cline", integrationMode: "oauth", endpointPolicy: "https://example.invalid/clinepass" },
     });
     const providerId = String(asRecord(provider.json())["id"]);
     const sourcePath = join(directory, "cline-auth.json");

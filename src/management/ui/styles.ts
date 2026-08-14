@@ -14,7 +14,7 @@ button{cursor:pointer}
 button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 button.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
 button:disabled{opacity:.45;cursor:not-allowed}
-button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible,.nav button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible,.nav button:focus-visible,#main:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 .layout{display:block}
 nav.nav{display:none;border-right:1px solid var(--line);padding:var(--space-3);min-width:240px}
 nav.nav button{display:block;width:100%;text-align:left;margin-bottom:var(--space-2);background:transparent}

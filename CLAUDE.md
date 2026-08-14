@@ -1,6 +1,6 @@
 # Claude Code Working Contract
 
-Follow [AGENTS.md](./AGENTS.md) as the repository working contract. Handle one GitHub issue per worktree and open the PR into `dev`. Before changing behavior, use its task routing to read the owning BA requirements, SPEC/ADR, RTM, Acceptance Test Cases Catalogue, TASKLIST, and active local plan phase.
+Follow [AGENTS.md](./AGENTS.md) as the repository working contract. Handle one plan phase per worktree (multiple issues in that phase are allowed) and open the PR into `dev`. Before changing behavior, use its task routing to read the owning BA requirements, SPEC/ADR, RTM, Acceptance Test Cases Catalogue, TASKLIST, and active local plan phase.
 
 Claude-specific reminders:
 

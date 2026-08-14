@@ -66,6 +66,8 @@ pnpm verify
 
 The example route contains placeholder model IDs and requires no credential for `doctor`. Do not commit the local configuration or place a raw secret in it; credential fields contain references such as `env:OPENROUTER_API_KEY`.
 
+Project-owned Gemini OAuth uses `AGENT_GATEWAY_GEMINI_OAUTH_CLIENT_ID`. There is no default client id and no Gemini CLI / Code Assist impersonation. Opt-in live smoke: `AGENT_GATEWAY_LIVE_GEMINI_OAUTH=1`. Cline create requires an explicit loopback or HTTPS `endpointPolicy` (never ports `10100`, `8317`, or `17870`). OpenCode Go and Alibaba have adapters but no reviewed TOML model routes yet; Alibaba stays terms-gated.
+
 ## Current CLI
 
 ```bash
@@ -94,13 +96,17 @@ references, never raw secrets.
 ## Verification
 
 ```bash
+pnpm exec playwright install chromium
 pnpm test:unit
 pnpm test:lifecycle
 pnpm test:privacy
+pnpm test:browser
 pnpm lint
 pnpm typecheck
 pnpm build
 ```
+
+`pnpm verify` includes `pnpm test:browser`. Install Chromium once with `pnpm exec playwright install chromium` before a clean-clone verify.
 
 Contract and integration script names already exist and intentionally allow zero tests until their owning phases add real protocol/provider behavior.
 

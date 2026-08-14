@@ -15,7 +15,7 @@ export function managementUiHtml(): string {
 </head>
 <body>
   <a class="skip" href="#main">Skip to main content</a>
-  <p id="status" aria-live="polite">Exchanging management session…</p>
+  <p id="status" role="status" aria-live="polite">Exchanging management session…</p>
   <p id="gate-message" class="hidden"></p>
   <div id="gate"></div>
   <div id="app" class="hidden">
@@ -48,7 +48,7 @@ export function managementUiHtml(): string {
         <button type="button" data-view-btn="audit">Audit</button>
         <button type="button" data-view-btn="traces">Route traces</button>
       </nav>
-      <main id="main">
+      <main id="main" tabindex="-1">
         <h2 id="view-title">Providers</h2>
         <div id="panel"></div>
       </main>

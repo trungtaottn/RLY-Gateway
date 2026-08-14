@@ -22,4 +22,18 @@ describe("model registry", () => {
     const config = gatewayConfigSchema.parse({ schemaVersion: 1, gateway: { port: 17871 }, routes: { primary: { provider: "openrouter", model: "unreviewed-model", credential: "env:OPENROUTER_API_KEY" } } });
     expect(routesFromConfig(config).size).toBe(0);
   });
+
+  it("does not publish OpenCode Go or Alibaba TOML routes without reviewed model evidence", () => {
+    const logicalIds = directProviderRegistry.models.map((model) => model.logicalId);
+    expect(logicalIds.some((id) => id.startsWith("opencode-go/") || id.startsWith("alibaba/"))).toBe(false);
+    const config = gatewayConfigSchema.parse({
+      schemaVersion: 1,
+      gateway: { port: 17871 },
+      routes: {
+        primary: { provider: "opencode-go", model: "go-unreviewed", credential: "env:OPENCODE_API_KEY" },
+        fast: { provider: "alibaba", model: "qwen-unreviewed", credential: "env:DASHSCOPE_API_KEY" },
+      },
+    });
+    expect(routesFromConfig(config).size).toBe(0);
+  });
 });

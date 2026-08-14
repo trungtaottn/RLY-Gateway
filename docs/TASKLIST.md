@@ -86,7 +86,7 @@ Code/live-provider compatibility.
 - [x] Doctor does not open or migrate the control-plane store.
 
 ## Later committed V1 milestones
-- [ ] Secret-free local UI and provider expansion.
+- [x] Secret-free local UI and provider expansion. Evidence: `pnpm verify` including `pnpm test:browser`; create-time catalog reject; Cline endpoint policy; Gemini/Antigravity live smokes opt-in skipped. Claude OAuth and Cline Claude Code E2E stay in BACKLOG.
 - [ ] OpenAI Responses and Codex CLI E2E.
 - [ ] Release hardening, packaging, provenance, migration, recovery, and daily workflow gates.
 
