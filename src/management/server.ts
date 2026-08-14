@@ -14,8 +14,10 @@ import {
 import { bootstrapPageHtml, SESSION_COOKIE_NAME } from "./bootstrap-page.js";
 import { registerManagementCollections } from "./collections.js";
 import { registerCredentialRoutes } from "./credentials.js";
-import { toAuditDto, toPolicyDto } from "./dtos.js";
+import type { RouteTraceRing } from "../profiles/traces.js";
+import { toAuditDto, toHealthDto, toPolicyDto, toTraceDto } from "./dtos.js";
 import { expiredSessionCookie, isExactManagementOrigin, parseCookie, sessionCookie } from "./origin.js";
+import { applyManagementSecurityHeaders } from "./security-headers.js";
 import { SESSION_TTL_MS, type SessionStore } from "./session-store.js";
 
 export type ManagementServerOptions = Readonly<{
@@ -28,6 +30,7 @@ export type ManagementServerOptions = Readonly<{
   store: ControlPlaneStore;
   sessions: SessionStore;
   credentials?: CredentialService;
+  traces?: RouteTraceRing;
 }>;
 
 export { createManagementIdentityProof };
@@ -35,6 +38,11 @@ export { createManagementIdentityProof };
 export function createManagementServer(options: ManagementServerOptions): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
   const authorize = createAuthorizer(options);
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    applyManagementSecurityHeaders(reply);
+    return payload;
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.method === "GET" || request.method === "HEAD") return;
@@ -89,6 +97,13 @@ export function createManagementServer(options: ManagementServerOptions): Fastif
       .send({ csrfToken: session.csrfToken, expiresAt: new Date(session.expiresAt).toISOString() });
   });
 
+  app.post("/auth/resume", async (request, reply) => {
+    const sessionId = parseCookie(headerValue(request.headers.cookie), SESSION_COOKIE_NAME);
+    const rotated = sessionId === undefined ? undefined : options.sessions.rotateCsrf(sessionId);
+    if (!rotated) return reject(reply, 401, "unauthorized");
+    return { csrfToken: rotated.csrfToken, expiresAt: new Date(rotated.expiresAt).toISOString() };
+  });
+
   app.post("/auth/logout", async (request, reply) => {
     const principal = authorize(request, reply, true);
     if (!principal) return;
@@ -110,6 +125,16 @@ export function createManagementServer(options: ManagementServerOptions): Fastif
     const principal = authorize(request, reply, false);
     if (!principal) return;
     return { events: options.store.listAudit().map(toAuditDto) };
+  });
+  app.get("/v1/health", async (request, reply) => {
+    const principal = authorize(request, reply, false);
+    if (!principal) return;
+    return { items: options.store.listHealth().map(toHealthDto) };
+  });
+  app.get("/v1/route-traces", async (request, reply) => {
+    const principal = authorize(request, reply, false);
+    if (!principal) return;
+    return { traces: (options.traces?.list() ?? []).map(toTraceDto) };
   });
 
   app.setErrorHandler((error, _request, reply) => {

@@ -21,6 +21,20 @@ Report suspected vulnerabilities privately to the repository owner. Do not inclu
 
 See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and the accepted ADRs for trust boundaries.
 
+## Management UI threat model
+
+The browser is a management API client only. It never reads SQLite, credential files, or the data-plane listener.
+
+| Threat | Control | Test signal |
+| --- | --- | --- |
+| Secret in DTO or HTML | `assertSecretFree`, secret-free views, no file inputs | Privacy / UI page tests |
+| Browser persistence | CSRF in RAM; cookie `HttpOnly; SameSite=Strict`; no `localStorage`/`sessionStorage` | Page source + resume tests |
+| CSRF / origin spoof | Exact loopback Origin on POST; CSRF on mutations; resume rotates CSRF | Auth / UI session tests |
+| Clickjacking | `Content-Security-Policy frame-ancestors 'none'` and `X-Frame-Options: DENY` | Security header assertions |
+| Stale mutation | Optimistic `version`; `409 stale-version`; UI reloads, never auto-retries | Mutation + UI client |
+| Session replay | Single-use bootstrap fragment; logout/shutdown revoke | Auth tests |
+| Shared-store write | Cline interoperability is explicit, locked, backed up; default import is read-only | Cline contract tests |
+
 ## Secret exposure response
 
 1. Stop the affected release or test.

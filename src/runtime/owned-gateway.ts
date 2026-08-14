@@ -156,6 +156,7 @@ export async function startOwnedGateway(input: Readonly<{
       store: controlPlane,
       sessions,
       credentials,
+      traces,
     };
     app = (options.createServer ?? createGatewayServer)(gatewayOptions);
     management = (options.createManagementServer ?? createManagementServer)(managementOptions);

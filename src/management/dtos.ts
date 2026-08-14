@@ -85,6 +85,26 @@ export function toPolicyDto(record: PolicyRevision): Readonly<Record<string, unk
   });
 }
 
+export function toHealthDto(record: Readonly<{
+  accountId: string;
+  lastOutcome: string | undefined;
+  lastOutcomeAt: string | undefined;
+  consecutiveFailures: number;
+  cooldownUntil: string | undefined;
+}>): Readonly<Record<string, unknown>> {
+  return secretFree({
+    accountId: record.accountId,
+    lastOutcome: record.lastOutcome,
+    lastOutcomeAt: record.lastOutcomeAt,
+    consecutiveFailures: record.consecutiveFailures,
+    cooldownUntil: record.cooldownUntil,
+  });
+}
+
+export function toTraceDto(record: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  return secretFree({ ...record });
+}
+
 export function toAuditDto(record: AuditEvent): Readonly<Record<string, unknown>> {
   return secretFree({
     id: record.id,
