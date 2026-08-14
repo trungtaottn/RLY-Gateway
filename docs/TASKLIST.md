@@ -129,6 +129,15 @@ Code/live-provider compatibility.
 - [x] Crash/stale recovery reuses startup-lock and process-identity rules; launcher-owned instances are never killed or reused by the service.
 - [x] Docs aligned (SPEC, project-decisions, BACKLOG, ARCHITECTURE, ROADMAP, ADR 0003/0006, RTM, AT catalogue); FR-018/SR-F-022/AT-034 added. Evidence: `tests/lifecycle/resident-runtime.test.ts`, `tests/service-manager/*`, `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts`; `pnpm verify` green.
 
+## Completed milestone: Phase 23 catalog proposal — propose-only provider catalog refresh (#23)
+
+- [x] Provider-owned catalogue discovery contract: `ProviderCatalogSource` (`src/providers/catalog-discovery.ts`) returns a normalized `DiscoverySnapshot` without registry mutation access; OpenRouter API path (`GET /models`, explicit id/family normalization, optional env-ref auth, privacy-redacted errors) and static reviewed-list path.
+- [x] Deterministic drift engine: `proposeCatalogDrift()` (`src/registry/catalog-proposal.ts`) reports unchanged/new/changed/removed + reviewed `compatibilityEvidenceRefs`, sorted stably; identical trusted registry + identical snapshot yield a stable unchanged proposal; 250-model aggregator snapshots stay deterministic and activate nothing; mixed-provider/duplicate snapshots fail closed; same upstream id across providers never cross-matches.
+- [x] Provider-reported capabilities are labeled declared/observed; nothing is promoted to trusted evidence by discovery; #24 references come from reviewed entries only (skipped canary never = pass).
+- [x] Persistence separate from trusted evidence: `ProposalStore` (`src/registry/proposal-store.ts`) writes schema-validated metadata-only artifacts under `<control-plane>/proposals/<provider>.json`; malformed artifacts fail closed on read.
+- [x] CLI surface: `rly admin models refresh --provider <name> [--source api|static] [--snapshot <file>] [--family <f>]` and `rly admin models proposals`; proposals are surfaced with `trusted: false` and never as selectable/usable models; refresh requires no management listener and cannot change trusted evidence, tier mappings, or `/v1/models` projection.
+- [x] Docs/RTM/AT: AT-036/AT-037 added; ARCHITECTURE, SPEC §6.2, BACKLOG BL-042, TASKLIST updated. Evidence: `tests/unit/catalog-proposal.test.ts`, `tests/contract/providers/catalog-discovery.test.ts`, `tests/unit/proposal-store.test.ts`, `tests/unit/cli-admin.test.ts`; `pnpm verify` green.
+
 ## Completed milestone: Phase 67 model foundation — provider model intelligence registry
 
 - [x] Canonical model evidence distinguishes access provider, exact upstream model id, and upstream/model family where known; one aggregator provider exposes many families without parallel registries (#67).
