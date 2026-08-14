@@ -4,10 +4,10 @@ Personal, protocol-preserving gateway and local multi-provider control plane for
 
 ## Project status
 
-The foundation, Anthropic Messages boundary, and direct-provider Claude route
-are implemented. The active milestone freezes reusable MIT sources before
-adding project-owned OAuth credentials, accounts, pools, profiles, management,
-and UI; see [TASKLIST](./docs/TASKLIST.md).
+The foundation, Anthropic Messages boundary, direct-provider Claude route,
+authenticated control-plane/management contract, and project-owned credential
+broker with one Codex OAuth vertical slice are implemented. The active
+milestone adds deterministic account pools; see [TASKLIST](./docs/TASKLIST.md).
 
 ## Start here
 
@@ -70,14 +70,23 @@ The example route contains placeholder model IDs and requires no credential for 
 ```bash
 pnpm dev doctor
 pnpm dev status
+pnpm dev admin providers list
+pnpm dev admin credentials preview --source /path/to/auth.json
+pnpm dev admin credentials import --source /path/to/auth.json --provider-id <id> --pseudonym acct-1 --source-fingerprint <sha256>
+pnpm dev admin credentials login --provider-id <id> --pseudonym acct-1
+pnpm dev admin accounts select --id <id> --version <n>
+pnpm dev admin accounts revoke --id <id> --version <n>
+pnpm dev admin ui
 pnpm dev run claude -- --help
 ```
 
-`run claude` starts or reuses only the deterministic, attested local gateway, then launches Claude with gateway settings scoped to that child process. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration without exposing sensitive validation details. There is no ownership-bypassing `serve` command. Control-plane commands and UI described in the roadmap are not implemented yet.
+`run claude` starts or reuses only the deterministic, attested local gateway, then launches Claude with gateway settings scoped to that child process. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration without exposing sensitive validation details. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session exchange. There is no ownership-bypassing `serve` command. The local management UI itself is not implemented yet.
 
-With configured direct routes, the lifecycle server also exposes authenticated
-Anthropic Messages and token-count endpoints. Routes are explicit `primary`,
-`fast`, and `reasoning` mappings; the gateway never auto-selects a model.
+With configured direct routes or a selected Codex OAuth account, the lifecycle
+server also exposes authenticated Anthropic Messages and token-count endpoints.
+Configured routes are explicit `primary`, `fast`, and `reasoning` mappings; the
+gateway never auto-selects a model. Credential fields are `env:` or `handle:`
+references, never raw secrets.
 
 ## Verification
 

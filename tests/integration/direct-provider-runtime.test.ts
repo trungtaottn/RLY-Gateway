@@ -18,7 +18,7 @@ async function setup(): Promise<void> {
   gateway = createGatewayServer({
     host: "127.0.0.1", port: 17871, authToken: "gateway-fixture", instanceId: "00000000-0000-4000-8000-000000000001", configFingerprint: "a".repeat(64),
     environment: { OPENROUTER_API_KEY: "fixture-key" },
-    config: { schemaVersion: 1, gateway: { host: "127.0.0.1", port: 17871, logLevel: "silent" }, routes: { primary: { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", credential: "env:OPENROUTER_API_KEY", baseUrl: upstreamBase }, fast: { provider: "openrouter", model: "nvidia/nemotron-nano-12b-v2-vl:free", credential: "env:OPENROUTER_API_KEY", baseUrl: upstreamBase } } },
+    config: { schemaVersion: 1, gateway: { host: "127.0.0.1", port: 17871, managementPort: 17872, logLevel: "silent" }, controlPlane: {}, routes: { primary: { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", credential: "env:OPENROUTER_API_KEY", baseUrl: upstreamBase }, fast: { provider: "openrouter", model: "nvidia/nemotron-nano-12b-v2-vl:free", credential: "env:OPENROUTER_API_KEY", baseUrl: upstreamBase } } },
   });
 }
 

@@ -1,0 +1,114 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { ControlPlaneStore } from "../../src/control-plane/store.js";
+import { DEFAULT_MIGRATIONS, openMigratedDatabase } from "../../src/storage/migrations.js";
+import { controlPlanePaths } from "../../src/storage/paths.js";
+import { SCHEMA_V1_CHECKSUM } from "../../src/storage/schema-v1.js";
+import { writePrivateTextAtomically } from "../../src/storage/private-files.js";
+
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+describe("control-plane migrations", () => {
+  it("applies version 1 and refuses a failing follow-on migration by restoring the prior schema", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-migrate-"));
+    directories.push(directory);
+    const created = await ControlPlaneStore.open(directory);
+    created.createProvider({ name: "kept", integrationMode: "direct" }, "system");
+    created.close();
+
+    await expect(openMigratedDatabase(directory, [
+      ...DEFAULT_MIGRATIONS,
+      { version: 2, checksum: "deadbeef", sql: "CREATE TABLE broken (id TEXT PRIMARY KEY);\nNOT VALID SQL" },
+    ])).rejects.toThrow("prior schema restored");
+
+    const restored = await ControlPlaneStore.open(directory);
+    try {
+      expect(restored.listProviders().map((item) => item.name)).toEqual(["kept"]);
+      expect(restored.database.prepare("SELECT name FROM sqlite_master WHERE name = 'broken'").get()).toBeUndefined();
+    } finally {
+      restored.close();
+    }
+  });
+
+  it("recovers an interrupted migration from a verified backup marker", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-recover-"));
+    directories.push(directory);
+    const created = await ControlPlaneStore.open(directory);
+    created.createProvider({ name: "prior", integrationMode: "direct" }, "system");
+    created.close();
+
+    const paths = controlPlanePaths(directory);
+    const backupPath = join(paths.backups, "prior.sqlite");
+    const { copyFile } = await import("node:fs/promises");
+    const { createHash } = await import("node:crypto");
+    const { readFile } = await import("node:fs/promises");
+    await copyFile(paths.database, backupPath);
+    const backupHash = createHash("sha256").update(await readFile(backupPath)).digest("hex");
+    await writeFile(paths.database, "corrupt-partial-migration", "utf8");
+    await writePrivateTextAtomically(paths.marker, `${JSON.stringify({
+      fromVersion: 1,
+      toVersion: 2,
+      backupPath,
+      backupHash,
+    })}\n`);
+
+    const recovered = await ControlPlaneStore.open(directory);
+    try {
+      expect(recovered.listProviders().map((item) => item.name)).toEqual(["prior"]);
+    } finally {
+      recovered.close();
+    }
+  });
+
+  it("takes a stale migration lock and still restores an interrupted marker", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-stale-lock-"));
+    directories.push(directory);
+    const created = await ControlPlaneStore.open(directory);
+    created.createProvider({ name: "prior", integrationMode: "direct" }, "system");
+    created.close();
+
+    const paths = controlPlanePaths(directory);
+    const { copyFile, readFile } = await import("node:fs/promises");
+    const { createHash } = await import("node:crypto");
+    const backupPath = join(paths.backups, "prior.sqlite");
+    await copyFile(paths.database, backupPath);
+    const backupHash = createHash("sha256").update(await readFile(backupPath)).digest("hex");
+    await writeFile(paths.database, "corrupt-partial-migration", "utf8");
+    await writePrivateTextAtomically(paths.marker, `${JSON.stringify({
+      fromVersion: 1,
+      toVersion: 2,
+      backupPath,
+      backupHash,
+    })}\n`);
+    await writePrivateTextAtomically(paths.lock, `${JSON.stringify({
+      lockId: "00000000-0000-4000-8000-000000000099",
+      createdAt: "2026-08-13T00:00:00.000Z",
+      owner: { pid: 999_999, processStartedAt: "2026-08-13T00:00:00.000Z" },
+    })}\n`);
+
+    const recovered = await ControlPlaneStore.open(directory);
+    try {
+      expect(recovered.listProviders().map((item) => item.name)).toEqual(["prior"]);
+    } finally {
+      recovered.close();
+    }
+  });
+
+  it("records the schema checksum for the applied revision", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-checksum-"));
+    directories.push(directory);
+    const store = await ControlPlaneStore.open(directory);
+    try {
+      const row = store.database.prepare("SELECT checksum FROM schema_migrations WHERE version = 1").get() as { checksum: string };
+      expect(row.checksum).toBe(SCHEMA_V1_CHECKSUM);
+    } finally {
+      store.close();
+    }
+  });
+});

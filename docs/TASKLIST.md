@@ -41,7 +41,7 @@ Code/live-provider compatibility.
 - [x] Pass real Claude Code fake-upstream E2E.
 - [x] Pass one explicit live direct-provider smoke.
 
-## Current milestone: Authority and source freeze
+## Completed milestone: Authority and source freeze
 
 - [x] Accept self-owned control plane, OAuth credentials, explicit import, and account pools.
 - [x] Supersede the bridge-only credential restriction.
@@ -50,10 +50,24 @@ Code/live-provider compatibility.
 - [x] Prove CLIProxy Plus provenance separately from CCS.
 - [x] Create sanitized compatibility fixtures for copied behavior.
 
-## Later committed V1 milestones
+## Completed milestone: Control-plane foundation
 
-- [ ] Control-plane schema, migrations, authenticated management API, and CLI.
-- [ ] Credential broker and project-owned Codex OAuth vertical slice.
+- [x] Versioned SQLite schema and atomic migrations with backup/restore.
+- [x] Authenticated management listener on `127.0.0.1:17872` with Origin/CSRF, separate bearer, and fragment bootstrap.
+- [x] Secret-free DTOs, policy revision compilation, and metadata-only audit.
+- [x] CLI administration for create/list/update and account pause/resume.
+- [x] Security, race, corruption, and recovery tests. Evidence: `pnpm verify` — 114 passed, 6 skipped.
+
+## Completed milestone: Credential broker and Codex OAuth
+
+- [x] Project-owned credential store with `0700`/`0600`, atomic replace, backup, and recovery.
+- [x] Explicit read-only Codex import that leaves the source store unchanged.
+- [x] Project-owned PKCE login, single-flight refresh, generation compare-and-swap, and revoke.
+- [x] Manual account select/pause/revoke with secret-free readiness.
+- [x] Codex OAuth adapter receives request-scoped secrets and binds one account into the Anthropic route.
+- [x] Credential, OAuth, recovery, privacy, and contract tests. Evidence: `pnpm test` — 134 passed, 7 skipped; `pnpm lint`, `pnpm typecheck`, `pnpm build`, and `pnpm test:privacy` passed.
+
+## Later committed V1 milestones
 - [ ] Deterministic pool engine and Claude Code integration.
 - [ ] Profiles, launcher, status, doctor, and quota UX.
 - [ ] Secret-free local UI and provider expansion.

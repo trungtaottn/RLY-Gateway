@@ -11,6 +11,8 @@ export type RouteDecision = Readonly<{
   configFingerprint: string;
   capabilitySnapshot: ProviderCapabilities;
   decidedAt: string;
+  accountPseudonym?: string;
+  credentialGeneration?: number;
 }>;
 
 export function createRouteDecision(decision: RouteDecision): RouteDecision {

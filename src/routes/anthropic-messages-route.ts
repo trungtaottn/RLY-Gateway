@@ -6,7 +6,13 @@ import { aggregateAnthropicEvents, encodeAnthropicEvents } from "../protocols/an
 import { collectWithSafeRetry, type CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { ProviderAdapterError } from "../providers/provider-adapter.js";
 
-export type AnthropicRouteDependencies = Readonly<{ upstream?: CanonicalUpstream; route?: RouteRecord; resolveRoute?: (request: ReturnType<typeof decodeAnthropicRequest>["request"]) => Readonly<{ upstream: CanonicalUpstream; route: RouteRecord }> | undefined; configFingerprint: string }>;
+export type ResolvedAnthropicRoute = Readonly<{ upstream: CanonicalUpstream; route: RouteRecord }>;
+export type AnthropicRouteDependencies = Readonly<{
+  upstream?: CanonicalUpstream;
+  route?: RouteRecord;
+  resolveRoute?: (request: ReturnType<typeof decodeAnthropicRequest>["request"]) => ResolvedAnthropicRoute | undefined | Promise<ResolvedAnthropicRoute | undefined>;
+  configFingerprint: string;
+}>;
 type Closeable = Readonly<{
   once: (event: "aborted" | "close", listener: () => void) => unknown;
   removeListener: (event: "aborted" | "close", listener: () => void) => unknown;
@@ -36,7 +42,7 @@ export function registerAnthropicMessagesRoute(app: FastifyInstance, dependencie
   app.post("/v1/messages", async (request, reply) => {
     try {
       const decoded = decodeAnthropicRequest(request.body, request.headers);
-      const resolved = dependencies.resolveRoute?.(decoded.request);
+      const resolved = await dependencies.resolveRoute?.(decoded.request);
       const route = resolved?.route ?? dependencies.route;
       const upstream = resolved?.upstream ?? dependencies.upstream;
       if (!route || !upstream) throw new UnsupportedRouteError(["streaming"]);

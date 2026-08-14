@@ -3,11 +3,11 @@ import { decodeAnthropicRequest, AnthropicProtocolError } from "../protocols/ant
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import type { RouteRecord } from "../core/router.js";
 
-export function registerAnthropicDirectCountTokensRoute(app: FastifyInstance, resolveRoute: (request: ReturnType<typeof decodeAnthropicRequest>["request"]) => Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }> | undefined): void {
+export function registerAnthropicDirectCountTokensRoute(app: FastifyInstance, resolveRoute: (request: ReturnType<typeof decodeAnthropicRequest>["request"]) => Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }> | undefined | Promise<Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }> | undefined>): void {
   app.post("/v1/messages/count_tokens", async (request, reply) => {
     try {
       const decoded = decodeAnthropicRequest(request.body, request.headers);
-      const resolved = resolveRoute(decoded.request);
+      const resolved = await resolveRoute(decoded.request);
       if (!resolved) return await reply.code(404).send({ type: "error", error: { type: "not_found_error", message: "Configured route was not found" } });
       if (resolved.route.capabilities.tokenCounting === "unsupported") return await reply.code(501).send({ type: "error", error: { type: "unsupported_feature", message: "Token counting is unavailable" } });
       const result = resolved.upstream.countTokens ? await resolved.upstream.countTokens(decoded.request) : undefined;

@@ -35,5 +35,34 @@ When a requirement changes, update its owning document and this matrix in the sa
 ## Current baseline status
 
 - BR-001/006/008 have partial verified evidence from the completed Claude direct-provider milestone.
-- Control-plane, credential, pool, UI, Codex harness, provenance-copy, and public snapshot requirements are approved but not yet implemented.
+- Control-plane foundation evidence exists for schema/migrations, authenticated management, CLI administration, and secret-free DTOs.
+- Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, UI accessibility, and Codex harness remain unimplemented.
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
+
+## Phase 06 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-003, AT-004 | `tests/management/mutations.test.ts`, `tests/control-plane/repositories.test.ts` | Verified for versioned provider mutations and reject-closed stale/unauthorized cases |
+| AT-013 | `tests/management/mutations.test.ts` | Verified pause/resume-style account update; DTO is pseudonym/readiness only |
+| AT-014 | `tests/control-plane/repositories.test.ts` | Verified explicit terms acknowledgement against the required revision; request-time ineligibility remains Phase 08 |
+| AT-015, AT-016 | `tests/management/mutations.test.ts`, `tests/control-plane/repositories.test.ts` | Verified atomic profile/pool create and duplicate/cross-provider/stale rejection |
+| AT-025, AT-026 | `tests/management/auth.test.ts`, `tests/management/mutations.test.ts` | Verified separate bearer, single-use fragment exchange, cookie flags, CSRF/Origin/replay/logout/stale-version fail-closed |
+| AT-001, AT-002 management listener | `tests/lifecycle/management-lifecycle.test.ts`, `tests/lifecycle/gateway-lifecycle.test.ts` | Verified loopback management bind, foreign fail-closed, teardown, no port increment |
+| SR-NF-002 / AT-027 subset | `tests/privacy/control-plane.test.ts`, `tests/control-plane/schema.test.ts` | Verified SQLite/DTO/audit have no secret or raw-identity columns |
+| SR-NF-008 migration recovery | `tests/control-plane/migrations.test.ts` | Verified failed and interrupted migrations restore the prior schema |
+
+## Phase 07 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-005, AT-006 | `tests/credentials/import.test.ts` | Verified explicit Codex import leaves the source byte-identical; malformed/oversized/changed sources fail without a usable project record |
+| AT-007, AT-008 | `tests/credentials/oauth.test.ts` | Verified PKCE/S256 exact loopback login; state mismatch, replay after close, cancel, callback collision, and bounded token bodies fail closed |
+| AT-009, AT-010 | `tests/credentials/refresh.test.ts`, `tests/credentials/store.test.ts` | Verified single-flight refresh commits one generation; stale commit cannot overwrite a newer record |
+| AT-011 | `tests/credentials/revoke.test.ts`, `tests/management/credentials.test.ts` | Verified revoke removes usable active/temp/backup project records and excludes the account |
+| AT-012 | `tests/credentials/store.test.ts` | Verified corrupt active restores the last valid backup, or marks the handle unready |
+| AT-013 subset | `tests/management/credentials.test.ts`, `tests/management/mutations.test.ts` | Verified pause/select/revoke and secret-free readiness on account DTOs |
+| AT-014 subset | `src/credentials/service.ts` readiness | Terms-unaccepted accounts are unready for manual selection; request-time pool ineligibility remains Phase 08 |
+| AT-027 subset | `tests/privacy/credentials.test.ts` | Verified DTO/audit/policy JSON contain no access or refresh material |
+| Codex OAuth adapter | `tests/contract/providers/codex-oauth/adapter.test.ts`, `tests/credentials/route.test.ts` | Verified request-scoped secret use and one selected account bound into the Anthropic route |
+| Live Codex smoke | `tests/contract/providers/codex-oauth/live-smoke.test.ts` | Skipped unless `AGENT_GATEWAY_LIVE_CODEX_OAUTH=1`; not passing evidence |

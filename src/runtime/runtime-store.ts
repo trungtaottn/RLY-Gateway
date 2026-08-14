@@ -79,6 +79,7 @@ export class RuntimeLock {
 export class RuntimeStore {
   readonly ownershipPath: string;
   readonly secretPath: string;
+  readonly managementSecretPath: string;
   readonly startupLockPath: string;
   readonly leaseLockPath: string;
   readonly #processIdentityLookup: ProcessIdentityLookup | undefined;
@@ -89,6 +90,7 @@ export class RuntimeStore {
   ) {
     this.ownershipPath = join(directory, "ownership.json");
     this.secretPath = join(directory, "instance.secret");
+    this.managementSecretPath = join(directory, "management.secret");
     this.startupLockPath = join(directory, "startup.lock");
     this.leaseLockPath = join(directory, "leases.lock");
     this.#processIdentityLookup = options.processIdentityLookup;
@@ -148,6 +150,18 @@ export class RuntimeStore {
     return secret === undefined ? undefined : instanceSecretSchema.parse(secret);
   }
 
+  public async writeManagementSecret(secret: string): Promise<void> {
+    instanceSecretSchema.parse(secret);
+    await this.initialize();
+    await writePrivateTextAtomically(this.managementSecretPath, secret);
+  }
+
+  public async readManagementSecret(): Promise<string | undefined> {
+    await this.initialize();
+    const secret = await readPrivateTextIfPresent(this.managementSecretPath);
+    return secret === undefined ? undefined : instanceSecretSchema.parse(secret);
+  }
+
   /**
    * Removes only artifacts still bound to this instance. A replaced ownership
    * record leaves both files untouched, so an old shutdown cannot erase a new
@@ -159,6 +173,7 @@ export class RuntimeStore {
     const record = await this.readOwnershipRecord();
     if (!record || record.instanceId !== expectedInstanceId) return false;
     await removePrivateFileIfPresent(this.secretPath);
+    await removePrivateFileIfPresent(this.managementSecretPath);
     await removePrivateFileIfPresent(this.ownershipPath);
     return true;
   }
@@ -334,6 +349,8 @@ async function readLockIfPresent(path: string): Promise<{ value: StartupLockReco
     throw error;
   }
   try {
+    const details = await handle.stat();
+    if (details.nlink === 0) return undefined;
     await assertSafeOpenFile(handle);
     const contents = await handle.readFile({ encoding: "utf8" });
     let decoded: unknown;

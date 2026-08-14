@@ -24,6 +24,8 @@ export function decideRoute(input: {
   required: readonly CapabilityRequirement[];
   configFingerprint: string;
   now?: Date;
+  accountPseudonym?: string;
+  credentialGeneration?: number;
 }): RouteDecision {
   const missing = missingCapabilities(input.route.capabilities, input.required);
   if (missing.length > 0) throw new UnsupportedRouteError(missing);
@@ -38,6 +40,8 @@ export function decideRoute(input: {
     configFingerprint: input.configFingerprint,
     capabilitySnapshot: input.route.capabilities,
     decidedAt: (input.now ?? new Date()).toISOString(),
+    ...(input.accountPseudonym === undefined ? {} : { accountPseudonym: input.accountPseudonym }),
+    ...(input.credentialGeneration === undefined ? {} : { credentialGeneration: input.credentialGeneration }),
   });
 }
 

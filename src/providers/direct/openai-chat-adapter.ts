@@ -1,4 +1,4 @@
-import { resolveEnvironmentCredential } from "../../credentials/env-resolver.js";
+import { resolveEnvironmentCredential, type SecretHandle } from "../../credentials/env-resolver.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest } from "../../core/canonical-request.js";
 import type { CanonicalEvent } from "../../core/canonical-event.js";
 import type { RouteDecision } from "../../core/route-decision.js";
@@ -96,18 +96,26 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
     };
   }
 
+  protected ownsSecret = true;
+  protected resolveSecret(decision: RouteDecision): SecretHandle {
+    return resolveEnvironmentCredential(decision.credentialRef, this.environment);
+  }
+  protected extraHeaders(): Readonly<Record<string, string>> {
+    return {};
+  }
+
   private async post(request: CanonicalRequest, decision: RouteDecision, signal: AbortSignal): Promise<Response> {
-    const secret = resolveEnvironmentCredential(decision.credentialRef, this.environment);
+    const secret = this.resolveSecret(decision);
     const timeout = AbortSignal.timeout(this.timeoutMs);
     try {
-      const response = await this.request(`${this.requestEndpoint}/chat/completions`, { method: "POST", signal: AbortSignal.any([signal, timeout]), headers: { authorization: `Bearer ${secret.reveal()}`, "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify(this.payload(request)) });
+      const response = await this.request(`${this.requestEndpoint}/chat/completions`, { method: "POST", signal: AbortSignal.any([signal, timeout]), headers: { authorization: `Bearer ${secret.reveal()}`, "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", ...this.extraHeaders() }, body: JSON.stringify(this.payload(request)) });
       if (!response.ok) throw new ProviderAdapterError(parseError(response.status));
       return response;
     } catch (error) {
       if (timeout.aborted && !signal.aborted) throw new ProviderAdapterError("api_error", "Provider request timed out");
       throw error;
     } finally {
-      secret.dispose();
+      if (this.ownsSecret) secret.dispose();
     }
   }
 
@@ -181,13 +189,13 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
   }
 
   async probe(decision: RouteDecision, signal: AbortSignal): Promise<ProviderProbe> {
-    const secret = resolveEnvironmentCredential(decision.credentialRef, this.environment);
+    const secret = this.resolveSecret(decision);
     try {
-      const response = await this.request(`${this.requestEndpoint}/models`, { signal, headers: { authorization: `Bearer ${secret.reveal()}` } });
+      const response = await this.request(`${this.requestEndpoint}/models`, { signal, headers: { authorization: `Bearer ${secret.reveal()}`, ...this.extraHeaders() } });
       if (!response.ok) return { providerId: decision.providerId, modelId: decision.modelId, readiness: response.status === 401 || response.status === 403 ? "unauthenticated" : "unavailable", checkedAt: new Date().toISOString() };
       const catalog = await response.json() as { data?: unknown };
       const exists = Array.isArray(catalog.data) && catalog.data.some((item) => Boolean(item) && typeof item === "object" && (item as { id?: unknown }).id === decision.modelId);
       return { providerId: decision.providerId, modelId: decision.modelId, readiness: exists ? "ready" : "unavailable", ...(exists ? { capabilities: decision.capabilitySnapshot } : {}), checkedAt: new Date().toISOString() };
-    } finally { secret.dispose(); }
+    } finally { if (this.ownsSecret) secret.dispose(); }
   }
 }

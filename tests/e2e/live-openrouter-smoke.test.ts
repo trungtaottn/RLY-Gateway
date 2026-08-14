@@ -21,7 +21,8 @@ describe.skipIf(!enabled)("OpenRouter live direct route", () => {
       environment: process.env,
       config: {
         schemaVersion: 1,
-        gateway: { host: "127.0.0.1", port: 17872, logLevel: "silent" },
+        gateway: { host: "127.0.0.1", port: 17872, managementPort: 17873, logLevel: "silent" },
+        controlPlane: {},
         routes: {
           primary: {
             provider: "openrouter",

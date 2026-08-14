@@ -2,7 +2,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { GatewayConfig } from "../config/schema.js";
-import { createDirectRouteResolver } from "../providers/direct/direct-upstream.js";
+import type { CanonicalRequest } from "../core/canonical-request.js";
+import { createDirectRouteResolver, type ResolvedDirectRoute } from "../providers/direct/direct-upstream.js";
 import { registerAnthropicMessagesRoute } from "../routes/anthropic-messages-route.js";
 import { registerAnthropicDirectCountTokensRoute } from "../routes/anthropic-direct-count-tokens-route.js";
 
@@ -15,6 +16,7 @@ export type GatewayServerOptions = Readonly<{
   config?: GatewayConfig;
   environment?: NodeJS.ProcessEnv;
   leases?: GatewayLeaseRegistry;
+  resolveOauthRoute?: (request: CanonicalRequest) => Promise<ResolvedDirectRoute | undefined> | ResolvedDirectRoute | undefined;
 }>;
 
 export type GatewayLeaseRegistry = Readonly<{
@@ -58,8 +60,13 @@ export function createIdentityProof(
 export function createGatewayServer(options: GatewayServerOptions): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
   app.get("/healthz", () => ({ ok: true }));
-  if (options.config && Object.keys(options.config.routes).length > 0) {
-    const resolveRoute = createDirectRouteResolver(options.config, options.configFingerprint, options.environment);
+  if (options.config && (Object.keys(options.config.routes).length > 0 || options.resolveOauthRoute)) {
+    const resolveDirect = Object.keys(options.config.routes).length > 0
+      ? createDirectRouteResolver(options.config, options.configFingerprint, options.environment)
+      : undefined;
+    const resolveRoute = async (request: CanonicalRequest) => {
+      return resolveDirect?.(request) ?? await options.resolveOauthRoute?.(request);
+    };
     registerAnthropicMessagesRoute(app, {
       configFingerprint: options.configFingerprint,
       resolveRoute,

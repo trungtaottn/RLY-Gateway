@@ -22,10 +22,10 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-function config(port: number, model = "model"): GatewayConfig {
+function config(port: number, managementPort: number, model = "model"): GatewayConfig {
   return gatewayConfigSchema.parse({
     schemaVersion: 1,
-    gateway: { host: "127.0.0.1", port, logLevel: "silent" },
+    gateway: { host: "127.0.0.1", port, managementPort, logLevel: "silent" },
     routes: {
       primary: { provider: "openrouter", model, credential: "env:OPENROUTER_API_KEY" },
     },
@@ -73,10 +73,12 @@ describe("gateway lifecycle coordinator", () => {
 
   it("reuses one attested instance for concurrent launchers", async () => {
     const port = await availablePort();
+    const managementPort = await availablePort();
     const directory = await runtimeDirectory();
+    const controlPlaneDirectory = await runtimeDirectory();
     const [first, second] = await Promise.all([
-      acquireGateway({ config: config(port), runtimeDirectory: directory }),
-      acquireGateway({ config: config(port), runtimeDirectory: directory }),
+      acquireGateway({ config: config(port, managementPort), runtimeDirectory: directory, controlPlaneDirectory }),
+      acquireGateway({ config: config(port, managementPort), runtimeDirectory: directory, controlPlaneDirectory }),
     ]);
     expect([first.reused, second.reused].sort()).toEqual([false, true]);
     expect(second.instanceId).toBe(first.instanceId);
@@ -87,36 +89,45 @@ describe("gateway lifecycle coordinator", () => {
 
   it("keeps the initial launcher lease alive with heartbeats", async () => {
     const port = await availablePort();
+    const managementPort = await availablePort();
     const directory = await runtimeDirectory();
+    const controlPlaneDirectory = await runtimeDirectory();
     const lease = await acquireGateway({
-      config: config(port),
+      config: config(port, managementPort),
       runtimeDirectory: directory,
+      controlPlaneDirectory,
       heartbeatMs: 5,
     });
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect((await fetch(`${lease.baseUrl}/healthz`)).status).toBe(200);
-    expect(await inspectGateway(config(port), directory)).toBe("attested-compatible");
+    expect((await fetch(`${lease.managementBaseUrl}/healthz`)).status).toBe(200);
+    expect(await inspectGateway(config(port, managementPort), directory)).toBe("attested-compatible");
     await lease.release();
   });
 
   it("fails closed for an attested instance with mismatched config", async () => {
     const port = await availablePort();
+    const managementPort = await availablePort();
     const directory = await runtimeDirectory();
-    const first = await acquireGateway({ config: config(port), runtimeDirectory: directory });
+    const controlPlaneDirectory = await runtimeDirectory();
+    const first = await acquireGateway({ config: config(port, managementPort), runtimeDirectory: directory, controlPlaneDirectory });
     await expect(acquireGateway({
-      config: config(port, "different-model"),
+      config: config(port, managementPort, "different-model"),
       runtimeDirectory: directory,
+      controlPlaneDirectory,
     })).rejects.toThrow("attested but incompatible");
     await first.release();
   });
 
   it("reports not-running, attested, stale, and foreign states", async () => {
     const port = await availablePort();
+    const managementPort = await availablePort();
     const directory = await runtimeDirectory();
-    expect(await inspectGateway(config(port), directory)).toBe("not-running");
-    const lease = await acquireGateway({ config: config(port), runtimeDirectory: directory });
-    expect(await inspectGateway(config(port), directory)).toBe("attested-compatible");
-    expect(await inspectGateway(config(port, "different-model"), directory)).toBe("occupied-foreign");
+    const controlPlaneDirectory = await runtimeDirectory();
+    expect(await inspectGateway(config(port, managementPort), directory)).toBe("not-running");
+    const lease = await acquireGateway({ config: config(port, managementPort), runtimeDirectory: directory, controlPlaneDirectory });
+    expect(await inspectGateway(config(port, managementPort), directory)).toBe("attested-compatible");
+    expect(await inspectGateway(config(port, managementPort, "different-model"), directory)).toBe("occupied-foreign");
     await lease.release();
 
     const stalePort = await availablePort();
@@ -134,7 +145,7 @@ describe("gateway lifecycle coordinator", () => {
       ownerLauncherPid: 999_998,
       leases: [],
     });
-    expect(await inspectGateway(config(stalePort), staleDirectory)).toBe("stale-record");
+    expect(await inspectGateway(config(stalePort, await availablePort()), staleDirectory)).toBe("stale-record");
   });
 
   it("does not send authorization to a foreign listener", async () => {
@@ -152,8 +163,9 @@ describe("gateway lifecycle coordinator", () => {
       server.listen(port, "127.0.0.1", resolve);
     });
     await expect(acquireGateway({
-      config: config(port),
+      config: config(port, await availablePort()),
       runtimeDirectory: directory,
+      controlPlaneDirectory: await runtimeDirectory(),
     })).rejects.toThrow("foreign or unattested");
     expect(authorizationHeaders).not.toContain(expect.any(String));
     expect(server.listening).toBe(true);

@@ -11,6 +11,12 @@ describe("credential references", () => {
     expect(() => parseCredentialRef("raw:do-not-store-this")).toThrow("Unsupported credential reference kind");
   });
 
+  it("parses broker handles for the Codex oauth provider only", () => {
+    expect(parseCredentialRef("handle:cred-fixture-001")).toEqual({ kind: "handle", handle: "cred-fixture-001" });
+    expect(() => assertProviderCredential("openrouter", { kind: "handle", handle: "cred-fixture-001" })).toThrow("not approved");
+    expect(() => assertProviderCredential("codex", { kind: "handle", handle: "cred-fixture-001" })).not.toThrow();
+  });
+
   it("rejects syntactically valid but unapproved environment references", () => {
     expect(() => assertProviderCredential("openrouter", { kind: "env", name: "PATH" })).toThrow("not approved");
     expect(() => assertProviderCredential("openrouter", { kind: "env", name: "AWS_SECRET_ACCESS_KEY" })).toThrow("not approved");

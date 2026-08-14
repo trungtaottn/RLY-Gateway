@@ -12,6 +12,12 @@ Required copyright texts live in [`third-party-notices.md`](./third-party-notice
 No source file has been copied into this repository. The current implementation
 is original code derived from accepted project contracts.
 
+Phase 07 independently implemented credential persistence, PKCE login, refresh
+compare-and-swap, and the Codex OAuth adapter. The work follows the already
+pinned `adapted` rows `opencodex-credential-cas`, `opencodex-oauth-pkce`, and
+`claude-proxy-codex-oauth` without copying source text. Verification owner:
+credentials / providers. Notices remain in `docs/third-party-notices.md`.
+
 ## Frozen artifacts (2026-08-13)
 
 A repository revision may not be treated as the package source unless contents

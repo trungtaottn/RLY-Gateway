@@ -1,0 +1,155 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import type { ControlPlaneStore } from "../control-plane/store.js";
+import type { ManagementActor } from "../control-plane/types.js";
+import { reject, type ManagementAuthorizer } from "./auth.js";
+import {
+  toAccountDto,
+  toPoolDto,
+  toProfileDto,
+  toProviderDto,
+} from "./dtos.js";
+
+const idSchema = z.uuid();
+const versionSchema = z.number().int().positive();
+const providerBody = z.object({
+  name: z.string().min(1),
+  integrationMode: z.enum(["direct", "oauth", "bridge"]),
+  endpointPolicy: z.string().min(1).optional(),
+  capabilityEvidence: z.unknown().optional(),
+  requiredTermsRevision: z.string().min(1).optional(),
+  provenanceRef: z.string().min(1).optional(),
+  enabled: z.boolean().optional(),
+  version: versionSchema.optional(),
+});
+const accountBody = z.object({
+  pseudonym: z.string().min(1).optional(),
+  providerId: z.uuid().optional(),
+  credentialHandle: z.string().min(1).optional(),
+  state: z.enum(["ready", "paused", "unready", "revoked"]).optional(),
+  pauseReason: z.string().min(1).optional(),
+  quotaClass: z.string().min(1).optional(),
+  termsRevision: z.string().min(1).optional(),
+  version: versionSchema.optional(),
+});
+const poolBody = z.object({
+  name: z.string().min(1).optional(),
+  providerId: z.uuid().optional(),
+  strategy: z.enum(["manual", "round-robin", "fill-first"]).optional(),
+  affinity: z.unknown().optional(),
+  retryBudget: z.number().int().nonnegative().optional(),
+  accountIds: z.array(z.uuid()).optional(),
+  version: versionSchema.optional(),
+});
+const profileBody = z.object({
+  name: z.string().min(1).optional(),
+  harness: z.enum(["claude", "codex"]).optional(),
+  providerId: z.uuid().optional(),
+  poolId: z.uuid().optional(),
+  modelRoles: z.record(z.string(), z.string().min(1)).optional(),
+  capabilityPolicy: z.unknown().optional(),
+  launchPolicy: z.unknown().optional(),
+  version: versionSchema.optional(),
+});
+
+export function registerManagementCollections(
+  app: FastifyInstance,
+  authorize: ManagementAuthorizer,
+  store: ControlPlaneStore,
+): void {
+  registerCollection(app, authorize, "providers", {
+    list: () => store.listProviders().map(toProviderDto),
+    create: (body, actor) => {
+      const parsed = providerBody.parse(body);
+      return toProviderDto(store.createProvider({
+        name: parsed.name,
+        integrationMode: parsed.integrationMode,
+        endpointPolicy: parsed.endpointPolicy,
+        capabilityEvidence: parsed.capabilityEvidence,
+        requiredTermsRevision: parsed.requiredTermsRevision,
+        provenanceRef: parsed.provenanceRef,
+      }, actor));
+    },
+    update: (id, body, actor) => {
+      const parsed = providerBody.partial().extend({ version: versionSchema }).parse(body);
+      return toProviderDto(store.updateProvider(id, parsed.version, parsed, actor));
+    },
+  });
+  registerCollection(app, authorize, "accounts", {
+    list: () => store.listAccounts().map((record) => toAccountDto(record)),
+    create: (body, actor) => {
+      const parsed = accountBody.extend({
+        pseudonym: z.string().min(1),
+        providerId: z.uuid(),
+        credentialHandle: z.string().min(1),
+      }).parse(body);
+      return toAccountDto(store.createAccount(parsed, actor));
+    },
+    update: (id, body, actor) => {
+      const parsed = accountBody.extend({ version: versionSchema }).parse(body);
+      if (parsed.termsRevision !== undefined) {
+        return toAccountDto(store.acknowledgeTerms(id, parsed.version, parsed.termsRevision, actor));
+      }
+      return toAccountDto(store.updateAccount(id, parsed.version, parsed, actor));
+    },
+  });
+  registerCollection(app, authorize, "pools", {
+    list: () => store.listPools().map(toPoolDto),
+    create: (body, actor) => {
+      const parsed = poolBody.extend({
+        name: z.string().min(1),
+        providerId: z.uuid(),
+        strategy: z.enum(["manual", "round-robin", "fill-first"]),
+      }).parse(body);
+      return toPoolDto(store.createPool(parsed, actor));
+    },
+    update: (id, body, actor) => {
+      const parsed = poolBody.extend({ version: versionSchema }).parse(body);
+      return toPoolDto(store.updatePool(id, parsed.version, parsed, actor));
+    },
+  });
+  registerCollection(app, authorize, "profiles", {
+    list: () => store.listProfiles().map(toProfileDto),
+    create: (body, actor) => {
+      const parsed = profileBody.extend({
+        name: z.string().min(1),
+        harness: z.enum(["claude", "codex"]),
+        modelRoles: z.record(z.string(), z.string().min(1)),
+      }).parse(body);
+      return toProfileDto(store.createProfile(parsed, actor));
+    },
+    update: (id, body, actor) => {
+      const parsed = profileBody.extend({ version: versionSchema }).parse(body);
+      return toProfileDto(store.updateProfile(id, parsed.version, parsed, actor));
+    },
+  });
+}
+
+function registerCollection(
+  app: FastifyInstance,
+  authorize: ManagementAuthorizer,
+  name: string,
+  handlers: Readonly<{
+    list: () => unknown;
+    create: (body: unknown, actor: ManagementActor) => unknown;
+    update: (id: string, body: unknown, actor: ManagementActor) => unknown;
+  }>,
+): void {
+  app.get(`/v1/${name}`, async (request, reply) => {
+    const principal = authorize(request, reply, false);
+    if (!principal) return;
+    return { items: handlers.list() };
+  });
+  app.post(`/v1/${name}`, async (request, reply) => {
+    const principal = authorize(request, reply, true);
+    if (!principal) return;
+    return reply.code(201).send(handlers.create(request.body, principal.actor));
+  });
+  app.patch(`/v1/${name}/:id`, async (request, reply) => {
+    const principal = authorize(request, reply, true);
+    if (!principal) return;
+    const parsed = z.object({ id: idSchema }).safeParse(request.params);
+    if (!parsed.success) return reject(reply, 400, "invalid");
+    return handlers.update(parsed.data.id, request.body, principal.actor);
+  });
+}

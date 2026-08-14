@@ -3,6 +3,7 @@ schemaVersion = 1
 [gateway]
 host = "127.0.0.1"
 port = 17871
+managementPort = 17872
 logLevel = "info"
 
 [routes.primary]

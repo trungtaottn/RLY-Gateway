@@ -44,6 +44,29 @@ describe("gateway config", () => {
     expect(fingerprintConfig(left)).toBe(fingerprintConfig(right));
   });
 
+  it.each([10100, 8317, 17870])("rejects protected management port %i", (managementPort) => {
+    expect(() => gatewayConfigSchema.parse({
+      schemaVersion: 1,
+      gateway: { host: "127.0.0.1", port: 17871, managementPort },
+    })).toThrow("Protected port");
+  });
+
+  it("rejects identical data and management ports", () => {
+    expect(() => gatewayConfigSchema.parse({
+      schemaVersion: 1,
+      gateway: { host: "127.0.0.1", port: 17872, managementPort: 17872 },
+    })).toThrow("must be distinct");
+  });
+
+  it("accepts a Codex broker handle reference", () => {
+    const config = gatewayConfigSchema.parse({
+      schemaVersion: 1,
+      gateway: { host: "127.0.0.1", port: 17871 },
+      routes: { primary: { provider: "codex", model: "codex-model", credential: "handle:cred-fixture-001" } },
+    });
+    expect(() => validateCredentialRefs(config)).not.toThrow();
+  });
+
   it("rejects a credential reference owned by another provider", () => {
     const config = gatewayConfigSchema.parse({
       schemaVersion: 1,

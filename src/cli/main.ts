@@ -4,18 +4,20 @@ import { constants } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
 import { loadConfig } from "../config/load-config.js";
 import { launchClaude, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
 import { acquireGateway, inspectGateway, type GatewayLeaseHandle } from "../runtime/gateway-lifecycle.js";
 
 const DEFAULT_CONFIG = "gateway.config.toml";
 function usage(): void {
-  console.log("Usage: agent-gateway <status|doctor> [--config path] | run claude [--config path] [--route provider/model] -- [claude args]");
+  console.log("Usage: agent-gateway <status|doctor> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run claude [--config path] [--route provider/model] -- [claude args]");
 }
 
 export type ParsedCliCommand =
   | Readonly<{ command: "status" | "doctor"; configPath: string }>
-  | Readonly<{ command: "run-claude"; configPath: string; claudeArgs: readonly string[]; route?: string }>;
+  | Readonly<{ command: "run-claude"; configPath: string; claudeArgs: readonly string[]; route?: string }>
+  | AdminCommand;
 
 function configPath(args: readonly string[], cwd: string): string {
   const index = args.indexOf("--config");
@@ -29,6 +31,9 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
   const [command] = args;
   if (command === "status" || command === "doctor") {
     return { command, configPath: configPath(args.slice(1), cwd) };
+  }
+  if (command === "admin") {
+    return parseAdminArgs(args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config"), configPath(args, cwd));
   }
   if (command !== "run" || args[1] !== "claude") return undefined;
   const separator = args.indexOf("--", 2);
@@ -88,6 +93,7 @@ async function doctor(path: string): Promise<number> {
       schemaVersion: config.schemaVersion,
       host: config.gateway.host,
       port: config.gateway.port,
+      managementPort: config.gateway.managementPort,
       routes: Object.keys(config.routes).length,
       placeholderRoutes,
     }));
@@ -116,6 +122,7 @@ async function status(path: string): Promise<number> {
     state,
     host: config.gateway.host,
     port: config.gateway.port,
+    managementPort: config.gateway.managementPort,
   }));
   return running ? 0 : 1;
 }
@@ -145,6 +152,7 @@ export async function runCli(
   let code: number;
   if (parsed.command === "doctor") code = await doctor(path);
   else if (parsed.command === "status") code = await status(path);
+  else if (parsed.command === "admin") code = await runAdmin(parsed, await loadConfig(path));
   else {
     if (!("claudeArgs" in parsed)) throw new Error("Invalid Claude command");
     const config = await loadConfig(path);
