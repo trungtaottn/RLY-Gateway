@@ -79,6 +79,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 - Route and capability snapshot are immutable for one request.
 - Required unsupported semantics are rejected before upstream invocation.
 - Model capability selection (#68) is a deterministic stage before account selection: it picks one eligible physical model from the trusted model intelligence registry (capabilities, reasoning, compatibility) and freezes it into the effective request/route; the pool selector then chooses the account/credential without changing the model.
+- Claude Code subagent requests (#71): the gateway captures Claude Code agent attribution headers as typed runtime context, resolves a subagent's portable model tier inside its parent agent's execution context (exact parent → session main → unambiguous launch-session default), and routes through the same #69 → #68 → #70 → account-pool stages while the parent/main session stays on its model; undeterminable families and unsatisfied capabilities fail closed with actionable causes. RLY never inspects prompts, never runs a workflow engine, and has no global subagent model override.
 - No prompt-derived routing or silent provider substitution.
 
 ### 6.2 Provider adapters

@@ -46,6 +46,14 @@
 - Effective tier mappings are stable for an active session/policy revision: the built-in reviewed mapping and per-profile overrides are immutable per revision, and catalog refresh (#23) proposes better mappings without silently changing trusted tier mappings.
 - Existing `primary`/`fast`/`reasoning` profile roles remain unchanged; tier resolution is a parallel path for portable tier aliases (`model: fable`), and `profile.modelRoles` additionally accepts tier keys as per-profile user overrides (validated fail-closed through #68 exact evidence).
 
+## Subagent model resolution (#71)
+
+- Claude Code orchestrates agents; RLY resolves their requested execution target and reasoning safely. RLY never inspects prompts to infer task type and never becomes a workflow engine — it responds only to explicit agent/tier/effort signals (`X-Claude-Code-Session-Id`, `X-Claude-Code-Agent-Id`, `X-Claude-Code-Parent-Agent-Id` and the portable `model: fable`/effort request).
+- A subagent's tier resolves inside its parent agent's execution context: the session-scoped, lease-bound registry records each agent's frozen physical model/family after successful resolution, and the subagent inherits that context (exact parent match → session main context → unambiguous launch-session profile default). No global strongest-model search and no cross-provider/family substitution: an undeterminable family fails closed (`family-unknown` → `tier-unavailable`).
+- The parent/main session's model, profile mapping, and global Claude settings are never mutated by subagent execution; concurrent subagents with different agent ids resolve independently under one launch session.
+- No global `CLAUDE_CODE_SUBAGENT_MODEL` override exists; the source agent/skill definition (`model: fable`) is never rewritten to a physical model. The supported client baseline's native `fable` alias behavior is classified by #24 canaries.
+- Agent attribution is runtime data, not authorization; launch/gateway tokens keep the security boundary. Traces carry only hashed agent linkage pseudonyms; credentials, prompts, and durable user identity never enter diagnostics.
+
 ## Token counting
 
 Routes declare one quality level: `upstream`, `exact-local`, `conservative-estimate`, or `unsupported`. Conservative estimates are allowed with a safety margin and visible readiness warning; they are never labeled exact.

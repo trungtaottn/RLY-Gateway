@@ -139,6 +139,52 @@ Portable logical model tiers (`haiku`/`sonnet`/`opus`/`fable`) resolve determini
 - **Integration**: `resolveProfileRoute` resolves `model: <tier>` against the profile's pool provider and the parent model's family (parent = the profile's configured main model role), then feeds the exact physical target through #68 selection, #70 reasoning, and the existing pool/account selector (two-stage boundary unchanged). `ProfileDecisionTrace.tierResolution` carries the secret-free tier decision. `profile.modelRoles` accepts tier keys (`haiku`/`sonnet`/`opus`/`fable`) as per-profile user overrides through the existing management surface (#66).
 - **Boundaries**: tier resolution never emits provider-native fields, never inspects prompts, and does not own subagent orchestration (#71) or `/v1/models` projection (#72). The supported Claude Code baseline's native `fable` alias behavior is classified by #24; RLY still resolves the alias contextually.
 
+### Claude Code subagent execution context (#71)
+
+Claude Code orchestrates agents; RLY resolves their requested execution target
+and reasoning safely. The gateway carries subagent attribution end to end
+without becoming a workflow engine or inspecting prompts:
+
+- **Ingress**: the Anthropic decoder parses `X-Claude-Code-Session-Id`,
+  `X-Claude-Code-Agent-Id`, and `X-Claude-Code-Parent-Agent-Id` into a typed
+  `AgentContext` on the canonical request (`src/core/agent-context.ts`). These
+  are runtime attribution data, never permission/authentication; RLY launch/gateway
+  tokens remain the authorization boundary.
+- **Execution-context registry** (`src/profiles/agent-contexts.ts`): an
+  in-memory, lease-scoped registry records each agent's resolved execution
+  context (launch/profile binding, access provider, frozen physical model id,
+  model family, effective tier, mapping/registry revisions) after a successful
+  resolution. Entries mirror the `LaunchSessionRegistry` security boundary:
+  valid only while the owning lease is active, removed on lease revocation
+  (`dropLease`) or expiry, and cleared on runtime restart. Never stores
+  credentials, account ids, or account identity.
+- **Parent-context resolution**: a subagent tier request inherits its parent's
+  frozen physical model/family — exact `(session, parentAgentId)` match, then
+  the session's main context, then the launch session's unambiguous
+  profile-default model. The fallback never selects another subagent's
+  context, so one subagent's model cannot leak into another's resolution.
+  When no parent/session family is determinable on a multi-family provider,
+  #69 fails closed (`family-unknown` → `tier-unavailable`) instead of choosing
+  a global strongest model.
+- **Pipeline**: the resolved parent context feeds #69 tier resolution, then
+  #68 exact capability/compatibility selection, then #70 reasoning translation,
+  then the existing pool/account selector for the frozen physical model — the
+  two-stage boundary is unchanged. A subagent's resolution never mutates the
+  parent/main session model, profile mapping, or global Claude settings;
+  concurrent subagents with different agent ids resolve independently.
+- **Fail-closed**: unknown tier, missing evidence, unsatisfied capability,
+  reasoning-with-tools gap, or undeterminable family produce actionable typed
+  errors (`tier-unavailable`/`capability-rejected` plus the underlying cause);
+  there is no silent fallback to the parent model and no global
+  `CLAUDE_CODE_SUBAGENT_MODEL` override. The source agent/skill definition
+  (`model: fable`) is never rewritten to a physical model.
+- **Trace/privacy**: `/v1/route-traces` may carry allowlisted pseudonyms
+  (hashes) for Claude session/agent/parent linkage plus the parent
+  model/family that scoped tier resolution; never prompts, reasoning text,
+  credentials, or durable user identity. The supported Claude Code baseline's
+  native `fable` alias behavior is classified by #24 canaries; the gated
+  real-client E2E pins the gateway plumbing on the observed client.
+
 ### Provider adapter
 
 - `probe`: reports readiness without leaking credential or account identity.
