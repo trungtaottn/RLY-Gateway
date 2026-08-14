@@ -5,9 +5,10 @@ Personal, protocol-preserving gateway and local multi-provider control plane for
 ## Project status
 
 The foundation, Anthropic Messages boundary, direct-provider Claude route,
-authenticated control-plane/management contract, and project-owned credential
-broker with one Codex OAuth vertical slice are implemented. The active
-milestone adds deterministic account pools; see [TASKLIST](./docs/TASKLIST.md).
+authenticated control-plane/management contract, project-owned credential
+broker with one Codex OAuth vertical slice, and the deterministic account-pool
+engine are implemented. The active milestone wires Claude Code through that
+pool; see [TASKLIST](./docs/TASKLIST.md).
 
 ## Start here
 

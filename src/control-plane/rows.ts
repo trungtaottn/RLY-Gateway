@@ -1,5 +1,6 @@
 import { ValidationError } from "./errors.js";
 import { assertSecretFree } from "./secret-free.js";
+import type { HealthRecord } from "./health/types.js";
 import type {
   AccountRecord,
   AccountState,
@@ -107,6 +108,16 @@ export function mapAccount(row: SqlRow): AccountRecord {
     version: integer(row, "version"),
     createdAt: text(row, "created_at"),
     updatedAt: text(row, "updated_at"),
+  };
+}
+
+export function mapHealth(row: SqlRow): HealthRecord {
+  return {
+    accountId: text(row, "account_id"),
+    lastOutcome: optionalText(row, "last_outcome"),
+    lastOutcomeAt: optionalText(row, "last_outcome_at"),
+    consecutiveFailures: integer(row, "consecutive_failures"),
+    cooldownUntil: optionalText(row, "cooldown_until"),
   };
 }
 

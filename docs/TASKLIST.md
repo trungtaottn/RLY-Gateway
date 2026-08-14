@@ -67,8 +67,16 @@ Code/live-provider compatibility.
 - [x] Codex OAuth adapter receives request-scoped secrets and binds one account into the Anthropic route.
 - [x] Credential, OAuth, recovery, privacy, and contract tests. Evidence: `pnpm test` — 134 passed, 7 skipped; `pnpm lint`, `pnpm typecheck`, `pnpm build`, and `pnpm test:privacy` passed.
 
+## Completed milestone: Deterministic account pools
+
+- [x] Eligibility engine filters pause, expiry, auth readiness, quota class, cooldown, capabilities, terms, and generation.
+- [x] Manual pin, round-robin, fill-first, bounded session affinity, and evidence-backed quota ordering.
+- [x] Immutable EffectiveRoute binds one account pseudonym and credential generation.
+- [x] Outcome/cooldown updates are transactional; rotation is blocked after the first output or tool event.
+- [x] Race, crash-rollback, and restart gates. Evidence: `pnpm verify` — 153 passed, 7 skipped.
+
 ## Later committed V1 milestones
-- [ ] Deterministic pool engine and Claude Code integration.
+- [ ] Claude Code integration through the pool.
 - [ ] Profiles, launcher, status, doctor, and quota UX.
 - [ ] Secret-free local UI and provider expansion.
 - [ ] OpenAI Responses and Codex CLI E2E.

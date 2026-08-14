@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { NotFoundError, UniquenessError, ValidationError, VersionConflictError } from "./errors.js";
+import type { HealthRecord } from "./health/types.js";
 import {
   encodeJson,
   mapAccount,
   mapAudit,
+  mapHealth,
   mapMembership,
   mapPool,
   mapProfile,
@@ -89,11 +91,11 @@ export class ControlPlaneRepository {
 
   public replaceAccount(current: AccountRecord, next: AccountRecord): void {
     const result = this.database.prepare(
-      "UPDATE accounts SET credential_handle = ?, credential_generation = ?, state = ?, pause_reason = ?, quota_class = ?, terms_revision = ?, terms_acknowledged_revision = ?, version = ?, updated_at = ? WHERE id = ? AND version = ?",
+      "UPDATE accounts SET credential_handle = ?, credential_generation = ?, state = ?, pause_reason = ?, quota_class = ?, cooldown_until = ?, terms_revision = ?, terms_acknowledged_revision = ?, version = ?, updated_at = ? WHERE id = ? AND version = ?",
     ).run(
       next.credentialHandle, next.credentialGeneration, next.state, next.pauseReason ?? null, next.quotaClass,
-      next.termsRevision ?? null, next.termsAcknowledgedRevision ?? null, next.version, next.updatedAt,
-      current.id, current.version,
+      next.cooldownUntil ?? null, next.termsRevision ?? null, next.termsAcknowledgedRevision ?? null, next.version,
+      next.updatedAt, current.id, current.version,
     );
     if (result.changes === 0) throw new VersionConflictError("account");
   }
@@ -102,6 +104,27 @@ export class ControlPlaneRepository {
     this.database.prepare(
       "INSERT INTO health (account_id, last_outcome, last_outcome_at, consecutive_failures, cooldown_until) VALUES (?, NULL, NULL, 0, NULL)",
     ).run(accountId);
+  }
+
+  public healthById(accountId: string): HealthRecord | undefined {
+    const row = this.database.prepare("SELECT * FROM health WHERE account_id = ?").get(accountId) as SqlRow | undefined;
+    return row === undefined ? undefined : mapHealth(row);
+  }
+
+  public listHealth(): HealthRecord[] {
+    return this.database.prepare("SELECT * FROM health").all().map((row) => mapHealth(row as SqlRow));
+  }
+
+  public replaceHealth(record: HealthRecord): void {
+    this.database.prepare(
+      "INSERT INTO health (account_id, last_outcome, last_outcome_at, consecutive_failures, cooldown_until) VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET last_outcome = excluded.last_outcome, last_outcome_at = excluded.last_outcome_at, consecutive_failures = excluded.consecutive_failures, cooldown_until = excluded.cooldown_until",
+    ).run(
+      record.accountId,
+      record.lastOutcome ?? null,
+      record.lastOutcomeAt ?? null,
+      record.consecutiveFailures,
+      record.cooldownUntil ?? null,
+    );
   }
 
   public upsertTermsAcknowledgement(accountId: string, providerId: string, revision: string, acknowledgedAt: string): void {

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { openMigratedDatabase, type Migration } from "../storage/migrations.js";
 import { ValidationError } from "./errors.js";
+import type { HealthRecord, RouteOutcomeInput } from "./health/types.js";
 import { ControlPlaneRepository } from "./repository.js";
 import { parseJsonObject } from "./rows.js";
 import type {
@@ -285,6 +286,56 @@ export class ControlPlaneStore {
     return this.repo.currentPolicy();
   }
 
+  public currentTime(): Date {
+    return this.clock();
+  }
+
+  public getHealth(accountId: string): HealthRecord | undefined {
+    return this.repo.healthById(accountId);
+  }
+
+  public listHealth(): HealthRecord[] {
+    return this.repo.listHealth();
+  }
+
+  public recordRouteOutcome(
+    accountId: string,
+    input: RouteOutcomeInput,
+    actor: ManagementActor = "system",
+  ): AccountRecord {
+    return this.mutate(actor, "route.outcome", "account", () => {
+      const current = this.repo.accountById(accountId);
+      const now = this.now();
+      const health = this.repo.healthById(accountId) ?? {
+        accountId,
+        lastOutcome: undefined,
+        lastOutcomeAt: undefined,
+        consecutiveFailures: 0,
+        cooldownUntil: undefined,
+      };
+      const success = input.outcome === "success";
+      const cooldownUntil = input.cooldownUntil === undefined
+        ? current.cooldownUntil
+        : input.cooldownUntil ?? undefined;
+      const next: AccountRecord = {
+        ...current,
+        quotaClass: input.quotaClass ?? current.quotaClass,
+        cooldownUntil: success ? undefined : cooldownUntil,
+        version: current.version + 1,
+        updatedAt: now,
+      };
+      this.repo.replaceAccount(current, next);
+      this.repo.replaceHealth({
+        accountId,
+        lastOutcome: input.outcome,
+        lastOutcomeAt: now,
+        consecutiveFailures: success ? 0 : health.consecutiveFailures + 1,
+        cooldownUntil: success ? undefined : cooldownUntil,
+      });
+      return next;
+    }, accountId, undefined, false);
+  }
+
   public listAudit(limit = 50): AuditEvent[] {
     return this.repo.listAudit(limit);
   }
@@ -306,6 +357,7 @@ export class ControlPlaneStore {
     work: () => T,
     expectedId?: string,
     expectedVersion?: number,
+    publishPolicy = true,
   ): T {
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -313,7 +365,7 @@ export class ControlPlaneStore {
         this.repo.assertCurrentVersion(resourceType, expectedId, expectedVersion);
       }
       const result = work();
-      this.compilePolicy();
+      if (publishPolicy) this.compilePolicy();
       this.appendAudit(actor, action, resourceType, result.id ?? expectedId, "ok", { version: "version" in result ? result.version : undefined });
       this.database.exec("COMMIT");
       return result;

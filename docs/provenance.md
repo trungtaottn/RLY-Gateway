@@ -18,6 +18,13 @@ pinned `adapted` rows `opencodex-credential-cas`, `opencodex-oauth-pkce`, and
 `claude-proxy-codex-oauth` without copying source text. Verification owner:
 credentials / providers. Notices remain in `docs/third-party-notices.md`.
 
+Phase 08 independently implemented eligibility-first account selection,
+deterministic pool strategies, EffectiveRoute binding, outcome/cooldown
+persistence, and bounded pre-output rotation. The work follows the already
+pinned `adapted` rows `opencodex-eligibility-pools` and
+`opencodex-health-outcome` without copying source text. Verification owner:
+routing. Notices remain in `docs/third-party-notices.md`.
+
 ## Frozen artifacts (2026-08-13)
 
 A repository revision may not be treated as the package source unless contents
