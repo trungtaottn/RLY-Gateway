@@ -16,7 +16,7 @@ This machine already runs unrelated gateways. A launcher must support concurrent
 - Reuse requires an identity challenge plus compatible ownership/config evidence.
 - A foreign or mismatched listener causes an actionable failure. Never increment the port or signal the owner.
 - Signals and cancellation propagate from harness to gateway/upstream.
-- Foreground lifecycle is V1; background service management is a non-goal.
+- Foreground lifecycle is V1; background service management is a non-goal. **(Superseded by [ADR 0006](./0006-persistent-user-runtime-service.md): the per-user resident runtime service is now V1; the transient launcher and process-ownership rules in this ADR remain authoritative and are reused by the resident runtime.)**
 
 Protected existing ports are `10100`, `8317`, and `17870`. The project must not signal, stop, restart, reuse, or mutate their owners.
 

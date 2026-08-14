@@ -94,10 +94,20 @@ Outcome: Codex CLI works through OpenAI Responses and the private release is rep
 
 - OpenAI Responses and Codex fake E2E.
 - Continuation/retention policy.
-- Optional launchd only after foreground recovery gates.
 - Clean install, CI, privacy, provenance/license, migration, and recovery verification.
 
 Exit: independent review has no unresolved release blocker.
+
+## Milestone 9 — Persistent per-user runtime service
+
+Outcome: RLY runs as a per-user resident service installed once by `rly init`, stays alive after terminal/Claude Code exit, and is transparently reused by `rly <profile>`, config, and diagnostics.
+
+- Resident ownership on the existing attested loopback gateway (service-owned lease; no second daemon/data plane).
+- Per-user service registration: macOS LaunchAgent and Linux `systemd --user` through one service-manager contract (idempotent `rly init`).
+- Identity/version handshake on `/identity` for #73 update decisions.
+- Crash recovery, stale-record recovery, foreign-listener fail-closed, and bounded explicit shutdown.
+
+Exit: lifecycle/service-manager/CLI gates and full `pnpm verify` pass; #33/#34 own remaining platform specifics.
 
 ## Beyond V1
 

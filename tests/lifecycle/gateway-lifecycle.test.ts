@@ -127,7 +127,7 @@ describe("gateway lifecycle coordinator", () => {
     expect(await inspectGateway(config(port, managementPort), directory)).toBe("not-running");
     const lease = await acquireGateway({ config: config(port, managementPort), runtimeDirectory: directory, controlPlaneDirectory });
     expect(await inspectGateway(config(port, managementPort), directory)).toBe("attested-compatible");
-    expect(await inspectGateway(config(port, managementPort, "different-model"), directory)).toBe("occupied-foreign");
+    expect(await inspectGateway(config(port, managementPort, "different-model"), directory)).toBe("attested-incompatible");
     await lease.release();
 
     const stalePort = await availablePort();

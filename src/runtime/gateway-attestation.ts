@@ -4,6 +4,7 @@ import { createManagementIdentityProof } from "../management/server.js";
 import type { OwnershipRecord } from "./ownership-record.js";
 
 export const HEARTBEAT_MS = 5_000;
+export const RUNTIME_VERSION = "0.1.0";
 export const EXECUTABLE_FINGERPRINT = createHash("sha256").update("rly-gateway:0.1.0").digest("hex");
 
 export type GatewayIdentity = Readonly<{
@@ -11,6 +12,10 @@ export type GatewayIdentity = Readonly<{
   instanceId: string;
   configFingerprint: string;
   protocolVersion: number;
+  /** Advisory runtime binary version used for the #73 update/restart handshake. */
+  runtimeVersion?: string;
+  /** True when this instance is owned by the per-user resident service. */
+  resident?: boolean;
   proof: string;
 }>;
 

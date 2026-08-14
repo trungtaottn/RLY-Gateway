@@ -87,8 +87,7 @@ Additional coding plans only after terms and protocol capability review.
 
 ## Operations and distribution
 
-- Optional macOS launchd service after foreground ownership is stable.
-- Linux service support.
+- Persistent per-user runtime service (owner decision #53/#65): `rly init` installs the user service (macOS LaunchAgent, Linux `systemd --user`) idempotently and starts the resident runtime. This issue owns the service-manager contract, idempotent init, identity/version handshake, and lifecycle tests. Platform specifics are implementation surfaces: #33 (macOS launchd), #34 (Linux systemd). Supersedes the older "optional launchd after foreground ownership" deferral.
 - Signed package or standalone distribution.
 - Remote TLS bridge support with explicit trust configuration.
 

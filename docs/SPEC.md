@@ -23,7 +23,7 @@ The completed protocol milestone runs Claude Code through a local gateway with c
 ## 3. Users and operating context
 
 - Initial user: repository owner on a personal macOS workstation.
-- Deployment: foreground, loopback-only local process in V1.
+- Deployment: per-user resident loopback service in V1, with a foreground loopback fallback when no service is initialized. `rly init` installs the resident runtime; `rly <profile>` reuses it.
 - Usage: interactive coding-agent sessions, including tools, reasoning, images, streaming, and cancellation.
 - Maintenance: frequent provider/model/CLI updates with fixture-first compatibility work.
 
@@ -128,6 +128,9 @@ Additional providers remain outside V1 until promoted through the provider contr
 - A transient gateway token authenticates local requests.
 - Ownership evidence includes process start identity, instance identity, config fingerprint, and leases.
 - Compatible concurrent sessions may reuse an attested instance.
+- `rly init` registers the per-user resident service (macOS LaunchAgent or Linux `systemd --user`) and starts it; the resident runtime owns a service lease renewed by its own process so the zero-lease idle shutdown never fires while the service is intentional.
+- `rly <profile>` and diagnostics reuse the same attested resident runtime; closing a Claude/Codex child releases only its launch/session lease and never stops the resident service.
+- Explicit service stop revokes launch sessions and closes boundedly through the existing shutdown safety logic; a foreign or unattested listener is never signaled.
 - Foreign listeners are never killed and do not cause port auto-increment.
 - Signals and cancellation propagate to active upstream work.
 
@@ -159,7 +162,7 @@ Forbidden by default:
 ## 8. V1 non-goals
 
 - Remote or multi-user control plane.
-- Background launchd service.
+- System-wide/root daemon shared by multiple OS users.
 - Weighted, cost, prompt-derived, or unbounded automatic-failover routing.
 - Generic provider/plugin marketplace.
 - Silent credential discovery or import.

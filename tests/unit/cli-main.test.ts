@@ -122,6 +122,21 @@ describe("CLI parsing", () => {
       command: "run-claude",
       profile: "codex",
     });
+    expect(parseCliArgs(["init"], "/work")).toMatchObject({ command: "init", configPath: "/work/gateway.config.toml" });
+    expect(parseCliArgs(["init", "--config", "custom.toml"], "/work")).toMatchObject({
+      command: "init",
+      configPath: "/work/custom.toml",
+    });
+    expect(parseCliArgs(["gateway", "start"], "/work")).toMatchObject({ command: "gateway", action: "start" });
+    expect(parseCliArgs(["gateway", "stop"], "/work")).toMatchObject({ command: "gateway", action: "stop" });
+    expect(parseCliArgs(["gateway", "status", "--config", "custom.toml"], "/work")).toMatchObject({
+      command: "gateway",
+      action: "status",
+      configPath: "/work/custom.toml",
+    });
+    expect(() => parseCliArgs(["gateway"], "/work")).toThrow("gateway requires start, stop, or status");
+    expect(() => parseCliArgs(["gateway", "start", "extra"], "/work")).toThrow("unknown option");
+    expect(() => parseCliArgs(["init", "extra"], "/work")).toThrow("init accepts only --config");
   });
 
   it("rejects --profile or leftover tokens on a bare profile", () => {

@@ -3,8 +3,10 @@ import { constants } from "node:fs";
 import type { GatewayConfig } from "../config/schema.js";
 import { loadConfig } from "../config/load-config.js";
 import { managementOrigin } from "../management/origin.js";
-import { inspectGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
+import { inspectRuntimeGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
+import { readInstallation } from "../storage/installation.js";
+import { defaultControlPlaneDirectory } from "../storage/paths.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
@@ -105,13 +107,20 @@ export async function runDoctor(path: string): Promise<number> {
 export async function runStatus(path: string): Promise<number> {
   const config = await requireConfig(path, { configured: false, running: false });
   if (!config) return 1;
-  const state = await inspectGateway(config);
-  const running = state === "attested-compatible";
+  const state = await inspectRuntimeGateway(config);
+  const running = state.state === "attested-compatible";
   const extras = running ? await secretFreeInventory(config) : {};
+  const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
   console.log(JSON.stringify({
     configured: true,
     running,
-    state,
+    state: state.state,
+    ...(state.state === "attested-compatible"
+      ? { runtimeVersion: state.runtimeVersion, resident: state.resident, instanceId: state.instanceId }
+      : {}),
+    service: installation === undefined
+      ? { registered: false }
+      : { registered: true, platform: installation.platform, serviceName: installation.serviceName },
     host: config.gateway.host,
     port: config.gateway.port,
     managementPort: config.gateway.managementPort,

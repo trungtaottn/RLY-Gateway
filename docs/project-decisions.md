@@ -15,7 +15,7 @@
 - pnpm, Fastify, native fetch/Undici, Zod at external/config boundaries, Vitest.
 - TOML launch configuration plus versioned SQLite control-plane metadata.
 - Deterministic default loopback port `17871`.
-- Foreground launcher lifecycle first; background service follows control-plane recovery evidence.
+- Persistent per-user resident runtime service first: `rly init` installs a user LaunchAgent (macOS) or `systemd --user` unit (Linux), starts the resident runtime, and `rly <profile>`/diagnostics reuse it. The foreground launcher lifecycle remains the fallback when no service is initialized. (Supersedes the earlier "foreground first, background service later" posture; see ADR 0006.)
 
 ## Security and privacy
 

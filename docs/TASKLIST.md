@@ -120,6 +120,15 @@ Code/live-provider compatibility.
 - [x] Exact `(cline, claude-sonnet-4-5)` helper evidence; missing/cross-provider evidence fails closed; no DEFAULT_CAPABILITIES fallback.
 - [x] Supersede continuous Cline store lock/backup/restore as default (#11). One-time read-only import remains. Helpers stay unwired.
 
+## Completed milestone: Phase 1 persistent runtime service
+
+- [x] Resident ownership on the existing attested loopback gateway: a service-owned lease renewed by the resident process keeps the runtime alive after the last launch lease; no second daemon/data plane (#65).
+- [x] `rly init` settles the durable `~/.rly` home, validates the control-plane store, registers the per-user service idempotently (macOS LaunchAgent / Linux `systemd --user`), starts it, and waits for an attested compatible resident runtime.
+- [x] `rly gateway start|stop|status` service commands; explicit stop uses an attested authenticated in-process `/shutdown` (revoke sessions, bounded close, broker/control-plane close, artifact cleanup). Foreign listeners are never signaled.
+- [x] Identity/version handshake: `/identity` carries `runtimeVersion` + `resident`; `status` distinguishes compatible resident, incompatible/stale, and foreign states.
+- [x] Crash/stale recovery reuses startup-lock and process-identity rules; launcher-owned instances are never killed or reused by the service.
+- [x] Docs aligned (SPEC, project-decisions, BACKLOG, ARCHITECTURE, ROADMAP, ADR 0003/0006, RTM, AT catalogue); FR-018/SR-F-022/AT-034 added. Evidence: `tests/lifecycle/resident-runtime.test.ts`, `tests/service-manager/*`, `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts`; `pnpm verify` green.
+
 ## Completed milestone: Phase 67 model foundation — provider model intelligence registry
 
 - [x] Canonical model evidence distinguishes access provider, exact upstream model id, and upstream/model family where known; one aggregator provider exposes many families without parallel registries (#67).

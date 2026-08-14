@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 
 const root = process.cwd();
@@ -27,17 +27,14 @@ try {
   execFileSync("pnpm", ["install", "--frozen-lockfile"], { cwd: directory, stdio: "inherit" });
   execFileSync("pnpm", ["build"], { cwd: directory, stdio: "inherit" });
   const packageOutput = execFileSync("pnpm", ["pack", "--pack-destination", directory], { cwd: directory, encoding: "utf8" });
-  const packed = packageOutput.match(/[^\n]+\.tgz\s*$/)?.[0]?.trim();
-  if (!packed) throw new Error("pnpm pack did not report a package tarball");
-  // `pnpm pack` prints the tarball path (basename or absolute depending on the
-  // platform), so normalize to a basename and resolve it against the pack
-  // destination directory. An absolute path is required: pnpm treats a bare
-  // `*.tgz` argument as a registry specifier and would 404 otherwise.
-  const packageTarball = basename(packed);
+  const packageTarball = packageOutput.match(/[^\n]+\.tgz\s*$/)?.[0]?.trim();
+  if (!packageTarball) throw new Error("pnpm pack did not report a package tarball");
   const consumer = join(directory, "consumer");
   await mkdir(consumer);
   await writeFile(join(consumer, "package.json"), `${JSON.stringify({ private: true, packageManager: "pnpm@11.16.0" })}\n`, "utf8");
-  execFileSync("pnpm", ["add", join(directory, packageTarball)], { cwd: consumer, stdio: "inherit" });
+  // pnpm pack reports the tarball path relative to the consumer dir on Linux but
+  // absolute on macOS; resolve() handles both without doubling the temp prefix.
+  execFileSync("pnpm", ["add", resolve(directory, packageTarball)], { cwd: consumer, stdio: "inherit" });
   const output = execFileSync("pnpm", ["exec", "rly", "doctor", "--config", "../gateway.config.example.toml"], { cwd: consumer, encoding: "utf8" });
   if (!output.includes('"ok":true') || !output.includes('"codexTarget"')) {
     process.stderr.write(`clean-install doctor output unexpected: ${output}\n`);

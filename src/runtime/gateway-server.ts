@@ -16,6 +16,7 @@ import { registerAnthropicMessagesRoute } from "../routes/anthropic-messages-rou
 import { registerAnthropicDirectCountTokensRoute } from "../routes/anthropic-direct-count-tokens-route.js";
 import { registerOpenAiResponsesRoute } from "../routes/openai-responses-route.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
+import { RUNTIME_VERSION } from "./gateway-attestation.js";
 
 export type GatewayServerOptions = Readonly<{
   host: "127.0.0.1";
@@ -33,6 +34,10 @@ export type GatewayServerOptions = Readonly<{
   launchSessions?: LaunchSessionRegistry;
   traces?: RouteTraceRing;
   continuationDirectory?: string;
+  /** True when this instance is owned by the per-user resident service. */
+  resident?: boolean;
+  /** Authenticated in-process shutdown used by the explicit service stop path. */
+  shutdown?: () => Promise<void>;
 }>;
 
 export type GatewayLeaseRegistry = Readonly<{
@@ -178,6 +183,18 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
     }
     return { ready: true, routes: Object.keys(options.config?.routes ?? {}).length };
   });
+  app.post("/shutdown", async (request, reply) => {
+    if (!isAuthorized(request.headers.authorization, options.authToken)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    if (!options.shutdown) {
+      return reply.code(503).send({ error: "shutdown-unavailable" });
+    }
+    // Reply before closing so the shutdown request completes; the bounded close
+    // then drains only connections owned by this server.
+    reply.code(202).send({ shuttingDown: true });
+    setImmediate(() => { void options.shutdown?.(); });
+  });
   app.post<{ Params: { leaseId: string } }>("/leases/:leaseId", async (request, reply) => {
     const lease = await authorizeLease(request, reply);
     if (!lease) return;
@@ -207,6 +224,8 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       instanceId: options.instanceId,
       configFingerprint: options.configFingerprint,
       protocolVersion: 1,
+      runtimeVersion: RUNTIME_VERSION,
+      ...(options.resident === undefined ? {} : { resident: options.resident }),
       proof: createIdentityProof(
         options.authToken,
         challenge,
