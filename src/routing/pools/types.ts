@@ -1,4 +1,5 @@
-import type { CapabilityRequirement, ProviderCapabilities } from "../../core/capabilities.js";
+import type { CapabilityRequirement, ProviderCapabilities, ReasoningCapabilityEvidence } from "../../core/capabilities.js";
+import type { ResolvedReasoning } from "../../core/reasoning.js";
 import type { PolicyRevision } from "../../control-plane/types.js";
 import type { EffectiveRoute } from "../effective-route.js";
 import type { CredentialSnapshot } from "../eligibility/reasons.js";
@@ -17,6 +18,10 @@ export type SelectInput = Readonly<{
   sessionKey?: string;
   pinnedAccountId?: string;
   excludeAccountIds?: readonly string[];
+  /** Exact selected-model reasoning evidence (#70). */
+  reasoningEvidence?: ReasoningCapabilityEvidence;
+  /** Deterministic intent→native translation result (#70). */
+  resolvedReasoning?: ResolvedReasoning;
 }>;
 
 export type SelectResult = Readonly<{

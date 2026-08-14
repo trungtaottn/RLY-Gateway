@@ -284,6 +284,7 @@ export function routesFromConfig(config: GatewayConfig, registry: RegistryDocume
       adapterId: `${route.provider}-direct`,
       credentialRef: Object.freeze(parseCredentialRef(route.credential)),
       capabilities: Object.freeze({ ...evidence.capabilities }),
+      reasoningEvidence: evidence.reasoning,
     })]);
   }
   return new Map(records);

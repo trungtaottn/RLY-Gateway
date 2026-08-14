@@ -4,13 +4,26 @@ import { DeepSeekAdapter } from "../../../src/providers/direct/deepseek-adapter.
 import { OpenRouterAdapter } from "../../../src/providers/direct/openrouter-adapter.js";
 import { decideRoute, type RouteRecord } from "../../../src/core/router.js";
 import type { CanonicalEvent } from "../../../src/core/canonical-event.js";
+import type { ReasoningCapabilityEvidence } from "../../../src/core/capabilities.js";
+import type { ResolvedReasoning } from "../../../src/core/reasoning.js";
+import { resolveReasoning } from "../../../src/providers/reasoning.js";
 
 const capabilities = { streaming: true, tools: true, parallelTools: false, images: true, reasoning: true, redactedReasoning: false, structuredOutput: false, tokenCounting: "conservative-estimate" as const };
 const baseRoute: RouteRecord = { role: "primary", providerId: "openrouter", modelId: "fixture-model", adapterId: "openrouter-direct", credentialRef: { kind: "env", name: "OPENROUTER_API_KEY" }, capabilities };
 const body = { model: "primary", max_tokens: 42, messages: [{ role: "user", content: "fixture" }], tools: [{ name: "fixture_tool", input_schema: { type: "object" } }] };
 
+/** Conservative on/off reasoning evidence matching shipped registry defaults. */
+const binaryReasoning: ReasoningCapabilityEvidence = { supported: true, controlKind: "binary", adaptive: false, tokenBudget: false, reasoningWithTools: false };
+
 function decision(route = baseRoute) {
   return decideRoute({ requestId: "request-fixture", route, required: [], configFingerprint: "a".repeat(64) });
+}
+
+/** Decision carrying the #70 translation result for the request + capability. */
+function reasoningDecision(request: ReturnType<typeof decodeAnthropicRequest>["request"], evidence: ReasoningCapabilityEvidence = binaryReasoning, route = baseRoute) {
+  const reasoningRequest = request.inference.reasoning ?? { intent: "AUTO" as const, explicit: false };
+  const resolvedReasoning = resolveReasoning(reasoningRequest, evidence);
+  return decideRoute({ requestId: request.id, route, required: [], configFingerprint: "a".repeat(64), resolvedReasoning });
 }
 
 describe("direct provider adapters", () => {
@@ -40,12 +53,43 @@ describe("direct provider adapters", () => {
     expect(openRouterPayload.messages.find((message) => message.role === "assistant")).not.toHaveProperty("reasoning_content");
   });
 
-  it("maps an Anthropic thinking request to OpenRouter reasoning without changing the core request", () => {
+  it("translates an Anthropic thinking request through the #70 boundary instead of collapsing modes", () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
     const request = decodeAnthropicRequest({ ...body, thinking: { type: "enabled" } }).request;
-    const payload = (adapter as unknown as { payload: (value: typeof request) => Record<string, unknown> }).payload(request);
+    const payload = (adapter as unknown as { payload: (value: typeof request, reasoning?: ResolvedReasoning) => Record<string, unknown> }).payload(request, reasoningDecision(request).resolvedReasoning);
+    // Binary evidence: wire output stays `enabled: true`, but the translation
+    // records the semantic mapping instead of pretending enabled == adaptive.
     expect(payload.reasoning).toEqual({ enabled: true });
+    expect(reasoningDecision(request).resolvedReasoning?.canonicalIntent).toBe("BALANCED");
+    expect(reasoningDecision(request).resolvedReasoning?.mappingKind).toBe("normalized");
+  });
+
+  it("preserves adaptive thinking as a distinct kind with recorded fallback metadata", () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
+    const request = decodeAnthropicRequest({ ...body, thinking: { type: "adaptive" } }).request;
+    const resolved = reasoningDecision(request).resolvedReasoning;
+    const payload = (adapter as unknown as { payload: (value: typeof request, reasoning?: ResolvedReasoning) => Record<string, unknown> }).payload(request, resolved);
+    expect(resolved?.requested.sourceMode).toBe("adaptive");
+    // Adaptive source mode on a binary-only control is a recorded fallback, never a silent collapse.
+    expect(resolved?.fallbackReason).toMatch(/adaptive source mode/);
+    expect(payload.reasoning).toEqual({ enabled: true });
+  });
+
+  it("emits the exact native effort level when the model evidence declares discrete effort", () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
+    const request = decodeAnthropicRequest({ ...body, thinking: { type: "enabled" }, effort: "xhigh" }).request;
+    const discrete: ReasoningCapabilityEvidence = {
+      supported: true, controlKind: "discrete-effort", effortLevels: ["none", "low", "medium", "high", "xhigh", "max"],
+      adaptive: false, tokenBudget: false, reasoningWithTools: true,
+    };
+    const resolved = reasoningDecision(request, discrete).resolvedReasoning;
+    const payload = (adapter as unknown as { payload: (value: typeof request, reasoning?: ResolvedReasoning) => Record<string, unknown> }).payload(request, resolved);
+    // Exact same-family effort preserved (sourceEffort xhigh → native xhigh).
+    expect(resolved?.mappingKind).toBe("exact");
+    expect(payload.reasoning).toEqual({ enabled: true, effort: "xhigh" });
   });
 
   it("probes without changing config/registry and reports unauthenticated state", async () => {

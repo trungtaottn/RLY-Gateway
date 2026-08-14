@@ -1,12 +1,14 @@
 import type { GatewayConfig } from "../../config/schema.js";
 import type { CanonicalEvent } from "../../core/canonical-event.js";
 import type { CanonicalRequest } from "../../core/canonical-request.js";
-import { decideRoute, type RouteRecord } from "../../core/router.js";
+import { reasoningRequestFromWire } from "../../core/reasoning.js";
+import { decideRoute, UnsupportedRouteError, type RouteRecord } from "../../core/router.js";
 import { conservativeTokenCount } from "../../core/token-counting.js";
 import type { CanonicalUpstream } from "../../protocols/anthropic/fake-upstream.js";
 import { resolveConfiguredRoute, routesFromConfig } from "../../registry/model-registry.js";
 import { providerContract } from "../catalog.js";
 import { createProviderAdapter } from "../dispatch.js";
+import { ReasoningTranslationError, resolveReasoning } from "../reasoning.js";
 
 export type ResolvedDirectRoute = Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }>;
 
@@ -37,7 +39,14 @@ export function createDirectRouteResolver(config: GatewayConfig, configFingerpri
       request: fetch,
       environment,
     });
-    const decision = decideRoute({ requestId: request.id, route, required: [], configFingerprint });
+    const resolvedReasoning = resolvedFor(route, request);
+    const decision = decideRoute({
+      requestId: request.id,
+      route,
+      required: [],
+      configFingerprint,
+      ...(resolvedReasoning === undefined ? {} : { resolvedReasoning }),
+    });
     const effectiveRequest: CanonicalRequest = Object.freeze({ ...request, requestedModel: route.modelId, modelRole: route.role === "primary" || route.role === "fast" || route.role === "reasoning" ? route.role : "unknown" });
     return {
       route,
@@ -47,4 +56,23 @@ export function createDirectRouteResolver(config: GatewayConfig, configFingerpri
       },
     };
   };
+}
+
+/**
+ * #70: translates the canonical reasoning intent for a registry-backed direct
+ * route through the provider-owned boundary. Untranslatable explicit intents
+ * fail closed on the existing unsupported-route contract instead of being
+ * silently downgraded; routes without reasoning evidence emit no control.
+ */
+function resolvedFor(route: RouteRecord, request: CanonicalRequest): ReturnType<typeof resolveReasoning> | undefined {
+  if (route.reasoningEvidence === undefined) return undefined;
+  const reasoningRequest = request.inference.reasoning ?? reasoningRequestFromWire({});
+  try {
+    return resolveReasoning(reasoningRequest, route.reasoningEvidence);
+  } catch (error) {
+    if (error instanceof ReasoningTranslationError) {
+      throw new UnsupportedRouteError(["reasoning"]);
+    }
+    throw error;
+  }
 }

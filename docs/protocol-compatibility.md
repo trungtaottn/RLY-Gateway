@@ -62,6 +62,47 @@ ordering.
 `run codex` launches Codex with `OPENAI_BASE_URL` / `OPENAI_API_KEY` and a
 temporary `CODEX_HOME`. Global `~/.codex` is not mutated.
 
+## Canonical reasoning contract (#70)
+
+Reasoning intent is a first-class canonical concern, separate from transport and
+provider wire formats:
+
+- **Canonical intent** (`src/core/reasoning.ts`): provider-neutral semantic
+  intents `OFF` / `ECONOMY` / `BALANCED` / `DEEP` / `MAXIMUM` / `AUTO` plus
+  source fidelity (`sourceMode`: `disabled`/`enabled`/`adaptive`, `sourceEffort`
+  label, `explicit` flag). `CanonicalRequest.inference.reasoning` carries it;
+  `inference.thinking` remains the legacy source-mode view.
+- **Decoding** is based on the pinned supported-baseline shape
+  (`tests/fixtures/upstream/claude-code/reasoning-shape.json`): Anthropic
+  `thinking.type` continues to be accepted; the documented additive `effort`
+  field (top-level or inside `thinking`) is preserved as `sourceEffort`;
+  unknown additive fields stay recorded as ignored — never assumed. OpenAI
+  Responses `reasoning.effort` is preserved instead of collapsed to a boolean.
+  Deterministic intent derivation: explicit effort wins; else `enabled` →
+  `BALANCED`, `adaptive` → `AUTO` + adaptive source mode, `disabled` → `OFF`;
+  no signal → `AUTO` non-explicit.
+- **Translation boundary** (`src/providers/reasoning.ts`): provider-owned,
+  deterministic, no provider names and no LLM classification. `resolveReasoning(
+  request, capability)` maps the canonical intent onto the selected model's
+  `ReasoningCapabilityEvidence` control kind (discrete effort, binary, adaptive,
+  token-budget, unsupported). Same-family exact source effort is preserved;
+  fewer-level mappings pick the nearest reviewed native level; binary/adaptive
+  controls never pretend effort granularity they do not have; token-budget
+  mapping requires a reviewed per-model budget policy (never a universal
+  hardcoded number). Every non-exact mapping returns `mappingKind`
+  (`exact|normalized|downgraded|default`) plus a `fallbackReason`; explicit
+  unsupported intents fail closed (`unsupported-reasoning`) unless an explicit
+  best-effort policy enabled the recorded downgrade.
+- **Adapter emission**: provider adapters own the exact native parameter.
+  OpenAI-compatible adapters (OpenRouter/DeepSeek/Alibaba/OpenCode Go/Codex)
+  emit `reasoning` from the translation result (`{enabled}` binary, `{enabled,
+  effort}` discrete, `{enabled, max_tokens}` budget). The OpenRouter adapter no
+  longer collapses `enabled`/`adaptive` into `{reasoning:{enabled:true}}`.
+- **Diagnostics**: `/v1/route-traces` carries requested/canonical/effective
+  reasoning metadata plus mapping kind and fallback reason. Reasoning **text**,
+  prompts, responses, credentials, and account identity are never stored or
+  logged.
+
 ## Compatibility maintenance
 
 Protocol drift starts with a redacted reproducing fixture. Any newly observed

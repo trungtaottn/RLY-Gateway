@@ -1,15 +1,17 @@
 import { assertSecretFree } from "../control-plane/secret-free.js";
+import type { ResolvedReasoning } from "../core/reasoning.js";
 import type { ModelSelectionTrace } from "../routing/model-selection/types.js";
 import type { DecisionTrace } from "../routing/eligibility/trace.js";
 
 /**
  * Secret-free account decision trace, optionally carrying the #68 model
- * selection trace that preceded account selection (two-stage boundary:
- * model target selection first, account selection second).
+ * selection trace and the #70 reasoning translation result (control metadata
+ * only — never reasoning text, prompts, responses, or credentials).
  */
 export type ProfileDecisionTrace = DecisionTrace & Readonly<{
   profileName: string;
   modelSelection?: ModelSelectionTrace;
+  reasoning?: ResolvedReasoning;
 }>;
 
 /** Last-N secret-free traces for the running gateway instance. */
@@ -18,11 +20,12 @@ export class RouteTraceRing {
 
   public constructor(private readonly limit = 32) {}
 
-  public push(trace: DecisionTrace, profileName: string, modelSelection?: ModelSelectionTrace): void {
+  public push(trace: DecisionTrace, profileName: string, modelSelection?: ModelSelectionTrace, reasoning?: ResolvedReasoning): void {
     const stored: ProfileDecisionTrace = Object.freeze({
       ...trace,
       profileName,
       ...(modelSelection === undefined ? {} : { modelSelection }),
+      ...(reasoning === undefined ? {} : { reasoning }),
     });
     assertSecretFree(stored);
     this.items.push(stored);

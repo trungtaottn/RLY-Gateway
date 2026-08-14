@@ -1,15 +1,19 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createGatewayServer } from "../../src/runtime/gateway-server.js";
 
 let upstream: FastifyInstance | undefined;
 let gateway: FastifyInstance | undefined;
+let capturedPayloads: Record<string, unknown>[] = [];
+
+beforeEach(() => { capturedPayloads = []; });
 
 afterEach(async () => { await gateway?.close(); await upstream?.close(); gateway = undefined; upstream = undefined; });
 
 async function setup(): Promise<void> {
   upstream = Fastify();
   upstream.post("/chat/completions", async (request, reply) => {
+    capturedPayloads.push(request.body as Record<string, unknown>);
     const body = request.body as { stream?: boolean };
     if (body.stream) return await reply.header("content-type", "text/event-stream").send("data: {\"id\":\"fixture-stream\",\"choices\":[{\"delta\":{\"content\":\"fixture\"}}]}\n\ndata: {\"id\":\"fixture-stream\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n");
     return { id: "fixture-text", choices: [{ finish_reason: "stop", message: { content: "fixture" } }], usage: { prompt_tokens: 2, completion_tokens: 1 } };
@@ -49,5 +53,28 @@ describe("direct provider runtime", () => {
     ]);
     expect(fast.statusCode).toBe(200); expect(fast.json()).toMatchObject({ model: "nvidia/nemotron-nano-12b-v2-vl:free" });
     expect(primary.statusCode).toBe(200); expect(primary.json()).toMatchObject({ model: "nvidia/nemotron-3.5-lightning:free" });
+  });
+
+  it("emits the #70 reasoning translation for thinking requests on registry-backed direct routes", async () => {
+    await setup();
+    if (!gateway) throw new Error("gateway test fixture was not initialized");
+    const headers = { "x-api-key": "gateway-fixture" };
+    const response = await gateway.inject({
+      method: "POST", url: "/v1/messages", headers,
+      payload: { model: "primary", max_tokens: 8, thinking: { type: "enabled" }, messages: [{ role: "user", content: "fixture" }] },
+    });
+    expect(response.statusCode).toBe(200);
+    // Conservative binary registry evidence → `reasoning.enabled` with recorded
+    // semantic mapping, not a silent enabled/adaptive collapse.
+    const outbound = capturedPayloads.at(-1);
+    expect(outbound?.reasoning).toEqual({ enabled: true });
+    const adaptive = await gateway.inject({
+      method: "POST", url: "/v1/messages", headers,
+      payload: { model: "primary", max_tokens: 8, thinking: { type: "adaptive" }, messages: [{ role: "user", content: "fixture" }] },
+    });
+    expect(adaptive.statusCode).toBe(200);
+    // Adaptive source mode still emits reasoning on, but the boundary records
+    // the fallback metadata — the adapter no longer loses the distinction.
+    expect(capturedPayloads.at(-1)?.reasoning).toEqual({ enabled: true });
   });
 });

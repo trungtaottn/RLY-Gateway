@@ -45,6 +45,8 @@ describe("OpenAI Responses protocol", () => {
     expect(decoded.request.continuation).toEqual({ previousResponseId: "resp_fixture" });
     expect(decoded.request.messages.map((message) => message.content[0]?.type)).toEqual(["tool-call", "tool-result", "reasoning"]);
     expect(decoded.required).toContain("reasoning");
+    // #70: native effort is preserved, never collapsed into a bare boolean.
+    expect(decoded.request.inference.reasoning).toEqual({ intent: "BALANCED", sourceEffort: "medium", explicit: true });
   });
 
   it("golden-streams Responses item events without Anthropic flattening", async () => {

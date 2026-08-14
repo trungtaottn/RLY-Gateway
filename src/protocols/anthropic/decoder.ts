@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
+import { reasoningRequestFromWire } from "../../core/reasoning.js";
 
 const cacheControl = z.object({ type: z.literal("ephemeral") }).optional();
 const textBlock = z.object({ type: z.literal("text"), text: z.string(), cache_control: cacheControl });
@@ -18,7 +19,9 @@ const rawSchema = z.object({
   system: z.union([z.string(), z.array(textBlock)]).optional(), tools: z.array(tool).optional(),
   tool_choice: z.union([z.object({ type: z.enum(["auto", "any", "none"]) }), z.object({ type: z.literal("tool"), name: z.string().min(1) })]).optional(),
   stream: z.boolean().optional(), temperature: z.number().min(0).max(1).optional(), top_p: z.number().min(0).max(1).optional(), stop_sequences: z.array(z.string()).optional(),
-  thinking: z.object({ type: z.enum(["enabled", "disabled", "adaptive"]) }).optional(), metadata: z.object({}).loose().optional(),
+  thinking: z.object({ type: z.enum(["enabled", "disabled", "adaptive"]), effort: z.string().optional() }).optional(),
+  effort: z.string().optional(),
+  metadata: z.object({}).loose().optional(),
 }).loose();
 
 export class AnthropicProtocolError extends Error {
@@ -68,8 +71,18 @@ export function decodeAnthropicRequest(raw: unknown, headers: Record<string, str
   if (input.some((item) => item.type === "reasoning")) required.push("reasoning");
   if (input.some((item) => item.type === "redacted-reasoning")) required.push("redactedReasoning");
   if (value.thinking?.type === "enabled" || value.thinking?.type === "adaptive") required.push("reasoning");
+  // Deliberate supported-baseline handling (#70): `effort` is an optional
+  // documented additive field that carries Claude Code subagent/session effort
+  // through the gateway path; when absent no source effort is assumed. Unknown
+  // additive fields remain in `ignoredAdditiveFields` below.
+  const thinkingEffort = value.thinking?.effort;
+  const effort = typeof value.effort === "string" ? value.effort : typeof thinkingEffort === "string" ? thinkingEffort : undefined;
+  const reasoning = reasoningRequestFromWire({
+    ...(value.thinking === undefined ? {} : { thinking: value.thinking.type }),
+    ...(effort === undefined ? {} : { effort }),
+  });
   const choice: CanonicalToolChoice | undefined = value.tool_choice;
-  const recognized = new Set(["model", "max_tokens", "messages", "system", "tools", "tool_choice", "stream", "temperature", "top_p", "stop_sequences", "thinking", "metadata"]);
+  const recognized = new Set(["model", "max_tokens", "messages", "system", "tools", "tool_choice", "stream", "temperature", "top_p", "stop_sequences", "thinking", "effort", "metadata"]);
   const ignored = Object.keys(value).filter((key) => !recognized.has(key));
   const cacheControl = [
     ...(value.system && typeof value.system !== "string" ? value.system.flatMap((item, index) => item.cache_control ? [{ scope: "system" as const, index }] : []) : []),
@@ -79,7 +92,7 @@ export function decodeAnthropicRequest(raw: unknown, headers: Record<string, str
     request: {
       id: randomUUID(), source: { protocol: "anthropic-messages", ...(typeof headers["anthropic-version"] === "string" ? { protocolVersion: headers["anthropic-version"] } : {}) }, requestedModel: value.model, modelRole: "unknown",
       system, input, messages, tools: (value.tools ?? []).map((item) => ({ name: item.name, ...(item.description === undefined ? {} : { description: item.description }), inputSchema: item.input_schema })), ...(choice === undefined ? {} : { toolChoice: choice }),
-      stream: value.stream ?? false, inference: { maxOutputTokens: value.max_tokens, ...(value.temperature === undefined ? {} : { temperature: value.temperature }), ...(value.top_p === undefined ? {} : { topP: value.top_p }), ...(value.stop_sequences === undefined ? {} : { stopSequences: value.stop_sequences }), ...(value.thinking?.type === undefined ? {} : { thinking: value.thinking.type }) },
+      stream: value.stream ?? false, inference: { maxOutputTokens: value.max_tokens, ...(value.temperature === undefined ? {} : { temperature: value.temperature }), ...(value.top_p === undefined ? {} : { topP: value.top_p }), ...(value.stop_sequences === undefined ? {} : { stopSequences: value.stop_sequences }), ...(value.thinking?.type === undefined ? {} : { thinking: value.thinking.type }), reasoning },
       metadata: { ...(betaValues.length === 0 ? {} : { beta: betaValues }), ...(cacheControl.length === 0 ? {} : { cacheControl }) },
     }, required, ignoredAdditiveFields: ignored,
   };
