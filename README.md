@@ -120,6 +120,28 @@ Contract and integration script names already exist and intentionally allow zero
 
 Git tags and GitHub Releases are the release record. `dev` creates `-beta.N` prereleases and `main` creates stable releases through semantic-release; the package stays private and is never published to npm.
 
+After a Stable release, `release-stable.yml` may move `dev` to the released
+`main` SHA only after it proves that `dev` is an ancestor and both trees are
+identical. The update is an API fast-forward (`force: false`), creates no
+commit or PR. GitHub does not allow the built-in Actions integration to bypass
+a personal repository ruleset, so the owner must install a dedicated GitHub App
+on this repository only, grant it only Contents read/write, and configure:
+
+- Repository variable `RLY_RELEASE_ALIGNMENT_APP_CLIENT_ID` and secret
+  `RLY_RELEASE_ALIGNMENT_APP_PRIVATE_KEY` for the installation token.
+- Repository variable `RLY_RELEASE_ALIGNMENT_APP_SLUG` containing the app slug
+  without `[bot]`; Beta skips its release job when this app performs the
+  alignment, so no second Beta release or Slack message is created. Full CI
+  stays PR-only.
+- A replacement `dev` branch ruleset that preserves PR-only, strict
+  `required-ci`, deletion prevention, and non-fast-forward prevention for all
+  actors, with an `always` bypass only for that installed app. Do not use a PAT
+  or a broad workflow bypass.
+
+Set the repository Actions secret `SLACK_WEBHOOK_URL` to enable release
+messages. Missing Slack configuration is reported by the workflow and never
+rolls back a GitHub Release, tag, or ref.
+
 ## License
 
 MIT. Adapted upstream code, when introduced, must be recorded in [`docs/provenance.md`](./docs/provenance.md) with its original notice, pinned artifact hash, and a row in the [adaptation matrix](./docs/source-adaptation-matrix.md).
