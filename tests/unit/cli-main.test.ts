@@ -127,6 +127,12 @@ describe("CLI parsing", () => {
       command: "init",
       configPath: "/work/custom.toml",
     });
+    expect(parseCliArgs(["config"], "/work")).toMatchObject({ command: "config" });
+    expect(parseCliArgs(["config", "status", "--config", "custom.toml"], "/work")).toMatchObject({
+      command: "config",
+      focus: { kind: "status" },
+      configPath: "/work/custom.toml",
+    });
     expect(parseCliArgs(["gateway", "start"], "/work")).toMatchObject({ command: "gateway", action: "start" });
     expect(parseCliArgs(["gateway", "stop"], "/work")).toMatchObject({ command: "gateway", action: "stop" });
     expect(parseCliArgs(["gateway", "status", "--config", "custom.toml"], "/work")).toMatchObject({
