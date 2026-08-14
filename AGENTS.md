@@ -1,5 +1,33 @@
 # Agent Working Contract
 
+## Sync from `dev` before every cook, task, or phase
+
+This is mandatory. Do it before scouting, planning, or writing code.
+
+Every cook, every task, and every plan phase starts from current `origin/dev`. A stale worktree or branch is not an allowed starting point.
+
+1. `git fetch origin`.
+2. New cook, task, or phase: create an isolated worktree and branch from latest `origin/dev`. Do not implement in the primary `dev` checkout.
+3. Existing worktree or branch: merge or rebase latest `origin/dev` into this branch so this worktree contains the newest `dev` code. Do not start until that sync succeeds.
+4. Confirm this checkout contains `origin/dev` (`git merge-base --is-ancestor origin/dev HEAD`). If it does not, stop and sync before continuing.
+5. If `origin/dev` moved during a long cook, sync again before opening the PR.
+
+Use the installed worktree helper when available. Otherwise create from latest `origin/dev`:
+
+```text
+git fetch origin
+git worktree add -b <type>/<phase>-<slug> <worktree-path> origin/dev
+```
+
+On an existing branch in its worktree:
+
+```text
+git fetch origin
+git merge --ff-only origin/dev
+```
+
+If a fast-forward is not possible, rebase this branch onto `origin/dev` only when the branch is not shared. Do not force-push a shared branch.
+
 ## Read before work
 
 - Any task: read `docs/requirements/README.md`, then the documents it routes for the task.
@@ -44,19 +72,12 @@ If same-level authorities conflict, stop implementation and reconcile the owning
 
 Handle one active plan phase per worktree, branch, and pull request. A phase worktree may close multiple GitHub issues that belong to that phase.
 
-1. Read the phase file, its issues, and the documents this contract routes for that work.
-2. Fast-forward from latest `origin/dev`. Create an isolated worktree. Do not implement the phase in the primary `dev` checkout.
+1. Sync this worktree or branch from latest `origin/dev` using **Sync from `dev` before every cook, task, or phase**.
+2. Read the phase file, its issues, and the documents this contract routes for that work.
 3. Branch name: `<type>/<phase>-<slug>` (example: `feat/10-ui-and-provider-expansion`). Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
 4. Keep the worktree scoped to that phase. A new phase gets another worktree. Do not start the next phase in the same worktree.
 5. Open one PR into `dev`, never `main`. The PR body must list every issue: `Closes #<n>` when that issue is fully done, otherwise `Refs #<n>`.
 6. After the PR merges, remove the worktree and the local branch.
-
-Use the installed worktree helper when available. Otherwise:
-
-```text
-git fetch origin
-git worktree add -b <type>/<phase>-<slug> <worktree-path> origin/dev
-```
 
 Do not mix phases, commit on `dev` directly, or leave abandoned worktrees.
 
