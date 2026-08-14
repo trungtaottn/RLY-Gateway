@@ -29,10 +29,11 @@ export async function runGatewayCommand(
   if (action === "status") {
     const state = await inspectRuntimeGateway(config);
     const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
-    // macOS: report service registration/load state separately from runtime
-    // readiness. Only consulted when an installation record exists, so status
-    // never runs launchctl against a fresh home.
-    const detail = installation?.platform === "darwin"
+    // Report service registration/load state separately from runtime readiness
+    // on platforms with a per-user service manager (macOS LaunchAgent, Linux
+    // systemd --user). Only consulted when an installation record exists, so
+    // status never runs launchctl/systemctl against a fresh home.
+    const detail = installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")
       ? await serviceDetail((dependencies.createServiceManager ?? createServiceManager)({ home: homedir() }))
       : undefined;
     console.log(JSON.stringify({
@@ -51,8 +52,13 @@ export async function runGatewayCommand(
               ? {}
               : {
                   label: detail.label,
-                  loadState: detail.loaded ? (detail.running ? "running" : "stopped") : "not-loaded",
+                  loadState: detail.loaded
+                    ? detail.running
+                      ? "running"
+                      : detail.activeState === "failed" ? "failed" : "stopped"
+                    : "not-loaded",
                   ...(detail.pid === undefined ? {} : { pid: detail.pid }),
+                  ...(detail.enabled === undefined ? {} : { enabled: detail.enabled }),
                 }),
           },
       host: config.gateway.host,

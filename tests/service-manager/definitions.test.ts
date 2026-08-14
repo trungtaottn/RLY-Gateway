@@ -69,8 +69,24 @@ describe("service definition builders", () => {
     expect(unit).toContain("ExecStart=/usr/local/bin/node /opt/rly-gateway/dist/cli/main.js gateway start --config /Users/alice/work/gateway.config.toml");
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("RestartSec=2");
+    expect(unit).toContain("StartLimitIntervalSec=60");
+    expect(unit).toContain("StartLimitBurst=5");
     expect(unit).toContain("[Install]");
     expect(unit).toContain("WantedBy=default.target");
+    // Optional blocks stay absent unless the caller provides them.
+    expect(unit).not.toContain("WorkingDirectory");
+    expect(unit).not.toContain("StandardOutput");
+  });
+
+  it("writes working directory and the RLY log path into the systemd unit", () => {
+    const unit = buildSystemdUserUnit({
+      ...input,
+      workingDirectory: "/Users/alice/.rly",
+      logPath: "/Users/alice/.rly/logs/service.log",
+    });
+    expect(unit).toContain("WorkingDirectory=/Users/alice/.rly");
+    expect(unit).toContain("StandardOutput=append:/Users/alice/.rly/logs/service.log");
+    expect(unit).toContain("StandardError=append:/Users/alice/.rly/logs/service.log");
   });
 
   it("quotes systemd ExecStart arguments that contain whitespace", () => {
@@ -80,5 +96,13 @@ describe("service definition builders", () => {
       configPath: "/Users/alice/work dir/gateway.config.toml",
     });
     expect(unit).toContain("ExecStart=\"/Applications/Node JS/bin/node\" /opt/rly-gateway/dist/cli/main.js gateway start --config \"/Users/alice/work dir/gateway.config.toml\"");
+  });
+
+  it("doubles systemd percent specifiers in ExecStart paths", () => {
+    const unit = buildSystemdUserUnit({
+      ...input,
+      configPath: "/Users/alice/work dir/100%gateway.config.toml",
+    });
+    expect(unit).toContain("ExecStart=/usr/local/bin/node /opt/rly-gateway/dist/cli/main.js gateway start --config \"/Users/alice/work dir/100%%gateway.config.toml\"");
   });
 });

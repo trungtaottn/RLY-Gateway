@@ -114,10 +114,11 @@ export async function runStatus(path: string): Promise<number> {
   const running = state.state === "attested-compatible";
   const extras = running ? await secretFreeInventory(config) : {};
   const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
-  // macOS: service label/load state/pid are reported separately from runtime
-  // readiness and only when an installation record exists (never runs launchctl
-  // against a fresh home).
-  const detail = installation?.platform === "darwin"
+  // Report service registration/load state separately from runtime readiness
+  // on platforms with a per-user service manager (macOS LaunchAgent, Linux
+  // systemd --user) and only when an installation record exists (never runs
+  // launchctl/systemctl against a fresh home).
+  const detail = installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")
     ? await serviceDetail(createServiceManager({ home: homedir() }))
     : undefined;
   console.log(JSON.stringify({
@@ -137,8 +138,13 @@ export async function runStatus(path: string): Promise<number> {
             ? {}
             : {
                 label: detail.label,
-                loadState: detail.loaded ? (detail.running ? "running" : "stopped") : "not-loaded",
+                loadState: detail.loaded
+                  ? detail.running
+                    ? "running"
+                    : detail.activeState === "failed" ? "failed" : "stopped"
+                  : "not-loaded",
                 ...(detail.pid === undefined ? {} : { pid: detail.pid }),
+                ...(detail.enabled === undefined ? {} : { enabled: detail.enabled }),
               }),
         },
     host: config.gateway.host,

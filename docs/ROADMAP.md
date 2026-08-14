@@ -107,7 +107,7 @@ Outcome: RLY runs as a per-user resident service installed once by `rly init`, s
 - Identity/version handshake on `/identity` for #73 update decisions.
 - Crash recovery, stale-record recovery, foreign-listener fail-closed, and bounded explicit shutdown.
 
-Exit: lifecycle/service-manager/CLI gates and full `pnpm verify` pass; macOS launchd specifics delivered by #33 (per-user LaunchAgent, idempotent repair, bounded crash policy, no root), Linux systemd specifics remain #34.
+Exit: lifecycle/service-manager/CLI gates and full `pnpm verify` pass; macOS launchd specifics delivered by #33 (per-user LaunchAgent, idempotent repair, bounded crash policy, no root) and Linux systemd specifics delivered by #34 (per-user `systemd --user` unit, user-manager bus probe, bounded `StartLimit` restart policy, no root, no auto-linger).
 
 ## Beyond V1
 

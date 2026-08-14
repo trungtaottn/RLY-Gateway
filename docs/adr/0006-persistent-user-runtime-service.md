@@ -46,8 +46,8 @@ preserving the deterministic loopback + attestation security model.
 - Docs that deferred background service management (`docs/project-decisions.md`,
   `docs/BACKLOG.md`, `docs/ROADMAP.md`, `docs/SPEC.md` V1 non-goals) are updated in the
   same change so they no longer contradict the persistent-service decision.
-- Platform specifics are implementation surfaces: #33 owns macOS launchd details and
-  #34 owns Linux systemd details on top of the contract established here.
+- Platform specifics are implementation surfaces: #33 delivered macOS launchd details and
+  #34 delivered Linux systemd details on top of the contract established here.
 - Out of scope: system-wide/root daemon, remote administration or remote TLS bridge
   (#36), a second proxy implementation, and zero-downtime binary replacement (#73).
 
