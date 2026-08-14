@@ -55,6 +55,10 @@ The foreground launcher, runtime ownership store, and loopback server establish 
 - Crash recovery uses service-manager restart plus the existing startup-lock/process-identity rules; stale records are recovered and foreign listeners fail closed.
 - `/identity` carries `runtimeVersion` and `resident` metadata for the version/protocol handshake (#73 update decisions). Platform specifics are owned by #33 (launchd) and #34 (systemd). See [ADR 0006](./adr/0006-persistent-user-runtime-service.md).
 
+### Platform service adapters
+
+`src/service-manager/` implements the per-user service contract per OS; command construction stays centralized there so init/update/status never grow separate launchctl/systemctl strings. The macOS LaunchAgent adapter (#33) installs one plist (`com.rly.gateway`) under `~/Library/LaunchAgents` (mode `0600`, directory `0700`), targets the current user's `gui/<uid>` domain without root, and refuses to run as root. It tolerates both launchctl v2 (`bootstrap`/`kickstart`/`bootout`/`print`) and legacy (`load`/`start`/`unload`/`list`) subcommands, repairs changed/stale definitions by unloading before reloading so launchd never keeps pointing at an old executable, bounds crash-restart with an explicit `ThrottleInterval`, writes service stdout/stderr into the durable RLY log directory, and removes only RLY-owned files on unregister (durable `~/.rly` data is never deleted). Service registration/load state and pid (`launchctl print`/`list` parsing) are reported separately from runtime `/identity` readiness; `rly status`/`rly gateway status` surface both using the privacy allowlist. Linux `systemd --user` specifics remain #34.
+
 ## Core contracts
 
 ### Client protocol adapter

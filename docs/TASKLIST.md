@@ -138,6 +138,12 @@ Code/live-provider compatibility.
 - [x] CLI surface: `rly admin models refresh --provider <name> [--source api|static] [--snapshot <file>] [--family <f>]` and `rly admin models proposals`; proposals are surfaced with `trusted: false` and never as selectable/usable models; refresh requires no management listener and cannot change trusted evidence, tier mappings, or `/v1/models` projection.
 - [x] Docs/RTM/AT: AT-036/AT-037 added; ARCHITECTURE, SPEC §6.2, BACKLOG BL-042, TASKLIST updated. Evidence: `tests/unit/catalog-proposal.test.ts`, `tests/contract/providers/catalog-discovery.test.ts`, `tests/unit/proposal-store.test.ts`, `tests/unit/cli-admin.test.ts`; `pnpm verify` green.
 
+## Completed milestone: Phase 33 macOS launchd service adapter (#33)
+
+- [x] macOS LaunchAgent adapter hardening on the #65 contract: launchctl v2 `bootstrap`/`kickstart`/`bootout`/`print` with legacy `load`/`start`/`unload`/`list` tolerance; no-root guard; `0600` plist + `0700` LaunchAgents dir; atomic plist replace; changed-definition repair unloads before reloading; explicit bounded `ThrottleInterval`; `WorkingDirectory` + `StandardOut/ErrPath` into the durable RLY log dir (`~/.rly/logs/service.log`); `restart()` (`kickstart -k`) for the #73 controlled restart path; `detail()` reports label/load state/pid separately from runtime `/identity` readiness.
+- [x] `rly init` passes the durable log/working paths into the adapter; `rly gateway status` and `rly status` report service label/load state/pid on macOS; no credential/token/account identity ever enters the plist.
+- [x] Fake-runner unit tests for commands, repair reload, legacy fallback, status/pid parsing, root refusal, secret absence, working-dir/log plist; opt-in macOS live smoke (`RLY_LIVE_LAUNCHAGENT_SMOKE=1`, skipped ≠ pass); docs/RTM/AT updated (AT-036, FR-018 macOS specifics). Evidence: `tests/service-manager/definitions.test.ts`, `tests/service-manager/adapters.test.ts`, `tests/service-manager/launch-agent-live.test.ts`, `tests/unit/cli-init.test.ts`, `tests/unit/cli-gateway.test.ts`; `pnpm verify` green.
+
 ## Completed milestone: Phase 67 model foundation — provider model intelligence registry
 
 - [x] Canonical model evidence distinguishes access provider, exact upstream model id, and upstream/model family where known; one aggregator provider exposes many families without parallel registries (#67).

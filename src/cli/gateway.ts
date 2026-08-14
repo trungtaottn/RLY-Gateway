@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { loadConfig } from "../config/load-config.js";
 import { inspectRuntimeGateway } from "../runtime/gateway-lifecycle.js";
 import {
@@ -5,6 +6,8 @@ import {
   stopResidentRuntime,
   type ResidentRuntimeHandle,
 } from "../runtime/resident-runtime.js";
+import { createServiceManager } from "../service-manager/index.js";
+import { serviceDetail } from "../service-manager/types.js";
 import { readInstallation } from "../storage/installation.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
 
@@ -14,6 +17,7 @@ export type GatewayCommandDependencies = Readonly<{
   loadConfig?: typeof loadConfig;
   startResidentRuntime?: (options: Parameters<typeof startResidentRuntime>[0]) => Promise<ResidentRuntimeHandle>;
   stopResidentRuntime?: (config: Parameters<typeof stopResidentRuntime>[0]) => Promise<{ state: "stopped" | "not-running" }>;
+  createServiceManager?: (input: Parameters<typeof createServiceManager>[0]) => ReturnType<typeof createServiceManager>;
 }>;
 
 export async function runGatewayCommand(
@@ -25,6 +29,12 @@ export async function runGatewayCommand(
   if (action === "status") {
     const state = await inspectRuntimeGateway(config);
     const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
+    // macOS: report service registration/load state separately from runtime
+    // readiness. Only consulted when an installation record exists, so status
+    // never runs launchctl against a fresh home.
+    const detail = installation?.platform === "darwin"
+      ? await serviceDetail((dependencies.createServiceManager ?? createServiceManager)({ home: homedir() }))
+      : undefined;
     console.log(JSON.stringify({
       running: state.state === "attested-compatible",
       state: state.state,
@@ -33,7 +43,18 @@ export async function runGatewayCommand(
         : {}),
       service: installation === undefined
         ? { registered: false }
-        : { registered: true, platform: installation.platform, serviceName: installation.serviceName },
+        : {
+            registered: true,
+            platform: installation.platform,
+            serviceName: installation.serviceName,
+            ...(detail === undefined
+              ? {}
+              : {
+                  label: detail.label,
+                  loadState: detail.loaded ? (detail.running ? "running" : "stopped") : "not-loaded",
+                  ...(detail.pid === undefined ? {} : { pid: detail.pid }),
+                }),
+          },
       host: config.gateway.host,
       port: config.gateway.port,
       managementPort: config.gateway.managementPort,

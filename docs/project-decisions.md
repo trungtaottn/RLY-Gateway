@@ -16,6 +16,7 @@
 - TOML launch configuration plus versioned SQLite control-plane metadata.
 - Deterministic default loopback port `17871`.
 - Persistent per-user resident runtime service first: `rly init` installs a user LaunchAgent (macOS) or `systemd --user` unit (Linux), starts the resident runtime, and `rly <profile>`/diagnostics reuse it. The foreground launcher lifecycle remains the fallback when no service is initialized. (Supersedes the earlier "foreground first, background service later" posture; see ADR 0006.)
+- macOS LaunchAgent specifics (#33): one stable per-user label `com.rly.gateway` in the current user's `gui/<uid>` launchd domain; `~/Library/LaunchAgents` plist at mode `0600`; normal `rly init` never requires root and refuses to run as root; service stdout/stderr land in the durable RLY log directory (`~/.rly/logs/service.log`); the plist holds absolute executable/state paths only and contains no credentials, tokens, or account identity; crash restart is bounded by an explicit launchd `ThrottleInterval` so repeated broken startups are diagnosable rather than a tight loop; changed/stale definitions are unloaded before reload during init/update; launchctl v2 and legacy subcommands are both tolerated; service registration/load state and pid are reported separately from runtime `/identity` readiness. Linux `systemd --user` specifics stay with #34.
 
 ## Security and privacy
 
