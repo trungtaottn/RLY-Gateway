@@ -148,6 +148,57 @@ describe("rly gateway commands", () => {
     });
   });
 
+  it("reports Linux systemd service state separately from runtime readiness", async () => {
+    const homeDir = await directory();
+    const controlPlaneDirectory = await directory();
+    await writeInstallation(controlPlaneDirectory, {
+      schemaVersion: 1,
+      version: RUNTIME_VERSION,
+      configPath: join(homeDir, "gateway.config.toml"),
+      platform: "linux",
+      serviceName: "rly-gateway",
+      registeredAt: new Date().toISOString(),
+    });
+    const output = vi.fn();
+    vi.spyOn(console, "log").mockImplementation(output);
+    const manager = {
+      platform: "linux" as const,
+      serviceName: "rly-gateway",
+      isSupported: () => true,
+      isRegistered: () => Promise.resolve(true),
+      register: () => Promise.resolve(undefined),
+      unregister: () => Promise.resolve(undefined),
+      start: () => Promise.resolve(undefined),
+      stop: () => Promise.resolve(undefined),
+      status: () => Promise.resolve("running" as const),
+      detail: () => Promise.resolve({
+        label: "rly-gateway",
+        definitionPath: join(homeDir, ".config", "systemd", "user", "rly-gateway.service"),
+        registered: true,
+        loaded: true,
+        running: true,
+        pid: 4242,
+        enabled: true,
+        activeState: "active",
+      }),
+    };
+    const code = await runGatewayCommand("status", join(homeDir, "gateway.config.toml"), {
+      loadConfig: () => Promise.resolve(config(controlPlaneDirectory)),
+      createServiceManager: () => manager,
+    });
+    expect(code).toBe(1); // no runtime is running, but service state is still reported
+    const payload = parseOutput(output);
+    expect(payload.service).toMatchObject({
+      registered: true,
+      platform: "linux",
+      serviceName: "rly-gateway",
+      label: "rly-gateway",
+      loadState: "running",
+      pid: 4242,
+      enabled: true,
+    });
+  });
+
   it("reports not-running state for status without a runtime", async () => {
     const homeDir = await directory();
     const output = vi.fn();
