@@ -31,8 +31,9 @@ Routes declare one quality level: `upstream`, `exact-local`, `conservative-estim
 
 ## Provider sequencing
 
-- Claude Code is the first harness; the currently observed compatibility target is `2.1.229`. It becomes a tested baseline only after the Claude Code E2E gate passes.
-- Codex CLI is second; the currently observed provisional target is `0.147.0-alpha.6.5`. It becomes a tested baseline only after the Codex E2E gate passes.
+- Claude Code is the single coding harness; the currently observed compatibility target is `2.1.229`. It becomes a tested baseline only after the Claude Code E2E gate passes.
+- A profile name is the canonical user-facing alias (`rly <profile>`). Do not add a separate Alias type.
+- Codex CLI is an explicit `rly run codex` escape hatch, not a parallel product UX. The currently observed provisional target is `0.147.0-alpha.6.5`. It becomes a tested baseline only after the Codex E2E gate passes.
 - Direct Claude routes: OpenRouter first, DeepSeek second.
 - Project-owned Codex OAuth through Claude Code is the first control-plane vertical slice.
 - Account metadata, credential records, profiles, pools, health, and policy are first-class product concepts.

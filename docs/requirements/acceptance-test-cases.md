@@ -36,6 +36,7 @@ These are acceptance scenarios, not hand-maintained implementation test names. T
 | AT-030 | Execute release/traceability gate | Must requirements have evidence; verify/privacy/license/migration/recovery/package/clean-install gates pass |
 | AT-031 | Operate every supported UI workflow with keyboard and accessibility inspection | Focus is visible/predictable; controls have programmatic labels; status/errors are textual; desktop/mobile layouts remain usable |
 | AT-032 | Apply and interrupt retention/deletion policy across every durable class | Expired data becomes unreachable and is removed per policy; cleanup resumes idempotently after interruption; no revoked/expired secret becomes active |
+| AT-033 | Launch `rly <profile>` as Claude Code alias | Named profile launches Claude Code with a child token; reserved commands stay reserved; unknown profile fails closed; `rly run codex` stays Codex CLI; global Claude/Codex config is unmodified |
 
 ## Evidence rules
 

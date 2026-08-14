@@ -4,7 +4,7 @@
 
 - Primary actor: Owner.
 - Preconditions: profile valid; gateway absent or attested-compatible; at least one eligible route account.
-- Main flow: owner selects profile → runtime attests/start/reuses gateway → Claude receives transient settings → request-time selector binds account → interaction streams normally.
+- Main flow: owner runs `rly <profile>` (or `rly run claude --profile`) → runtime attests/start/reuses gateway → Claude receives transient settings → request-time selector binds account → interaction streams normally.
 - Alternatives: no eligible account; foreign listener; unsupported capability; credential refresh required.
 - Postcondition: global Claude configuration and foreign processes remain unchanged.
 
