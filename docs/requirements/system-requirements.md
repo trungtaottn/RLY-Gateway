@@ -7,7 +7,7 @@ This SRS defines externally verifiable system behavior for the local RLY Gateway
 ## Actors and external systems
 
 - Owner/operator using CLI or local UI.
-- Claude Code and Codex CLI harnesses.
+- Claude Code as the coding harness; Codex CLI only through `rly run codex`.
 - Direct provider APIs and subscription-backed OAuth services.
 - Optional attested local bridges.
 - Existing Codex/Cline credential stores used only through explicit import/interoperability modes.
@@ -25,13 +25,13 @@ This SRS defines externally verifiable system behavior for the local RLY Gateway
 | SR-F-006 | Explicitly import credentials without modifying the source store by default. | Must | Import immutability tests |
 | SR-F-007 | Perform project-owned OAuth login, refresh, logout, and revoke through a central credential broker. | Must | OAuth lifecycle tests |
 | SR-F-008 | Persist credential generations atomically and recover the last valid state after interruption, including reclaiming crashed credential locks without stealing live owners. | Must | Crash/corruption recovery tests |
-| SR-F-009 | Manage profiles that bind harness, provider/pool, model roles, capability policy, and launch policy. | Must | Profile validation/E2E |
+| SR-F-009 | Manage profiles that bind harness, provider/pool, model roles, capability policy, and launch policy. The profile name is the canonical Claude Code launch alias (`rly <profile>`). | Must | Profile validation/E2E |
 | SR-F-010 | Filter account eligibility before applying a pool selection strategy. | Must | Pool invariant tests |
 | SR-F-011 | Support manual pin, round-robin, fill-first, bounded affinity, pause, and cooldown. | Must | Deterministic selector tests |
 | SR-F-012 | Create one immutable request-scoped EffectiveRoute containing policy revision, capability snapshot, account pseudonym, and the credential generation frozen after refresh and before invoke. | Must | Route isolation tests |
 | SR-F-013 | Permit bounded retry/account rotation only before the first response byte or tool event. | Must | Retry-boundary tests |
 | SR-F-014 | Update health, quota class, cooldown, and audit outcome transactionally. Success restores healthy; quota exhaustion is ineligible only while cooling and becomes a recovery probe afterward. | Must | Outcome/crash tests |
-| SR-F-015 | Launch Claude/Codex with transient configuration and preserve global client configuration. | Must | Before/after hash E2E |
+| SR-F-015 | Launch Claude Code via `rly <profile>` or `rly run claude`, and Codex CLI via `rly run codex` only, with transient configuration that preserves global client configuration. | Must | Before/after hash E2E |
 | SR-F-016 | Expose authenticated CLI management and a versioned local management API. | Must | Auth/mutation contract tests |
 | SR-F-017 | Provide a local UI that consumes secret-free management DTOs only. | Must | Browser/network/privacy tests |
 | SR-F-018 | Detect/reuse only attested project processes and fail closed on foreign listeners. | Must | Lifecycle/port tests |

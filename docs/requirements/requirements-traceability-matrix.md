@@ -4,14 +4,14 @@
 
 | Business requirement | System requirements | Functional requirements | Use cases / stories | Acceptance |
 | --- | --- | --- | --- | --- |
-| BR-001 Multiple providers through Claude | SR-F-001, SR-F-003, SR-F-009–012 | FR-008, FR-009, FR-011 | UC-001, UC-005; US-001, US-007 | AT-015–AT-022 |
+| BR-001 Multiple providers through Claude | SR-F-001, SR-F-003, SR-F-009–012 | FR-008, FR-009, FR-011 | UC-001, UC-005; US-001, US-007 | AT-015–AT-022, AT-033 |
 | BR-002 Central administration | SR-F-004/005/009/011/016/017 | FR-002, FR-007/008/013 | UC-004/006/007; US-004–US-006 | AT-003/004, AT-013–AT-016, AT-025/026 |
 | BR-003 Credential ownership | SR-F-006–008, SR-NF-002/003/005/006/008 | FR-003–FR-006 | UC-002/003/006/008; US-002–US-004/010 | AT-005–AT-014 |
 | BR-004 Reuse proven MIT code | SR-F-019, SR-NF-011/014 | FR-015 | UC-009; US-009 | AT-028, AT-030 |
 | BR-005 Deterministic safe routing | SR-F-010–014, SR-NF-006/007/010/012 | FR-009/010/014 | UC-005/007; US-005/006 | AT-017–AT-020, AT-027 |
 | BR-006 Claude first, Codex next | SR-F-001–003/015 | FR-011/012 | UC-001/005; US-007/008 | AT-021–AT-024 |
-| BR-007 CLI and local UI | SR-F-009/016/017, SR-NF-004/013 | FR-008/013/014 | UC-001/004/007; US-001/005/006 | AT-015/016, AT-025–AT-027, AT-031 |
-| BR-008 Preserve native recovery/process safety | SR-F-015/018, SR-NF-001/004/008 | FR-001/011/012 | UC-001/008; US-001/010 | AT-001/002, AT-021–AT-026 |
+| BR-007 CLI and local UI | SR-F-009/016/017, SR-NF-004/013 | FR-008/013/014 | UC-001/004/007; US-001/005/006 | AT-015/016, AT-025–AT-027, AT-031, AT-033 |
+| BR-008 Preserve native recovery/process safety | SR-F-015/018, SR-NF-001/004/008 | FR-001/011/012 | UC-001/008; US-001/010 | AT-001/002, AT-021–AT-026, AT-033 |
 | BR-009 Privacy | SR-F-005/016/017/021, SR-NF-002–005/008/009/014 | FR-003–FR-007/013/014/017 | UC-002/003/006/007/008; US-002–US-006/010/011 | AT-005–AT-014, AT-025–AT-032 |
 | BR-010 Terms/evidence gates | SR-F-004/005/010, SR-NF-012 | FR-002/007/009/015 | UC-003–UC-005/009; US-004/005/009 | AT-003/004, AT-014, AT-017/018, AT-028 |
 | BR-011 Private history/public snapshot | SR-F-019/020, SR-NF-002/010/014 | FR-015/016 | UC-010; US-011/012 | AT-028–AT-030 |
@@ -36,7 +36,7 @@ When a requirement changes, update its owning document and this matrix in the sa
 
 - BR-001/006/008 have partial verified evidence from the completed Claude direct-provider milestone.
 - Control-plane foundation evidence exists for schema/migrations, authenticated management, CLI administration, and secret-free DTOs.
-- Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, Claude Code profile integration, and the secret-free local UI are implemented; Codex harness remains the later V1 surface.
+- Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, Claude Code profile integration, and the secret-free local UI are implemented; `rly <profile>` is the canonical Claude Code alias and Codex CLI remains `rly run codex`.
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
 
 ## Phase 11 executable evidence
@@ -109,3 +109,9 @@ When a requirement changes, update its owning document and this matrix in the sa
 | AT-031 subset | `tests/ui/page.test.ts`, `tests/browser/at-031.spec.ts` | HTML/CSS plus Chromium: keyboard skip/save/logout, 375/1024 nav, labeled controls, textual status/alert, secret-free DOM. Remaining views (accounts/pools/profiles/traces/confirm) are not this issue. |
 | Provider contracts | `tests/contract/providers/catalog.test.ts`, `tests/contract/providers/gemini-oauth.test.ts`, `tests/contract/providers/expansion.test.ts`, `tests/contract/providers/isolation.test.ts` | Verified Gemini/Claude OAuth, Antigravity bridge identity, Cline explicit lock/restore, OpenCode Go/Alibaba isolation |
 | Live provider smoke | none in this phase | Opt-in live gates remain skipped; not passing evidence |
+
+## Phase 2 executable evidence
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-033 | `tests/unit/cli-main.test.ts`, `tests/lifecycle/global-config-isolation.test.ts` | Verified `rly <profile>` launches Claude Code; reserved commands stay reserved; unknown profile fails closed; `rly run codex` unchanged; global Claude/Codex config byte-identical |

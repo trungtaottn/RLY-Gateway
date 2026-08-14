@@ -98,6 +98,12 @@ Code/live-provider compatibility.
 - [x] Refresh before immutable EffectiveRoute; invoke binds the frozen generation (#56).
 - [x] Recoverable quota/cooldown: exhausted is a probe after cooldown; success restores healthy (#58).
 
+## Completed milestone: Phase 2 profile alias
+
+- [x] `rly <profile>` launches Claude Code with that profile (#54).
+- [x] Reserved commands stay reserved; unknown profile fails closed; `rly run codex` remains Codex CLI.
+- [x] No global Claude/Codex configuration mutation. Evidence: `tests/unit/cli-main.test.ts`, `tests/lifecycle/global-config-isolation.test.ts`; `pnpm verify` — 232 passed / 10 skipped; AT-031 browser passed.
+
 ## Updating this file
 
 - Check an item only when evidence exists.

@@ -2,7 +2,7 @@
 
 ## System intent
 
-RLY Gateway preserves the semantics of Claude Code and Codex CLI while a self-owned local control plane manages providers, credentials, accounts, profiles, pools, health, and routing policy.
+RLY Gateway is a local subscription orchestration fabric. Claude Code is the single coding harness; a profile name is the user-facing alias. The gateway preserves Anthropic Messages (and OpenAI Responses for the `rly run codex` escape hatch) while a self-owned local control plane manages providers, credentials, accounts, profiles, pools, health, and routing policy.
 
 ## Target layers
 
@@ -13,7 +13,8 @@ Control plane
   ├─ quota/health/cooldown and policy revision
   └─ authenticated management API and metadata-only audit
        ↓ versioned policy
-Target launcher → Claude Code or Codex CLI
+Target launcher → Claude Code (`rly <profile>` or `rly run claude`)
+                 → Codex CLI (`rly run codex` only)
        ↓ client protocol
 Data plane
   ├─ decode and derive required capabilities
@@ -25,8 +26,8 @@ Data plane
 
 The Anthropic Messages protocol adapter and encoder are registered into the
 foreground gateway when declarative direct routes, a selected OAuth account, or
-an activated profile exists. Profile activation is lease-scoped: `run claude
---profile` issues a child token bound to that profile. Each request then
+an activated profile exists. Profile activation is lease-scoped: `rly <profile>`
+and `run claude --profile` issue a child token bound to that profile. Each request then
 performs eligibility and account selection through the pool; the profile never
 preselects an account. Requests without a profile child token keep the
 previous resolve order: TOML direct routes, then a manually selected Codex
@@ -38,7 +39,7 @@ EffectiveRoute selection.
 
 The foreground launcher, runtime ownership store, and loopback server establish a safe local boundary for later protocol work. The executable owners are [`src/cli/main.ts`](../src/cli/main.ts), [`src/runtime/gateway-lifecycle.ts`](../src/runtime/gateway-lifecycle.ts), and [`src/runtime/runtime-store.ts`](../src/runtime/runtime-store.ts).
 
-- `run claude` and `run codex` acquire one deterministic local gateway before launching the child; the child receives gateway settings without persistent global Claude or Codex configuration changes.
+- `rly <profile>` launches Claude Code with that profile. `run claude` remains compatibility; `run codex` is the Codex CLI escape hatch. Both acquire one deterministic local gateway before launching the child; the child receives gateway settings without persistent global Claude or Codex configuration changes.
 - Reuse requires a matching ownership record, process-start identity, config fingerprint, and fresh identity challenge proof. An occupied but unattested listener fails closed.
 - Runtime files are outside Git, restricted to the current user, and reject link replacement. Startup and lease mutations use ownership-aware locking.
 - Leases are heartbeated, expire after launcher loss, and trigger bounded idle cleanup. Diagnostics surface only an attested-compatible, foreign, stale, or absent lifecycle state.

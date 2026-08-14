@@ -67,6 +67,23 @@ describe("global client config isolation", () => {
       },
     );
     expect(await Promise.all(protectedFiles.map(digest))).toEqual(before);
+    await runCli(
+      ["work", "--config", configPath],
+      {
+        environment: { HOME: home, PATH: "/bin" },
+        acquireGateway: vi.fn().mockResolvedValue({
+          baseUrl: "http://127.0.0.1:17871",
+          authToken: "transient",
+          instanceId: "00000000-0000-4000-8000-000000000001",
+          leaseId: "00000000-0000-4000-8000-000000000011",
+          reused: false,
+          release,
+        }),
+        launchClaude: vi.fn().mockResolvedValue({ code: 0, signal: null }),
+        issueProfileLaunch: vi.fn().mockResolvedValue({ token: "child-token", args: [], executable: "claude" }),
+      },
+    );
+    expect(await Promise.all(protectedFiles.map(digest))).toEqual(before);
     await launchCodex({
       gatewayBaseUrl: "http://127.0.0.1:17871",
       authToken: "transient",

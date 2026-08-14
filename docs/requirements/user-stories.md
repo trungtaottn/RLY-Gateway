@@ -4,9 +4,9 @@
 
 ### US-001 — Use one profile across providers
 
-As the owner, I want to launch Claude Code with a named profile so that provider, pool, model roles, and safety policy are repeatable without changing global Claude configuration.
+As the owner, I want to launch Claude Code with a named profile (`rly <profile>`) so that provider, pool, model roles, and safety policy are repeatable without changing global Claude configuration.
 
-Acceptance: profile validation succeeds; request-time account selection remains dynamic; AT-001, AT-015, AT-021.
+Acceptance: profile validation succeeds; request-time account selection remains dynamic; AT-001, AT-015, AT-021, AT-033.
 
 ### US-002 — Import an existing account safely
 

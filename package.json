@@ -2,7 +2,7 @@
   "name": "rly-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "Protocol-preserving personal gateway for Claude Code and Codex CLI",
+  "description": "Protocol-preserving personal gateway: Claude Code as the coding harness, RLY profiles as aliases, Codex CLI as an explicit escape hatch",
   "license": "MIT",
   "type": "module",
   "bin": {

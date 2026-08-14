@@ -5,16 +5,25 @@ import { pathToFileURL } from "node:url";
 import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
 import { runDoctor, runQuota, runRouteTrace, runStatus } from "./diagnostics.js";
 import { loadConfig } from "../config/load-config.js";
+import { ProfileActivationError } from "../profiles/errors.js";
 import { launchClaude, launchCodex, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
 import { acquireGateway, type GatewayLeaseHandle } from "../runtime/gateway-lifecycle.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 
 const DEFAULT_CONFIG = "gateway.config.toml";
 const DIAGNOSTIC_COMMANDS = ["status", "doctor", "quota", "route-trace"] as const;
+const ACTIVATION_CODES = [
+  "profile-not-found",
+  "profile-not-claude",
+  "profile-has-no-pool",
+  "role-unmapped",
+  "capability-rejected",
+  "invalid-launch-policy",
+] as const satisfies readonly ProfileActivationError["code"][];
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args]");
 }
 
 export type ParsedCliCommand =
@@ -42,17 +51,42 @@ function optionalFlag(options: readonly string[], flag: string, missing: string)
   return value;
 }
 
-/** Parses gateway arguments and leaves all arguments after `--` untouched for Claude. */
-export function parseCliArgs(args: readonly string[], cwd = process.cwd()): ParsedCliCommand | undefined {
-  const [command] = args;
-  if (isDiagnosticCommand(command)) {
-    return { command, configPath: configPath(args.slice(1), cwd) };
+function isActivationCode(value: unknown): value is ProfileActivationError["code"] {
+  return typeof value === "string" && (ACTIVATION_CODES as readonly string[]).includes(value);
+}
+
+function throwActivationFailure(payload: unknown): never {
+  const code = payload !== null && typeof payload === "object" && "error" in payload
+    ? (payload as { error?: unknown }).error
+    : undefined;
+  if (isActivationCode(code)) {
+    throw new ProfileActivationError(code, code === "profile-not-found" ? "Unknown profile" : "Profile cannot be activated");
   }
-  if (command === "admin") {
-    return parseAdminArgs(args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config"), configPath(args, cwd));
+  throw new Error("Profile activation failed");
+}
+
+function assertBareProfileOptions(options: readonly string[]): void {
+  let index = 0;
+  while (index < options.length) {
+    const token = options[index];
+    if (token === undefined) throw new Error("bare profile requires `--` before Claude arguments");
+    if (token === "--profile") throw new Error("--profile cannot be combined with a bare profile name");
+    if (token === "--route") throw new Error("--profile cannot be combined with --route");
+    if (token === "--config") {
+      const value = options[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error("--config requires a path");
+      index += 2;
+      continue;
+    }
+    if (token.startsWith("-")) throw new Error(`unknown option ${token}`);
+    throw new Error("bare profile requires `--` before Claude arguments");
   }
+  if (options.filter((item) => item === "--config").length > 1) throw new Error("--config may be provided once");
+}
+
+function parseRunCommand(args: readonly string[], cwd: string): ParsedCliCommand | undefined {
   const harness = args[1];
-  if (command !== "run" || (harness !== "claude" && harness !== "codex")) return undefined;
+  if (harness !== "claude" && harness !== "codex") return undefined;
   const separator = args.indexOf("--", 2);
   if (separator < 0) throw new Error(`run ${harness} requires \`--\` before ${harness} arguments`);
   const options = args.slice(2, separator);
@@ -66,6 +100,32 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
     ...(route === undefined ? {} : { route }),
     ...(profile === undefined ? {} : { profile }),
   };
+}
+
+function parseBareProfileCommand(profile: string, args: readonly string[], cwd: string): ParsedCliCommand {
+  const separator = args.indexOf("--", 1);
+  const options = separator < 0 ? args.slice(1) : args.slice(1, separator);
+  assertBareProfileOptions(options);
+  return {
+    command: "run-claude",
+    configPath: configPath(options, cwd),
+    claudeArgs: separator < 0 ? [] : args.slice(separator + 1),
+    profile,
+  };
+}
+
+/** Parses gateway arguments and leaves all arguments after `--` untouched for Claude. */
+export function parseCliArgs(args: readonly string[], cwd = process.cwd()): ParsedCliCommand | undefined {
+  const [command] = args;
+  if (isDiagnosticCommand(command)) {
+    return { command, configPath: configPath(args.slice(1), cwd) };
+  }
+  if (command === "admin") {
+    return parseAdminArgs(args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config"), configPath(args, cwd));
+  }
+  if (command === "run") return parseRunCommand(args, cwd);
+  if (command === undefined || command.startsWith("-")) return undefined;
+  return parseBareProfileCommand(command, args, cwd);
 }
 
 function configuredRoleForRoute(config: Awaited<ReturnType<typeof loadConfig>>, route: string): "primary" | "fast" | "reasoning" {
@@ -106,9 +166,10 @@ async function issueProfileLaunch(
     token?: unknown;
     harness?: unknown;
     launchPolicy?: { executable?: unknown };
+    error?: unknown;
   };
   if (!response.ok || typeof payload.token !== "string") {
-    throw new Error("Profile activation failed");
+    throwActivationFailure(payload);
   }
   if (typeof payload.harness === "string" && payload.harness !== harness) {
     throw new Error(`Profile harness is ${payload.harness}, not ${harness}`);

@@ -7,19 +7,18 @@
 | Baseline date | 2026-08-13 |
 | Status | Approved control-plane baseline |
 | Product | RLY Gateway |
-| Primary harness | Claude Code CLI |
-| Secondary harness | Codex CLI |
+| Coding harness | Claude Code CLI |
+| Profile alias | `rly <profile>` launches Claude Code |
+| Codex CLI | `rly run codex` escape hatch only |
 | Delivery posture | Private-first, public-ready |
 
 ## 1. Purpose
 
-RLY Gateway lets one person use preferred coding-agent harnesses with multiple direct APIs and subscription-backed accounts without giving up the harness tools, permissions, hooks, skills, or interaction model. It owns a local control plane for provider accounts, credentials, profiles, pools, health, and routing policy while preserving each harness protocol in the data plane.
-
-The product preserves client protocol semantics instead of flattening every request into generic chat completions.
+RLY Gateway is a local subscription orchestration fabric. Claude Code is the single coding-harness UX: `rly <profile>` launches Claude Code with that RLY profile. Provider names are not harnesses. The product owns a local control plane for provider accounts, credentials, profiles, pools, health, and routing policy while preserving client protocol semantics instead of flattening every request into generic chat completions.
 
 ## 2. Product outcome
 
-The completed protocol milestone runs Claude Code through a local gateway with correct Anthropic Messages behavior and verified direct-provider routing. The next milestone adds a self-owned credential broker and deterministic account control plane, beginning with Codex OAuth accounts used through Claude Code. Codex CLI follows through an OpenAI Responses boundary without rewriting the gateway core.
+The completed protocol milestone runs Claude Code through a local gateway with correct Anthropic Messages behavior and verified direct-provider routing. The next milestone adds a self-owned credential broker and deterministic account control plane, beginning with Codex OAuth accounts used through Claude Code. Codex CLI remains an explicit `rly run codex` escape hatch through an OpenAI Responses boundary; it is not a parallel product UX.
 
 ## 3. Users and operating context
 
@@ -30,7 +29,9 @@ The completed protocol milestone runs Claude Code through a local gateway with c
 
 ## 4. Harness scope
 
-### 4.1 Claude Code — first priority
+Claude Code is the single coding harness. A profile name is the user-facing alias: `rly codex`, `rly clinepass`, and `rly deepseek` each launch Claude Code with that RLY profile. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a provider alias. Do not add a separate Alias type.
+
+### 4.1 Claude Code — canonical harness
 
 Required behavior:
 
@@ -45,9 +46,9 @@ Required behavior:
 - Explicit `primary`, `fast`, and `reasoning` model roles.
 - Transient child environment; global Claude configuration remains unchanged.
 
-### 4.2 Codex CLI — second priority
+### 4.2 Codex CLI — `rly run codex` escape hatch
 
-Required after Claude acceptance:
+Required for the explicit Codex CLI launch path, not as a peer coding UX:
 
 - OpenAI Responses request/item/event lifecycle.
 - Streaming, function-call argument deltas, reasoning, usage, errors, and cancellation.

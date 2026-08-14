@@ -43,7 +43,7 @@ describe("admin CLI parsing", () => {
       fields: { id: "acct", version: "2" },
     });
     expect(parseCliArgs(["admin", "ui"], "/work")).toMatchObject({ resource: "ui", action: "open" });
-    expect(parseCliArgs(["serve"])).toBeUndefined();
+    expect(parseCliArgs(["serve"])).toMatchObject({ command: "run-claude", profile: "serve" });
     const pause = parseAdminArgs(["admin", "providers", "pause", "--id", "x", "--version", "1"], "/work/gateway.toml");
     if (!pause) throw new Error("expected admin command");
     await expect(runAdmin(pause, gatewayConfigSchema.parse({ schemaVersion: 1, gateway: {} }))).rejects.toThrow("pause and resume apply only to accounts");

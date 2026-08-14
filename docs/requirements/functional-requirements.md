@@ -58,10 +58,10 @@
 
 ### FR-008 — Configure pools and profiles
 
-- Traces: BR-001/002/007, SR-F-009/011.
-- Behavior: create pool membership, strategy, bounded affinity/retry; create harness profile with provider/pool and model roles; validate referenced capabilities and ownership.
-- Failure: invalid references, duplicate memberships, unsupported strategy, or stale version fails atomically.
-- Acceptance: AT-015, AT-016.
+- Traces: BR-001/002/007, SR-F-009/011/015.
+- Behavior: create pool membership, strategy, bounded affinity/retry; create harness profile with provider/pool and model roles; validate referenced capabilities and ownership. The profile name is the canonical Claude Code alias: `rly <profile>` launches Claude Code with that profile; `rly run claude --profile <name>` remains compatibility; `rly run codex` launches Codex CLI and is not a profile alias. Reserved CLI commands are never treated as profile names.
+- Failure: invalid references, duplicate memberships, unsupported strategy, or stale version fails atomically. Unknown profile names fail closed and are not remapped to Codex CLI.
+- Acceptance: AT-015, AT-016, AT-033.
 
 ### FR-009 — Select an account per request
 
