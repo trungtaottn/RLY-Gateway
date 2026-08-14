@@ -6,6 +6,7 @@ import { loadConfig } from "../config/load-config.js";
 import { managementOrigin } from "../management/origin.js";
 import { inspectRuntimeGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
+import { readClaudeOverlayStatus } from "../runtime/claude-overlay.js";
 import { createServiceManager } from "../service-manager/index.js";
 import { serviceDetail } from "../service-manager/types.js";
 import { readInstallation } from "../storage/installation.js";
@@ -113,7 +114,9 @@ export async function runStatus(path: string): Promise<number> {
   const state = await inspectRuntimeGateway(config);
   const running = state.state === "attested-compatible";
   const extras = running ? await secretFreeInventory(config) : {};
-  const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
+  const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
+  const installation = await readInstallation(controlPlaneDirectory);
+  const claudeOverlay = await readClaudeOverlayStatus(controlPlaneDirectory);
   // Report service registration/load state separately from runtime readiness
   // on platforms with a per-user service manager (macOS LaunchAgent, Linux
   // systemd --user) and only when an installation record exists (never runs
@@ -150,6 +153,7 @@ export async function runStatus(path: string): Promise<number> {
     host: config.gateway.host,
     port: config.gateway.port,
     managementPort: config.gateway.managementPort,
+    ...(claudeOverlay === undefined ? {} : { claudeOverlay }),
     ...extras,
   }));
   return running ? 0 : 1;

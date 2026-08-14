@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { constants as osConstants } from "node:os";
-import { resolve } from "node:path";
+import { constants as osConstants, homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
 import { parseConfigArgs, runConfig, type ConfigCommand } from "./config.js";
@@ -10,8 +10,10 @@ import { runInit } from "./init.js";
 import { loadConfig } from "../config/load-config.js";
 import { ProfileActivationError } from "../profiles/errors.js";
 import { launchClaude, launchCodex, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
+import { prepareClaudeOverlay, type ClaudeOverlayResolution } from "../runtime/claude-overlay.js";
 import { acquireGateway, type GatewayLeaseHandle } from "../runtime/gateway-lifecycle.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
+import { RLY_STATE_DIRECTORY_NAME } from "../storage/paths.js";
 
 const DEFAULT_CONFIG = "gateway.config.toml";
 const DIAGNOSTIC_COMMANDS = ["status", "doctor", "quota", "route-trace"] as const;
@@ -226,6 +228,7 @@ export type CliDependencies = Readonly<{
     environment: Readonly<NodeJS.ProcessEnv>,
     harness?: "claude" | "codex",
   ) => Promise<{ token: string; args: readonly string[]; executable: string | undefined }>;
+  prepareClaudeOverlay?: (controlPlaneDirectory: string) => Promise<ClaudeOverlayResolution>;
   runInit?: (configPath: string) => Promise<number>;
   runGateway?: (action: GatewayAction, configPath: string) => Promise<number>;
 }>;
@@ -241,6 +244,17 @@ async function runHarnessCommand(
     : harness === "claude"
       ? routeScopedClaudeArgs(parsed.claudeArgs, configuredRoleForRoute(config, parsed.route))
       : (configuredRoleForRoute(config, parsed.route), parsed.claudeArgs);
+  // Claude launches point CLAUDE_CONFIG_DIR at the durable RLY overlay
+  // (composed from native user config) instead of a throwaway temp directory.
+  // Codex keeps its historical throwaway CODEX_HOME isolation. The default
+  // RLY home resolves from the launch environment so tests and other callers
+  // with an overridden HOME never touch the real user home.
+  const configDirectory = harness === "codex"
+    ? undefined
+    : (await (dependencies.prepareClaudeOverlay ?? prepareClaudeOverlay)(
+        config.controlPlane.dataDirectory ?? join(dependencies.environment["HOME"] ?? homedir(), RLY_STATE_DIRECTORY_NAME),
+        { environment: dependencies.environment },
+      )).directory;
   const lease = await (dependencies.acquireGateway ?? acquireGateway)({ config });
   try {
     const launched = parsed.profile === undefined
@@ -253,6 +267,7 @@ async function runHarnessCommand(
       args: launched.args,
       environment: dependencies.environment,
       ...(launched.executable === undefined ? {} : { executable: launched.executable }),
+      ...(configDirectory === undefined ? {} : { configDirectory }),
     });
     return childExitCode(exit);
   } finally {

@@ -40,6 +40,13 @@ export type LaunchClaudeOptions = Readonly<{
   args: readonly string[];
   executable?: string;
   environment?: Readonly<NodeJS.ProcessEnv>;
+  /**
+   * Durable RLY Claude config overlay directory (see claude-overlay.ts). The
+   * interactive launch contract always supplies this; when omitted the
+   * standalone-API fallback is a throwaway temp directory that is removed on
+   * child exit (historical isolation behavior).
+   */
+  configDirectory?: string;
   cwd?: string;
   spawner?: ChildSpawner;
   signalSource?: SignalSource;
@@ -143,12 +150,12 @@ function installSignalForwarding(
   };
 }
 
-async function launchIsolatedChild(
+async function launchChild(
   options: LaunchClaudeOptions,
-  isolatedDirectory: string,
   executable: string,
   environment: NodeJS.ProcessEnv,
   args: readonly string[],
+  cleanup: () => Promise<void>,
 ): Promise<ChildExit> {
   let child: ChildProcessLike;
   try {
@@ -158,7 +165,7 @@ async function launchIsolatedChild(
       stdio: "inherit",
     });
   } catch (error) {
-    await rm(isolatedDirectory, { recursive: true, force: true });
+    await cleanup();
     throw error;
   }
   const exit = waitForChildExit(child);
@@ -182,11 +189,11 @@ async function launchIsolatedChild(
   } finally {
     removeSignalForwarding();
     options.abortSignal?.removeEventListener("abort", cancel);
-    await rm(isolatedDirectory, { recursive: true, force: true });
+    await cleanup();
   }
 }
 
-async function launchIsolatedHarness(
+async function launchWithTempDirectory(
   options: LaunchClaudeOptions,
   prefix: string,
   defaultExecutable: string,
@@ -194,28 +201,42 @@ async function launchIsolatedHarness(
     environment: Readonly<NodeJS.ProcessEnv>,
     gatewayBaseUrl: string,
     authToken: string,
-    isolatedDirectory: string,
+    configDirectory: string,
   ) => NodeJS.ProcessEnv,
   args: readonly string[],
 ): Promise<ChildExit> {
-  const isolatedDirectory = mkdtempSync(join(tmpdir(), prefix));
-  return launchIsolatedChild(
+  const configDirectory = mkdtempSync(join(tmpdir(), prefix));
+  return launchChild(
     options,
-    isolatedDirectory,
     options.executable ?? defaultExecutable,
-    createEnvironment(
-      options.environment ?? process["env"],
-      options.gatewayBaseUrl,
-      options.authToken,
-      isolatedDirectory,
-    ),
+    createEnvironment(options.environment ?? process["env"], options.gatewayBaseUrl, options.authToken, configDirectory),
     args,
+    () => rm(configDirectory, { recursive: true, force: true }),
   );
 }
 
-/** Runs Claude in the foreground with gateway configuration scoped solely to the child. */
+/**
+ * Runs Claude in the foreground with gateway configuration scoped solely to
+ * the child. The interactive launch contract passes a durable RLY overlay via
+ * `configDirectory`; without it the standalone-API fallback is a throwaway
+ * temp directory (historical isolation behavior).
+ */
 export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildExit> {
-  return launchIsolatedHarness(
+  if (options.configDirectory !== undefined) {
+    return launchChild(
+      options,
+      options.executable ?? "claude",
+      createClaudeChildEnvironment(
+        options.environment ?? process["env"],
+        options.gatewayBaseUrl,
+        options.authToken,
+        options.configDirectory,
+      ),
+      sessionIsolatedArgs(options.args),
+      () => Promise.resolve(),
+    );
+  }
+  return launchWithTempDirectory(
     options,
     "rly-gateway-claude-",
     "claude",
@@ -226,7 +247,7 @@ export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildE
 
 /** Runs Codex in the foreground with gateway configuration scoped solely to the child. */
 export async function launchCodex(options: LaunchCodexOptions): Promise<ChildExit> {
-  return launchIsolatedHarness(
+  return launchWithTempDirectory(
     options,
     "rly-gateway-codex-",
     "codex",
