@@ -6,11 +6,15 @@ GitHub board: [RLY Gateway Backlog](https://github.com/users/trungtaottn/project
 
 ## Near-term candidates
 
-- macOS Keychain backend as an alternative to project-owned credential files.
-- Rich diagnostic bundle with an explicit metadata allowlist.
-- Provider catalog refresh command that proposes, but never silently applies, registry changes.
-- Compatibility canary for newly installed Claude Code and Codex CLI versions.
-- Native/local exact tokenizer support where licensing and model parity are verified.
+Phase 5 review (2026-08-14): none of these are committed-V1 Must gaps. They stay here. Do not implement or promote without owner approval and a SPEC/FR update. Local evidence: `plans/reports/phase-5-platform-review.md`.
+
+| ID | Issue | Verdict | V1 surface already in tree | Missing (not V1) |
+| --- | --- | --- | --- | --- |
+| BL-040 | [#21](https://github.com/trungtaottn/RLY-Gateway/issues/21) | backlog-not-V1 | File credential store `0700`/`0600` with CAS, backup, recovery. `keychain:` refs are rejected at parse/config. | macOS Keychain backend |
+| BL-041 | [#22](https://github.com/trungtaottn/RLY-Gateway/issues/22) | partial | Allowlisted `doctor`/`status`/`quota`/`route-trace` plus AT-027 privacy gates | Packaged diagnostic bundle |
+| BL-042 | [#23](https://github.com/trungtaottn/RLY-Gateway/issues/23) | partial | Frozen reviewed registry; probes must not mutate it | Propose-only catalog refresh command |
+| BL-043 | [#24](https://github.com/trungtaottn/RLY-Gateway/issues/24) | partial | Claude Code and Codex CLI fake-upstream E2E; doctor reports harness found/not found | Version canary for newly installed CLIs |
+| BL-044 | [#25](https://github.com/trungtaottn/RLY-Gateway/issues/25) | partial | Declared token-count quality; production routes use `conservative-estimate` | Licensed exact-local tokenizer with parity evidence |
 
 ## Next focus (not started as a new V1 milestone until promoted)
 
