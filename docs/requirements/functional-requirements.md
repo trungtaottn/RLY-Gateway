@@ -136,8 +136,9 @@
 - Resident ownership: the service holds a service-owned lease renewed by its own process, so the zero-lease idle shutdown never fires while the service is intentional; child launch/session leases stay independent and revocable.
 - Failure: foreign or unattested listener fails closed without signaling the owner; a launcher-owned instance is never reused or killed by the service; stale records are recovered with startup-lock/process-identity rules.
 - Shutdown: explicit service stop revokes launch sessions and closes boundedly (revoke, bounded close, broker/control-plane close, artifact cleanup).
+- macOS LaunchAgent specifics (#33): one stable per-user `com.rly.gateway` label and plist in the current user's GUI launchd domain, never root; absolute executable/state paths; `RunAtLoad` plus bounded `KeepAlive`/`ThrottleInterval` crash restart; service stdout/stderr into the durable RLY log directory; idempotent repair that unloads stale definitions before reloading; launchctl v2 (`bootstrap`/`kickstart`/`bootout`/`print`) with legacy `load`/`start`/`unload`/`list` tolerance; registration/load state reported separately from runtime `/identity` readiness.
 - Prohibition: no credential, token, or account identity in service definitions, logs, or diagnostics.
-- Acceptance: AT-034.
+- Acceptance: AT-035, AT-036.
 
 ## Unresolved questions
 
