@@ -29,10 +29,10 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 ## Git workflow
 
 - Handle one plan phase per isolated worktree and branch. That worktree may include every issue in the phase. See [AGENTS.md](./AGENTS.md) Issue delivery.
-- Branch from latest `origin/dev` as `<type>/<phase>-<slug>`. Open one pull request into `dev`, never `main`.
-- Keep commits small and conventional.
+- Branch from latest `origin/dev` as `<type>/<phase>-<slug>`. Feature, fix, and chore work opens a PR into `dev`; Stable promotion uses a reviewed PR into `main` after the one-time public-baseline rules are satisfied.
+- Keep commits small and use a Conventional Commit-compatible PR title; squash merge into `dev` uses that title as the release commit intent.
 - Fill every required section in `.github/pull_request_template.md`. Thin or empty PR bodies are not reviewable.
-- Do not commit on `dev` directly. Merge to `dev` only through a reviewed PR.
+- Do not commit directly to `dev` or `main`. Both branches require a reviewed PR and green `required-ci`; direct and force pushes are forbidden.
 - Never rewrite or discard unrelated local work. Force-push, history rewrite, push/PR to `main`, and publish still need explicit owner authorization.
 - Do not add an upstream remote merely because code was studied or adapted.
 - Record copied or substantially adapted MIT code in `docs/provenance.md` and the adaptation matrix before commit. Retain the original notice in-file or in `docs/third-party-notices.md`.

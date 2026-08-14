@@ -2,11 +2,10 @@ import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import process from "node:process";
 
-const files = execFileSync("rg", ["--files"], { encoding: "utf8" })
-  .trim()
-  .split("\n")
-  .filter(Boolean)
-  .filter((file) => !file.startsWith("plans/"));
+const files = [
+  ...execFileSync("git", ["ls-files"], { encoding: "utf8" }).trim().split("\n"),
+  ...execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { encoding: "utf8" }).trim().split("\n"),
+].filter(Boolean).filter((file) => !file.startsWith("plans/"));
 
 const forbidden = [
   { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
