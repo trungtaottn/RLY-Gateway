@@ -78,11 +78,18 @@ export class CredentialStore {
     });
   }
 
-  public async recoverAll(): Promise<void> {
+  private async listedHandles(): Promise<Set<string>> {
     await this.assertSafeStore();
     const names = await listPrivateDirectory(this.paths().credentials);
-    const handles = new Set(names.flatMap((name) => handleFromFileName(name) ?? []));
-    for (const handle of handles) await this.recover(handle);
+    return new Set(names.flatMap((name) => handleFromFileName(name) ?? []));
+  }
+
+  public async recoverAll(): Promise<void> {
+    for (const handle of await this.listedHandles()) await this.recover(handle);
+  }
+
+  public async listHandles(): Promise<string[]> {
+    return [...await this.listedHandles()];
   }
 
   private async recover(handle: string): Promise<CredentialRecord | undefined> {

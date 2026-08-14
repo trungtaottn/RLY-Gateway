@@ -5,7 +5,7 @@ import { loadConfig } from "../config/load-config.js";
 import { managementOrigin } from "../management/origin.js";
 import { inspectGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
-import { detectClaudeTarget } from "../targets/detect.js";
+import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
 
@@ -76,6 +76,7 @@ export async function runDoctor(path: string): Promise<number> {
       .filter(([, route]) => route !== undefined && isPlaceholderModel(route.model))
       .map(([role]) => role);
     const target = detectClaudeTarget(process.env);
+    const codex = detectCodexTarget(process.env);
     console.log(JSON.stringify({
       ok: true,
       syntaxValid: true,
@@ -87,6 +88,7 @@ export async function runDoctor(path: string): Promise<number> {
       routes: Object.keys(config.routes).length,
       placeholderRoutes,
       claudeTarget: { found: target.found },
+      codexTarget: { found: codex.found },
       profiles: await profileInventory(config),
     }));
     return 0;

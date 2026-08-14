@@ -47,4 +47,5 @@ export type CanonicalRequest = Readonly<{
     beta?: readonly string[];
     cacheControl?: readonly Readonly<{ scope: "system" | "message"; index: number }> [];
   }>;
+  continuation?: Readonly<{ previousResponseId: string }>;
 }>;

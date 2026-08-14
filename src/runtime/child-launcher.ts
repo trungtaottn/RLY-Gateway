@@ -8,6 +8,9 @@ import { ShutdownController } from "./shutdown-controller.js";
 const CLAUDE_BASE_URL_VARIABLE = "ANTHROPIC_BASE_URL";
 const CLAUDE_AUTH_TOKEN_VARIABLE = "ANTHROPIC_AUTH_TOKEN";
 const CLAUDE_CONFIG_DIRECTORY_VARIABLE = "CLAUDE_CONFIG_DIR";
+const CODEX_BASE_URL_VARIABLE = "OPENAI_BASE_URL";
+const CODEX_API_KEY_VARIABLE = "OPENAI_API_KEY";
+const CODEX_HOME_VARIABLE = "CODEX_HOME";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 
 export type ChildExit = Readonly<{ code: number | null; signal: NodeJS.Signals | null }>;
@@ -44,6 +47,8 @@ export type LaunchClaudeOptions = Readonly<{
   shutdownTimeoutMs?: number;
 }>;
 
+export type LaunchCodexOptions = LaunchClaudeOptions;
+
 /** Claude documents this print-mode flag; do not depend on undocumented state-directory variables. */
 function sessionIsolatedArgs(args: readonly string[]): readonly string[] {
   const printMode = args.includes("-p") || args.includes("--print");
@@ -73,6 +78,15 @@ function waitForChildExit(child: ChildProcessLike): Promise<ChildExit> {
   });
 }
 
+function overlayChildEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+  assignments: NodeJS.ProcessEnv,
+  remove: string,
+): NodeJS.ProcessEnv {
+  const childEnvironment: NodeJS.ProcessEnv = { ...environment, ...assignments };
+  return Object.fromEntries(Object.entries(childEnvironment).filter(([key]) => key !== remove));
+}
+
 /** Creates a child-only Claude environment without mutating the parent process. */
 export function createClaudeChildEnvironment(
   environment: Readonly<NodeJS.ProcessEnv>,
@@ -80,14 +94,33 @@ export function createClaudeChildEnvironment(
   authToken: string,
   configDirectory?: string,
 ): NodeJS.ProcessEnv {
-  const childEnvironment: NodeJS.ProcessEnv = {
-    ...environment,
-    [CLAUDE_BASE_URL_VARIABLE]: gatewayBaseUrl,
-    [CLAUDE_AUTH_TOKEN_VARIABLE]: authToken,
-    ...(configDirectory === undefined ? {} : { [CLAUDE_CONFIG_DIRECTORY_VARIABLE]: configDirectory }),
-  };
-  delete childEnvironment["ANTHROPIC_API_KEY"];
-  return childEnvironment;
+  return overlayChildEnvironment(
+    environment,
+    {
+      [CLAUDE_BASE_URL_VARIABLE]: gatewayBaseUrl,
+      [CLAUDE_AUTH_TOKEN_VARIABLE]: authToken,
+      ...(configDirectory === undefined ? {} : { [CLAUDE_CONFIG_DIRECTORY_VARIABLE]: configDirectory }),
+    },
+    "ANTHROPIC_API_KEY",
+  );
+}
+
+/** Creates a child-only Codex environment without mutating the parent process. */
+export function createCodexChildEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+  gatewayBaseUrl: string,
+  authToken: string,
+  homeDirectory?: string,
+): NodeJS.ProcessEnv {
+  return overlayChildEnvironment(
+    environment,
+    {
+      [CODEX_BASE_URL_VARIABLE]: gatewayBaseUrl,
+      [CODEX_API_KEY_VARIABLE]: authToken,
+      ...(homeDirectory === undefined ? {} : { [CODEX_HOME_VARIABLE]: homeDirectory }),
+    },
+    "CODEX_API_KEY",
+  );
 }
 
 function installSignalForwarding(
@@ -110,25 +143,22 @@ function installSignalForwarding(
   };
 }
 
-/** Runs Claude in the foreground with gateway configuration scoped solely to the child. */
-export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildExit> {
-  const currentEnvironment = process["env"];
-  const configDirectory = mkdtempSync(join(tmpdir(), "agent-gateway-claude-"));
-  const environment = createClaudeChildEnvironment(
-    options.environment ?? currentEnvironment,
-    options.gatewayBaseUrl,
-    options.authToken,
-    configDirectory,
-  );
+async function launchIsolatedChild(
+  options: LaunchClaudeOptions,
+  isolatedDirectory: string,
+  executable: string,
+  environment: NodeJS.ProcessEnv,
+  args: readonly string[],
+): Promise<ChildExit> {
   let child: ChildProcessLike;
   try {
-    child = (options.spawner ?? spawnChild)(options.executable ?? "claude", sessionIsolatedArgs(options.args), {
+    child = (options.spawner ?? spawnChild)(executable, args, {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       env: environment,
       stdio: "inherit",
     });
   } catch (error) {
-    await rm(configDirectory, { recursive: true, force: true });
+    await rm(isolatedDirectory, { recursive: true, force: true });
     throw error;
   }
   const exit = waitForChildExit(child);
@@ -152,6 +182,55 @@ export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildE
   } finally {
     removeSignalForwarding();
     options.abortSignal?.removeEventListener("abort", cancel);
-    await rm(configDirectory, { recursive: true, force: true });
+    await rm(isolatedDirectory, { recursive: true, force: true });
   }
+}
+
+async function launchIsolatedHarness(
+  options: LaunchClaudeOptions,
+  prefix: string,
+  defaultExecutable: string,
+  createEnvironment: (
+    environment: Readonly<NodeJS.ProcessEnv>,
+    gatewayBaseUrl: string,
+    authToken: string,
+    isolatedDirectory: string,
+  ) => NodeJS.ProcessEnv,
+  args: readonly string[],
+): Promise<ChildExit> {
+  const isolatedDirectory = mkdtempSync(join(tmpdir(), prefix));
+  return launchIsolatedChild(
+    options,
+    isolatedDirectory,
+    options.executable ?? defaultExecutable,
+    createEnvironment(
+      options.environment ?? process["env"],
+      options.gatewayBaseUrl,
+      options.authToken,
+      isolatedDirectory,
+    ),
+    args,
+  );
+}
+
+/** Runs Claude in the foreground with gateway configuration scoped solely to the child. */
+export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildExit> {
+  return launchIsolatedHarness(
+    options,
+    "agent-gateway-claude-",
+    "claude",
+    createClaudeChildEnvironment,
+    sessionIsolatedArgs(options.args),
+  );
+}
+
+/** Runs Codex in the foreground with gateway configuration scoped solely to the child. */
+export async function launchCodex(options: LaunchCodexOptions): Promise<ChildExit> {
+  return launchIsolatedHarness(
+    options,
+    "agent-gateway-codex-",
+    "codex",
+    createCodexChildEnvironment,
+    options.args,
+  );
 }

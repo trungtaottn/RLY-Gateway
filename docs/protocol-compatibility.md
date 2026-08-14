@@ -30,8 +30,26 @@ helpers with a fake canonical upstream.
   `primary`). Unknown helpers fail closed. Profile-scoped helpers stay inside
   the activated profile's model-role map.
 - No live provider smoke or real token-count validation has been recorded yet.
-- OpenAI Responses has canonical type identity reserved, but no runtime
-  decoder, encoder, or Codex CLI integration.
+- Direct adapters still speak Chat Completions transport; Responses is a client
+  protocol boundary, not a new upstream wire format.
+
+## OpenAI Responses
+
+The Phase 11 boundary exposes `POST /v1/responses` and `GET /v1/responses/:id`.
+They translate between OpenAI Responses items/events and the same canonical
+request/event types used by Anthropic Messages. Unknown required item, tool,
+or include values mark the route unready instead of flattening into Anthropic
+ordering.
+
+| Area | Supported boundary behavior | Limits and readiness condition |
+| --- | --- | --- |
+| Requests | `model`, string or item `input`, `instructions`, function tools, tool choice, stream, `previous_response_id`, max output tokens, temperature, top-p, reasoning effort | Unknown required item/tool/include values fail closed as `compatibility_unready`. Additive unknown top-level fields are recorded as ignored. |
+| Streaming | `response.created`, `response.in_progress`, output item add/done, `output_text` / function-argument / reasoning-summary deltas, `response.completed`, `response.failed` | Event sequence and request provenance must be monotonic. Client abort is bound to the upstream signal. |
+| Non-streaming | Canonical text, function-call arguments, reasoning summary, and usage aggregate into a Responses object | Function argument fragments must form valid JSON. |
+| Continuation | Completed responses persist canonical output items; a later `previous_response_id` prepends that output | Missing or expired ids are unready. Retention deletes expired continuation files. |
+
+`run codex` launches Codex with `OPENAI_BASE_URL` / `OPENAI_API_KEY` and a
+temporary `CODEX_HOME`. Global `~/.codex` is not mutated.
 
 ## Compatibility maintenance
 
@@ -42,6 +60,7 @@ adapter/runtime route, not to this protocol boundary.
 
 ## Evidence
 
-- Contract coverage: `tests/contract/anthropic/messages.test.ts`
-- Fake-upstream route coverage: `tests/integration/fake-upstream/anthropic-route.test.ts`
-- Boundary code: `src/protocols/anthropic/` and `src/routes/anthropic-*.ts`
+- Contract coverage: `tests/contract/anthropic/messages.test.ts`, `tests/contract/openai-responses/responses.test.ts`
+- Fake-upstream route coverage: `tests/integration/fake-upstream/anthropic-route.test.ts`, `tests/integration/fake-upstream/openai-responses-route.test.ts`
+- Codex launcher E2E: `tests/e2e/codex/fake-upstream.e2e.test.ts`
+- Boundary code: `src/protocols/anthropic/`, `src/protocols/openai-responses/`, `src/routes/anthropic-*.ts`, `src/routes/openai-responses-route.ts`

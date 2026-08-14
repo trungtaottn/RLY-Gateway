@@ -30,13 +30,15 @@ an activated profile exists. Profile activation is lease-scoped: `run claude
 performs eligibility and account selection through the pool; the profile never
 preselects an account. Requests without a profile child token keep the
 previous resolve order: TOML direct routes, then a manually selected Codex
-account. OpenAI Responses remains a reserved canonical boundary.
+account. OpenAI Responses is mounted beside Anthropic Messages and keeps
+Responses item/event order; it shares control-plane eligibility and
+EffectiveRoute selection.
 
 ## Implemented local foundation
 
 The foreground launcher, runtime ownership store, and loopback server establish a safe local boundary for later protocol work. The executable owners are [`src/cli/main.ts`](../src/cli/main.ts), [`src/runtime/gateway-lifecycle.ts`](../src/runtime/gateway-lifecycle.ts), and [`src/runtime/runtime-store.ts`](../src/runtime/runtime-store.ts).
 
-- `run claude` acquires one deterministic local gateway before launching its child; the child receives gateway settings without persistent global Claude configuration changes.
+- `run claude` and `run codex` acquire one deterministic local gateway before launching the child; the child receives gateway settings without persistent global Claude or Codex configuration changes.
 - Reuse requires a matching ownership record, process-start identity, config fingerprint, and fresh identity challenge proof. An occupied but unattested listener fails closed.
 - Runtime files are outside Git, restricted to the current user, and reject link replacement. Startup and lease mutations use ownership-aware locking.
 - Leases are heartbeated, expire after launcher loss, and trigger bounded idle cleanup. Diagnostics surface only an attested-compatible, foreign, stale, or absent lifecycle state.
@@ -63,8 +65,8 @@ for the exact boundary and its exclusions.
 Contains source protocol/client metadata, requested model and role, ordered
 system/input/messages content, tools/tool choice, inference controls, stream
 preference, and approved extensions. The current source union includes
-Anthropic Messages and a compile-time OpenAI Responses identity; only Anthropic
-has a decoder/encoder implementation.
+Anthropic Messages and OpenAI Responses. Both protocols have decoder/encoder
+implementations. Responses also has a private continuation store.
 
 Content is a tagged union: text, image, tool call, tool result, reasoning, and redacted reasoning. Arbitrary upstream passthrough is not part of the contract.
 

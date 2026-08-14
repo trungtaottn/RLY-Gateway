@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../../src/cli/main.js";
+import { launchCodex } from "../../src/runtime/child-launcher.js";
 
 const directories: string[] = [];
 
@@ -50,5 +51,29 @@ describe("global client config isolation", () => {
     );
     expect(await Promise.all(protectedFiles.map(digest))).toEqual(before);
     expect(release).toHaveBeenCalledOnce();
+    await runCli(
+      ["run", "codex", "--config", configPath, "--"],
+      {
+        environment: { HOME: home, PATH: "/bin" },
+        acquireGateway: vi.fn().mockResolvedValue({
+          baseUrl: "http://127.0.0.1:17871",
+          authToken: "transient",
+          instanceId: "00000000-0000-4000-8000-000000000001",
+          leaseId: "00000000-0000-4000-8000-000000000011",
+          reused: false,
+          release,
+        }),
+        launchCodex: vi.fn().mockResolvedValue({ code: 0, signal: null }),
+      },
+    );
+    expect(await Promise.all(protectedFiles.map(digest))).toEqual(before);
+    await launchCodex({
+      gatewayBaseUrl: "http://127.0.0.1:17871",
+      authToken: "transient",
+      executable: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      environment: { HOME: home, PATH: "/bin" },
+    });
+    expect(await Promise.all(protectedFiles.map(digest))).toEqual(before);
   });
 });

@@ -12,6 +12,7 @@ import { SessionStore } from "../management/session-store.js";
 import { AffinityStore } from "../routing/pools/affinity.js";
 import { RouteSelector } from "../routing/pools/selector.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
+import { applyRetentionPolicy } from "../storage/retention.js";
 import { createGatewayServer, listenGateway } from "./gateway-server.js";
 import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS } from "./gateway-attestation.js";
 import type { AcquireGatewayOptions, GatewayLeaseHandle } from "./gateway-lifecycle.js";
@@ -125,6 +126,7 @@ export async function startOwnedGateway(input: Readonly<{
       ?? options.config.controlPlane.dataDirectory
       ?? defaultControlPlaneDirectory();
     controlPlane = await ControlPlaneStore.open(controlPlaneDirectory);
+    await applyRetentionPolicy(controlPlaneDirectory);
     broker = await CredentialBroker.open(controlPlaneDirectory);
     const credentials = new CredentialService(controlPlane, broker);
     const selector = new RouteSelector(controlPlane, new AffinityStore(controlPlaneDirectory));

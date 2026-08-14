@@ -43,6 +43,12 @@ direct adapters. The work follows the already pinned `adapted` rows
 copying source text. Verification owner: management / providers. Notices
 remain in `docs/third-party-notices.md`.
 
+Phase 11 independently implemented the OpenAI Responses decoder/encoder,
+continuation store, Codex transient launcher, versioned retention policy,
+and release package/clean-install/license scripts. No source file was copied.
+Verification owner: protocols / runtime. Notices remain in
+`docs/third-party-notices.md`.
+
 ## Frozen artifacts (2026-08-13)
 
 A repository revision may not be treated as the package source unless contents
