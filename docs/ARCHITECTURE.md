@@ -86,6 +86,24 @@ Control plane publishes a versioned policy/configuration snapshot. Once a reques
 - `invoke`: returns canonical events and accepts cancellation.
 - `countTokens`: optional and must declare quality.
 
+## Model intelligence registry
+
+The registry in [`src/registry/model-registry.ts`](../src/registry/model-registry.ts) is the canonical model-data layer and the source of truth for provider/model identity and evidence (#68-#72). It records, per exact access path:
+
+- `identity`: access provider, exact upstream model id, and upstream/model family (classification metadata only — never a route, credential, or account key).
+- capability evidence: the protocol flags (`ProviderCapabilities`) plus typed reasoning controls (effort kind/levels, adaptive, token budget, reasoning-with-tools) and reviewed operational limits (context window, max output) when evidenced.
+- compatibility state: `VERIFIED`/`EXPERIMENTAL`/`BROKEN` for the RLY Claude Code baseline, kept separate from raw capability support, with the tested baseline, evidence reference, and check date.
+- provenance: `verifiedAt`, fixture version, and registry document revision.
+
+Invariants:
+
+- Exact `(accessProvider, upstreamModelId)` matching only; the same upstream model id reachable through two access providers stays two separately verified entries and never satisfies each other's lookup. Missing or cross-provider evidence fails closed.
+- One canonical shape covers native/direct, OAuth/bridge, ClinePass, and OpenRouter/aggregator paths. Aggregators expose many model families without extra provider records or parallel registries.
+- Provider probes and catalog discovery report drift but never mutate the trusted document; discovery diffs against reviewed evidence and returns proposed candidates for the #23 propose-only review workflow.
+- No credentials, account identity, prompts, or responses are stored in model evidence or proposals.
+
+Deterministic query helpers (`modelsForProvider`, `modelsForFamily`, `modelsSatisfying`, `modelsRequiringCapabilities`, `modelsWithCompatibility`) support #68/#69 candidate retrieval without account selection or credential access. Account/credential eligibility and selection remain owned by the pool/route selector.
+
 ## Direct provider boundary
 
 Direct adapters resolve only allowlisted secret references. They never read arbitrary process environment names or committed raw secrets. OpenAI-compatible transport does not imply identical provider behavior; reasoning replay, tool support, errors, usage, and catalogs remain adapter-specific.
@@ -137,7 +155,7 @@ Structured logs default to metadata only. Route trace explains an explicit decis
 ## Compatibility strategy
 
 - Protocol fixtures carry client/protocol version evidence.
-- Registry records `registryRevision`, model `verifiedAt`, fixture revision, and token-count quality.
+- The model intelligence registry records `registryRevision`, model `verifiedAt`, fixture revision, token-count quality, reasoning/limit metadata, and typed compatibility state (baseline + evidence reference).
 - Unknown required behavior disables readiness rather than silently degrading.
 - Protocol drift begins with a redacted reproducing fixture.
 

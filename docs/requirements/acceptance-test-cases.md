@@ -37,6 +37,7 @@ These are acceptance scenarios, not hand-maintained implementation test names. T
 | AT-031 | Operate every supported UI workflow with keyboard and accessibility inspection | Focus is visible/predictable; controls have programmatic labels; status/errors are textual; desktop/mobile layouts remain usable |
 | AT-032 | Apply and interrupt retention/deletion policy across every durable class | Expired data becomes unreachable and is removed per policy; cleanup resumes idempotently after interruption; no revoked/expired secret becomes active |
 | AT-033 | Launch `rly <profile>` as Claude Code alias | Named profile launches Claude Code with a child token; reserved commands stay reserved; unknown profile fails closed; `rly run codex` stays Codex CLI; global Claude/Codex config is unmodified |
+| AT-034 | Query the provider model intelligence registry (#67) | Exact access-provider identity, upstream model id, and model family are distinct; the same upstream id through two access providers stays separate and never satisfies cross-provider lookup; one aggregator exposes many families without parallel registries; compatibility state is typed and separate from raw capability support; discovery produces proposals without mutating trusted evidence; registry document revision changes are explicit and migration-covered |
 
 ## Evidence rules
 

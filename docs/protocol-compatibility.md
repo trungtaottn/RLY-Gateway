@@ -19,6 +19,17 @@ helpers with a fake canonical upstream.
 | Token counting | Direct routes use an explicit conservative estimate or `501` when declared unsupported | Quality is sent in `x-rly-gateway-token-count-quality`; no provider tokenizer parity is claimed without adapter evidence. |
 | Retry and cancellation | Non-stream collection retries once only when a transport error occurs before any canonical event. Client abort is propagated to the route upstream signal. | Streaming retry, real-provider cancellation, and backpressure still require Phase 04/provider-runtime evidence. |
 
+## Model intelligence registry
+
+[`src/registry/model-registry.ts`](../src/registry/model-registry.ts) is the canonical model-data layer and the source of truth for provider/model identity and evidence used by #68-#72. Evidence ownership is explicit:
+
+- **Reviewed/static evidence** (trusted, reviewed before commit): access provider identity, exact upstream model id, upstream/model family classification, protocol capability flags, token-count quality, `verifiedAt`, fixture version, and numeric limits only when a review produced them. No quality numbers are invented from reputation.
+- **Observed/discovered metadata** (untrusted until reviewed): discovery snapshots from provider adapters/catalog sources. `proposeRegistryChanges()` diffs a snapshot against trusted evidence and returns proposed candidates (`no-exact-evidence`) for the #23 propose-only review workflow. Discovery never mutates the trusted document.
+- **Canary-produced** (produced by #24): the typed compatibility state (`VERIFIED`/`EXPERIMENTAL`/`BROKEN`) plus the tested baseline, evidence reference, and check date. Compatibility state is separate from raw capability support.
+- **Never stored**: credentials, account identity, prompts, or responses.
+
+Exact `(accessProvider, upstreamModelId)` matching fails closed on missing or cross-provider evidence; the same upstream model id through two access providers remains two separate entries. Aggregators (ClinePass/OpenRouter) expose many model families through one canonical shape without parallel registries. `ProviderRecord.capabilityEvidence` is typed against the registry schema (was `unknown`) and validated at the management boundary.
+
 ## Explicitly unsupported or not yet operational
 
 - Direct providers currently use Chat Completions transport. OpenRouter probes
