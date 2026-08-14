@@ -1,12 +1,17 @@
+import { randomBytes } from "node:crypto";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import type { GatewayConfig } from "../config/schema.js";
 import { loadConfig } from "../config/load-config.js";
 import { managementOrigin } from "../management/origin.js";
+import { createIdentityProof } from "../runtime/gateway-server.js";
+import { RUNTIME_VERSION } from "../runtime/gateway-attestation.js";
 import { inspectRuntimeGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
 import { readClaudeOverlayStatus } from "../runtime/claude-overlay.js";
+import { runtimeProtocolCompatible } from "../runtime/update/policy.js";
+import { UpdateStateStore } from "../runtime/update/store.js";
 import { createServiceManager } from "../service-manager/index.js";
 import { serviceDetail } from "../service-manager/types.js";
 import { readInstallation } from "../storage/installation.js";
@@ -74,6 +79,93 @@ async function profileInventory(config: GatewayConfig): Promise<{ total: number;
   return EMPTY_PROFILES;
 }
 
+/**
+ * Allowlisted update metadata (#73): durable update state plus the serving
+ * runtime's attested identity (state/schema version, active launch sessions,
+ * draining, live update snapshot) and CLI↔runtime compatibility. Versions and
+ * counts only — never credentials, prompts, responses, or account identity.
+ */
+async function updateSummary(config: GatewayConfig): Promise<Record<string, unknown>> {
+  const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
+  const store = new UpdateStateStore(controlPlaneDirectory);
+  let record;
+  try {
+    record = await store.read();
+  } catch {
+    record = undefined;
+  }
+  const identity = await attestedIdentityOrUndefined(config);
+  const residentVersion = identity?.runtimeVersion;
+  return {
+    state: identity?.update?.state ?? record?.state ?? "idle",
+    ...(identity?.update?.pendingVersion === undefined
+      ? record?.pendingVersion === undefined ? {} : { pendingVersion: record.pendingVersion }
+      : { pendingVersion: identity.update.pendingVersion }),
+    ...(identity?.update?.previousVersion === undefined
+      ? record?.previousVersion === undefined ? {} : { previousVersion: record.previousVersion }
+      : { previousVersion: identity.update.previousVersion }),
+    ...(identity === undefined ? {} : {
+      stateVersion: identity.stateVersion,
+      activeSessions: identity.activeSessions ?? 0,
+      draining: identity.draining ?? false,
+    }),
+    compatibility: {
+      cli: RUNTIME_VERSION,
+      ...(residentVersion === undefined ? {} : { resident: residentVersion }),
+      compatible: runtimeProtocolCompatible(RUNTIME_VERSION, residentVersion ?? RUNTIME_VERSION),
+    },
+    ...(record?.lastActivationResult === undefined ? {} : { lastActivationResult: record.lastActivationResult }),
+    ...(record?.lastRollbackResult === undefined ? {} : { lastRollbackResult: record.lastRollbackResult }),
+    ...(record?.failureReason === undefined ? {} : { failureReason: record.failureReason }),
+  };
+}
+
+/** Reads the attested runtime identity for secret-free version/session metadata. */
+async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
+  runtimeVersion?: string;
+  stateVersion?: number;
+  activeSessions?: number;
+  draining?: boolean;
+  update?: { state: string; pendingVersion?: string; previousVersion?: string };
+} | undefined> {
+  const store = new RuntimeStore(runtimeDirectory(config.gateway.port));
+  const secret = await store.readInstanceSecret();
+  if (secret === undefined) return undefined;
+  const challenge = cryptoRandomChallenge();
+  try {
+    const response = await fetch(`http://${config.gateway.host}:${String(config.gateway.port)}/identity?challenge=${challenge}`, {
+      signal: AbortSignal.timeout(750),
+    });
+    if (!response.ok) return undefined;
+    const payload = await response.json() as {
+      instanceId?: string;
+      configFingerprint?: string;
+      runtimeVersion?: string;
+      stateVersion?: number;
+      activeSessions?: number;
+      draining?: boolean;
+      update?: { state: string; pendingVersion?: string; previousVersion?: string };
+      proof?: string;
+    };
+    if (payload.proof === undefined || payload.instanceId === undefined || payload.configFingerprint === undefined) return undefined;
+    const expected = createIdentityProof(secret, challenge, payload.instanceId, payload.configFingerprint);
+    if (payload.proof !== expected) return undefined;
+    return {
+      ...(payload.runtimeVersion === undefined ? {} : { runtimeVersion: payload.runtimeVersion }),
+      ...(payload.stateVersion === undefined ? {} : { stateVersion: payload.stateVersion }),
+      ...(payload.activeSessions === undefined ? {} : { activeSessions: payload.activeSessions }),
+      ...(payload.draining === undefined ? {} : { draining: payload.draining }),
+      ...(payload.update === undefined ? {} : { update: payload.update }),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function cryptoRandomChallenge(): string {
+  return randomBytes(32).toString("base64url");
+}
+
 export async function runDoctor(path: string): Promise<number> {
   if (!(await canRead(path))) {
     console.log(JSON.stringify({ ok: false, config: "missing", path }));
@@ -117,6 +209,7 @@ export async function runDoctor(path: string): Promise<number> {
         testedBaseline: CLAUDE_CODE_FIXTURE_BASELINE,
         liveGateEnv: RLY_LIVE_CANARY_ENV,
       },
+      update: await updateSummary(config),
       profiles: await profileInventory(config),
     }));
     return 0;
@@ -176,6 +269,7 @@ export async function runStatus(path: string): Promise<number> {
     port: config.gateway.port,
     managementPort: config.gateway.managementPort,
     ...(claudeOverlay === undefined ? {} : { claudeOverlay }),
+    update: await updateSummary(config),
     ...extras,
   }));
   return running ? 0 : 1;

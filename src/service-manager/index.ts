@@ -73,6 +73,10 @@ class UnsupportedPlatformAdapter implements ServiceManagerAdapter {
     return Promise.reject(new Error(`per-user service registration is not supported on platform ${this.#platform}`));
   }
 
+  public restart(): Promise<void> {
+    return Promise.reject(new Error(`per-user service registration is not supported on platform ${this.#platform}`));
+  }
+
   public stop(): Promise<void> {
     return Promise.reject(new Error(`per-user service registration is not supported on platform ${this.#platform}`));
   }

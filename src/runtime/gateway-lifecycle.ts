@@ -227,6 +227,7 @@ async function tryReuseAttestedGateway(input: Readonly<{
     instanceId: input.record.instanceId,
     leaseId: input.leaseId,
     reused: true,
+    ...(identity.runtimeVersion === undefined ? {} : { runtimeVersion: identity.runtimeVersion }),
     release: async () => {
       clearInterval(heartbeat);
       await mutateRemoteLease(input.request, "DELETE", input.baseUrl, input.leaseId, input.secret).catch(() => undefined);

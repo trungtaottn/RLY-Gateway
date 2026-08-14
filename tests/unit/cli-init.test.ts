@@ -39,6 +39,7 @@ function fakeManager(calls: { registered: number; started: number }): ServiceMan
     register: () => { calls.registered += 1; return Promise.resolve(undefined); },
     unregister: () => Promise.resolve(undefined),
     start: () => { calls.started += 1; return Promise.resolve(undefined); },
+    restart: () => { calls.started += 1; return Promise.resolve(undefined); },
     stop: () => Promise.resolve(undefined),
     status: () => Promise.resolve("running"),
   };
@@ -183,6 +184,7 @@ describe("rly init", () => {
       register: () => Promise.resolve(undefined),
       unregister: () => Promise.resolve(undefined),
       start: () => Promise.resolve(undefined),
+      restart: () => Promise.resolve(undefined),
       stop: () => Promise.resolve(undefined),
       status: () => Promise.resolve("not-registered"),
     };

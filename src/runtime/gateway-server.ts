@@ -22,6 +22,19 @@ import { registerAnthropicModelsRoute } from "../routes/anthropic-models-route.j
 import { registerOpenAiResponsesRoute } from "../routes/openai-responses-route.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 import { RUNTIME_VERSION } from "./gateway-attestation.js";
+import type { UpdateStateRecord } from "./update/types.js";
+
+/**
+ * Secret-free update metadata carried on `/identity` (#73): installation and
+ * activation are separate; the CLI/runtime handshake uses this to decide
+ * whether new launches may continue on the old runtime while activation is
+ * pending.
+ */
+export type IdentityUpdateSnapshot = Readonly<{
+  state: UpdateStateRecord["state"];
+  pendingVersion?: string;
+  previousVersion?: string;
+}>;
 
 export type GatewayServerOptions = Readonly<{
   host: "127.0.0.1";
@@ -50,6 +63,24 @@ export type GatewayServerOptions = Readonly<{
    * reviewed static document (`directProviderRegistry`).
    */
   modelRegistry?: RegistryDocument;
+  /** Durable state/schema version this runtime was built against (#73). */
+  stateVersion?: number;
+  /**
+   * Serving runtime version reported on `/identity` (#73). Defaults to the
+   * compiled-in `RUNTIME_VERSION`; tests and future distributions override it
+   * to prove the identity reports the actual serving binary version.
+   */
+  runtimeVersion?: string;
+  /**
+   * Durable update-state reader (#73). The serving runtime reports the update
+   * state through `/identity` so an updated CLI can apply the launch policy.
+   */
+  updateState?: () => Promise<UpdateStateRecord | undefined> | UpdateStateRecord | undefined;
+  /**
+   * When true the runtime refuses issuance of new launch sessions (drain phase
+   * of the #73 update lifecycle); wired by the authenticated `/drain` route.
+   */
+  draining?: boolean;
 }>;
 
 export type GatewayLeaseRegistry = Readonly<{
@@ -103,6 +134,10 @@ export function createIdentityProof(
 export function createGatewayServer(options: GatewayServerOptions): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: 10 * 1024 * 1024 });
   app.get("/healthz", () => ({ ok: true }));
+  // #73 drain state: once activation begins, the old runtime refuses issuance
+  // of new launch sessions and reports `draining` on /identity.
+  let draining = options.draining === true;
+  const refuseIssuance = (): string | undefined => draining ? "runtime drain in progress; activation has begun" : undefined;
   const controlPlane = options.controlPlane;
   const broker = options.broker;
   const selector = options.selector;
@@ -197,6 +232,9 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       resolveSession: (token) => token === undefined ? undefined : launchSessions.resolve(token),
       extractToken: headerToken,
       ...(options.leases?.has === undefined ? {} : { leaseActive: (leaseId) => options.leases?.has?.(leaseId) === true }),
+      // #73: during the update drain phase the old runtime refuses issuance of
+      // new launch sessions (existing sessions keep running to completion).
+      refuseIssuance,
       // #72: pin the session's model universe (bindings + revisions) at issue
       // time so discovery/reverse mapping stay stable for the active session.
       compileModelUniverse: (profile) => {
@@ -274,13 +312,27 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
     if (!challenge || !challengePattern.test(challenge)) {
       return reply.code(400).send({ error: "invalid-challenge" });
     }
+    // #73: the serving runtime reports its actual version/schema and update
+    // metadata through the attested handshake; the CLI never trusts the
+    // package version on disk alone. `update` is always present (idle when no
+    // update is in progress) so status/doctor and the CLI policy have a
+    // stable shape.
+    const update = options.updateState === undefined ? undefined : await options.updateState();
     return {
       product: "rly-gateway",
       instanceId: options.instanceId,
       configFingerprint: options.configFingerprint,
       protocolVersion: 1,
-      runtimeVersion: RUNTIME_VERSION,
+      runtimeVersion: options.runtimeVersion ?? RUNTIME_VERSION,
+      ...(options.stateVersion === undefined ? {} : { stateVersion: options.stateVersion }),
       ...(options.resident === undefined ? {} : { resident: options.resident }),
+      activeSessions: options.launchSessions?.size() ?? 0,
+      draining,
+      update: {
+        state: update?.state ?? "idle",
+        ...(update?.pendingVersion === undefined ? {} : { pendingVersion: update.pendingVersion }),
+        ...(update?.previousVersion === undefined ? {} : { previousVersion: update.previousVersion }),
+      },
       proof: createIdentityProof(
         options.authToken,
         challenge,
@@ -288,6 +340,14 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
         options.configFingerprint,
       ),
     };
+  });
+  app.post("/drain", async (request, reply) => {
+    if (!isAuthorized(request.headers.authorization, options.authToken)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    // Idempotent: subsequent drain requests while already draining are a no-op.
+    draining = true;
+    return reply.code(202).send({ draining: true });
   });
   return app;
 }

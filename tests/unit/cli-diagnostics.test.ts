@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { runDoctor, runQuota, runRouteTrace, runStatus } from "../../src/cli/diagnostics.js";
+import { UpdateStateStore } from "../../src/runtime/update/store.js";
+import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
 import { loadConfig } from "../../src/config/load-config.js";
 import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { CredentialBroker } from "../../src/credentials/broker.js";
@@ -80,6 +82,41 @@ describe("CLI diagnostics", () => {
       expect(doctor.canary.testedBaseline).toBe(CLAUDE_CODE_FIXTURE_BASELINE);
       expect(doctor.canary.liveGateEnv).toBe("RLY_LIVE_CANARY");
       expect(printed).not.toMatch(/Bearer|accessToken|authorization|prompt/i);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("exposes allowlisted update metadata in status without secrets (#73)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-status-update-"));
+    directories.push(directory);
+    const configPath = join(directory, "gateway.toml");
+    await writeFile(configPath, [
+      "schemaVersion = 1",
+      "[gateway]",
+      "logLevel = \"silent\"",
+      "[controlPlane]",
+      `dataDirectory = ${JSON.stringify(join(directory, "plane"))}`,
+    ].join("\n"), "utf8");
+    const store = new UpdateStateStore(join(directory, "plane"));
+    await store.write({
+      schemaVersion: 1,
+      state: "pending-activation",
+      currentVersion: "0.1.0",
+      pendingVersion: "2.0.0",
+      previousVersion: "0.1.0",
+      updatedAt: new Date().toISOString(),
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(runStatus(configPath)).resolves.toBe(1); // runtime not running
+      const printed = String(log.mock.calls.at(-1)?.[0]);
+      const payload = JSON.parse(printed) as { update: { state: string; pendingVersion?: string; compatibility: { cli: string; compatible: boolean } } };
+      expect(payload.update.state).toBe("pending-activation");
+      expect(payload.update.pendingVersion).toBe("2.0.0");
+      expect(payload.update.compatibility.cli).toBe(RUNTIME_VERSION);
+      expect(typeof payload.update.compatibility.compatible).toBe("boolean");
+      expect(printed).not.toMatch(/Bearer|accessToken|authorization|api[_-]?key|prompt|@/i);
     } finally {
       log.mockRestore();
     }

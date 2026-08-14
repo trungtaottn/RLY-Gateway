@@ -8,7 +8,7 @@ import { runDoctor, runQuota, runRouteTrace, runStatus } from "./diagnostics.js"
 import { runCanaryCommand, type CanaryAction } from "./canary.js";
 import { runGatewayCommand, type GatewayAction } from "./gateway.js";
 import { runInit } from "./init.js";
-import { loadConfig } from "../config/load-config.js";
+import { parseUpdateArgs, runUpdateCommand, assertUpdateLaunchAllowed } from "./update.js";import { loadConfig } from "../config/load-config.js";
 import { ProfileActivationError } from "../profiles/errors.js";
 import { launchClaude, launchCodex, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
 import { prepareClaudeOverlay, type ClaudeOverlayResolution } from "../runtime/claude-overlay.js";
@@ -29,7 +29,7 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status> [--config path]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
 }
 
 export type ParsedCliCommand =
@@ -38,6 +38,7 @@ export type ParsedCliCommand =
   | Readonly<{ command: "init"; configPath: string }>
   | Readonly<{ command: "gateway"; action: GatewayAction; configPath: string }>
   | Readonly<{ command: "canary"; action: CanaryAction; configPath: string }>
+  | Readonly<{ command: "update"; options: ReturnType<typeof parseUpdateArgs> }>
   | AdminCommand
   | ConfigCommand;
 
@@ -160,6 +161,9 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
     if (options.length > 0 && options[0] !== "--config") throw new Error(`unknown option ${String(options[0])}`);
     return { command: "canary", action, configPath: configPath(options, cwd) };
   }
+  if (command === "update") {
+    return { command: "update", options: parseUpdateArgs(args.slice(1), cwd) };
+  }
   if (command === undefined || command.startsWith("-")) return undefined;
   return parseBareProfileCommand(command, args, cwd);
 }
@@ -269,6 +273,13 @@ async function runHarnessCommand(
       )).directory;
   const lease = await (dependencies.acquireGateway ?? acquireGateway)({ config });
   try {
+    // #73: while an update is pending/activating on a resident runtime, new
+    // launches follow the documented compatibility policy — a compatible pair
+    // may continue on the old runtime; an incompatible pair refuses only NEW
+    // launches with an actionable error (existing sessions are never touched).
+    if (parsed.profile !== undefined) {
+      await assertUpdateLaunchAllowed(lease, config);
+    }
     const launched = parsed.profile === undefined
       ? { token: lease.authToken, args: claudeArgs, executable: undefined as string | undefined }
       : await (dependencies.issueProfileLaunch ?? issueProfileLaunch)(lease, parsed.profile, claudeArgs, dependencies.environment, harness);
@@ -298,6 +309,7 @@ export async function runCli(
   }
   if (parsed.command === "run-claude" || parsed.command === "run-codex") return runHarnessCommand(parsed, dependencies);
   if (parsed.command === "canary") return runCanaryCommand(parsed.action, parsed.configPath);
+  if (parsed.command === "update") return runUpdateCommand(parsed.options);
   if (parsed.command === "init") return (dependencies.runInit ?? runInit)(parsed.configPath);
   if (parsed.command === "gateway") return (dependencies.runGateway ?? runGatewayCommand)(parsed.action, parsed.configPath);
   if (parsed.command === "admin") return runAdmin(parsed, await loadConfig(parsed.configPath));

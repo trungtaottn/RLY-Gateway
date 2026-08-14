@@ -78,6 +78,7 @@ function fakeManager(calls: { started: number }): ServiceManagerAdapter {
     register: () => Promise.resolve(undefined),
     unregister: () => Promise.resolve(undefined),
     start: () => { calls.started += 1; return Promise.resolve(undefined); },
+    restart: () => { calls.started += 1; return Promise.resolve(undefined); },
     stop: () => Promise.resolve(undefined),
     status: () => Promise.resolve("running"),
   };
