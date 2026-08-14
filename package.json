@@ -5,8 +5,12 @@
   "description": "Protocol-preserving personal gateway for Claude Code and Codex CLI",
   "license": "MIT",
   "type": "module",
-  "bin": { "agent-gateway": "dist/cli/main.js" },
-  "engines": { "node": ">=24 <25" },
+  "bin": {
+    "agent-gateway": "dist/cli/main.js"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "packageManager": "pnpm@11.16.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -20,7 +24,8 @@
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:lifecycle": "vitest run tests/lifecycle",
     "test:privacy": "vitest run tests/privacy && node scripts/check-privacy.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:privacy"
+    "test:browser": "playwright test",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:browser && pnpm build && pnpm test:privacy"
   },
   "dependencies": {
     "fastify": "^5.11.3",
@@ -29,6 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.10.0",
     "eslint": "^10.8.1",
     "tsx": "^4.23.12",

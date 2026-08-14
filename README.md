@@ -94,13 +94,17 @@ references, never raw secrets.
 ## Verification
 
 ```bash
+pnpm exec playwright install chromium
 pnpm test:unit
 pnpm test:lifecycle
 pnpm test:privacy
+pnpm test:browser
 pnpm lint
 pnpm typecheck
 pnpm build
 ```
+
+`pnpm verify` includes `pnpm test:browser`. Install Chromium once with `pnpm exec playwright install chromium` before a clean-clone verify.
 
 Contract and integration script names already exist and intentionally allow zero tests until their owning phases add real protocol/provider behavior.
 

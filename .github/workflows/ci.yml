@@ -20,4 +20,5 @@ jobs:
         with:
           version: 11.16.0
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium
       - run: pnpm verify

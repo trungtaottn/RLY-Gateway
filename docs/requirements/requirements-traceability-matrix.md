@@ -95,6 +95,6 @@ When a requirement changes, update its owning document and this matrix in the sa
 | --- | --- | --- |
 | AT-025, AT-026 | `tests/ui/session.test.ts`, `tests/management/auth.test.ts` | Verified fragment exchange, CSRF rotate/resume, Origin/CSRF fail-closed, security headers |
 | AT-027 subset | `tests/ui/page.test.ts`, `tests/ui/session.test.ts`, `tests/privacy/control-plane.test.ts` | Verified UI/HTML/DTO/traces contain no secrets, no browser storage, no file picker |
-| AT-031 subset | `tests/ui/page.test.ts` | Verified skip link, labeled view select, live status, desktop/mobile nav, 44px targets in CSS |
+| AT-031 subset | `tests/ui/page.test.ts`, `tests/browser/at-031.spec.ts` | HTML/CSS plus Chromium: keyboard skip/save/logout, 375/1024 nav, labeled controls, textual status/alert, secret-free DOM. Remaining views (accounts/pools/profiles/traces/confirm) are not this issue. |
 | Provider contracts | `tests/contract/providers/catalog.test.ts`, `tests/contract/providers/gemini-oauth.test.ts`, `tests/contract/providers/expansion.test.ts`, `tests/contract/providers/isolation.test.ts` | Verified Gemini/Claude OAuth, Antigravity bridge identity, Cline explicit lock/restore, OpenCode Go/Alibaba isolation |
 | Live provider smoke | none in this phase | Opt-in live gates remain skipped; not passing evidence |

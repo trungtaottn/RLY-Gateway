@@ -59,7 +59,7 @@ Code exists (`src/providers/oauth/claude/`, catalog `claude`) but is **text-only
 - Gemini project-owned OAuth live smoke and README for `AGENT_GATEWAY_GEMINI_OAUTH_CLIENT_ID` ([#16](https://github.com/trungtaottn/agent-gateway/issues/16)).
 - Antigravity attested-bridge success-path identity probe + live opt-in ([#17](https://github.com/trungtaottn/agent-gateway/issues/17)).
 - OpenCode Go / Alibaba: reviewed model evidence before TOML routes; Alibaba stays terms-gated ([#18](https://github.com/trungtaottn/agent-gateway/issues/18)).
-- Real-browser management UI (keyboard, 375/1024) for AT-031; current evidence is HTML/CSS + inject tests ([#19](https://github.com/trungtaottn/agent-gateway/issues/19)).
+- Real-browser management UI (keyboard, 375/1024) for AT-031 ([#19](https://github.com/trungtaottn/agent-gateway/issues/19)). Evidence: `pnpm test:browser` (`tests/browser/at-031.spec.ts`).
 - Reject uncatalogued provider names at create time (invoke already fail-closed) ([#20](https://github.com/trungtaottn/agent-gateway/issues/20)).
 
 ## Provider expansion
