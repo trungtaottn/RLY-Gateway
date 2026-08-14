@@ -32,7 +32,9 @@ try {
   const consumer = join(directory, "consumer");
   await mkdir(consumer);
   await writeFile(join(consumer, "package.json"), `${JSON.stringify({ private: true, packageManager: "pnpm@11.16.0" })}\n`, "utf8");
-  execFileSync("pnpm", ["add", packageTarball], { cwd: consumer, stdio: "inherit" });
+  // Pass the absolute tarball path: a bare filename is interpreted by pnpm as
+  // a registry spec and the consumer directory never contains the tarball.
+  execFileSync("pnpm", ["add", join(directory, packageTarball)], { cwd: consumer, stdio: "inherit" });
   const output = execFileSync("pnpm", ["exec", "rly", "doctor", "--config", "../gateway.config.example.toml"], { cwd: consumer, encoding: "utf8" });
   if (!output.includes('"ok":true') || !output.includes('"codexTarget"')) {
     process.stderr.write(`clean-install doctor output unexpected: ${output}\n`);
