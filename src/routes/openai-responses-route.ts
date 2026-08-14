@@ -17,7 +17,7 @@ import {
 function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string } } {
   if (error instanceof ResponsesProtocolError) return { type: "error", error: { type: error.code, message: error.message } };
   if (error instanceof UnsupportedRouteError) return { type: "error", error: { type: "unsupported_feature", message: "Request requires an unavailable capability" } };
-  if (error instanceof ProfileActivationError) return { type: "error", error: { type: error.code, message: "Profile is not ready for this request" } };
+  if (error instanceof ProfileActivationError) return { type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined ? {} : { reason: error.modelFailure }) } };
   if (error instanceof NoEligibleAccountError) return { type: "error", error: { type: "no_eligible_account", message: "No eligible account is available" } };
   if (error instanceof ProviderAdapterError) return { type: "error", error: { type: error.code, message: "Gateway upstream failed" } };
   return { type: "error", error: { type: "api_error", message: "Gateway upstream failed" } };

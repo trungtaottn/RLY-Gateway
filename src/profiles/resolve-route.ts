@@ -9,9 +9,11 @@ import type { CredentialBroker } from "../credentials/broker.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
-import { directProviderRegistry, findModelEvidence } from "../registry/model-registry.js";
 import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route.js";
 import type { CredentialSnapshot } from "../routing/eligibility/reasons.js";
+import { isModelSelectionError } from "../routing/model-selection/errors.js";
+import { selectModel } from "../routing/model-selection/selector.js";
+import type { ModelSelectionResult, ReasoningIntent } from "../routing/model-selection/types.js";
 import { streamPoolRequest } from "../routing/pools/execute.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 import { activateProfile, findProfileById, inspectLaunchableProfile } from "./activate.js";
@@ -48,8 +50,11 @@ export async function resolveProfileRoute(
   if (!pool) throw new ProfileActivationError("profile-has-no-pool");
   const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
   if (!provider) throw new ProfileActivationError("profile-has-no-pool");
-  const modelEvidence = findModelEvidence(directProviderRegistry, provider.name, mapped.modelId);
-  if (!modelEvidence) throw new ProfileActivationError("capability-rejected");
+  // Stage 1: deterministic model capability selection (#68) against the trusted
+  // registry, BEFORE any account/pool selection. The selected physical model is
+  // frozen into the effective request/route; account failover can never change it.
+  const selection = selectModelForRequest(mapped.modelId, provider.name, dependencies.required ?? []);
+  const modelEvidence = selection.model;
   const activated = activateProfile(policy.snapshot.profiles, {
     profileId: session.profileId,
     name: session.profileName,
@@ -109,7 +114,7 @@ export async function resolveProfileRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -119,6 +124,41 @@ export async function resolveProfileRoute(
 
 function envCredentialName(handle: string): string | undefined {
   return handle.startsWith("env:") ? handle.slice(4) : undefined;
+}
+
+/** Builds the minimal reasoning intent (#70 extends this) from decoded request requirements. */
+function reasoningIntentFrom(required: readonly CapabilityRequirement[]): ReasoningIntent | undefined {
+  return required.includes("reasoning") ? { required: true } : undefined;
+}
+
+/**
+ * Runs the deterministic model selection engine (#68) for an exact pinned
+ * model, mapping typed selection failures onto the existing profile error
+ * contract (`capability-rejected` plus the actionable `modelFailure` reason).
+ */
+function selectModelForRequest(
+  modelId: string,
+  providerId: string,
+  required: readonly CapabilityRequirement[],
+): ModelSelectionResult {
+  try {
+    const reasoning = reasoningIntentFrom(required);
+    return selectModel({
+      accessProviderId: providerId,
+      exactModelId: modelId,
+      requiredCapabilities: required,
+      ...(reasoning === undefined ? {} : { reasoning }),
+    });
+  } catch (error) {
+    if (isModelSelectionError(error)) {
+      throw new ProfileActivationError(
+        "capability-rejected",
+        `Model selection failed (${error.code}: ${providerId}/${modelId})`,
+        error.code,
+      );
+    }
+    throw error;
+  }
 }
 
 async function credentialSnapshots(
