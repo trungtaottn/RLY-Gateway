@@ -224,6 +224,10 @@ describe("provider model intelligence registry", () => {
       "openrouter/openai/gpt-oss-20b:free",
       "codex/gpt-5.4",
       "cline/claude-sonnet-4-5",
+      "cline/gpt-5.6-terra",
+      "cline/gpt-5.6-sol",
+      "cline/claude-opus-4-8",
+      "cline/claude-fable",
     ]);
     expect(modelsRequiringCapabilities(directProviderRegistry, ["tools"]).some((model) => model.identity.accessProviderId === "deepseek")).toBe(false);
   });
@@ -336,7 +340,7 @@ describe("provider model intelligence registry", () => {
       discoveredAt: "2026-08-22T00:00:00.000Z",
       models: [
         { accessProviderId: "codex", upstreamModelId: "gpt-5.4" },
-        { accessProviderId: "cline", upstreamModelId: "gpt-5.6-sol", modelFamily: "openai/codex", observedLimits: { contextWindow: 400_000 } },
+        { accessProviderId: "cline", upstreamModelId: "gpt-5.6-luna", modelFamily: "openai/codex", observedLimits: { contextWindow: 400_000 } },
         { accessProviderId: "openrouter", upstreamModelId: "nvidia/nemotron-3.5-lightning:free" },
       ],
     });
@@ -345,13 +349,13 @@ describe("provider model intelligence registry", () => {
       "openrouter/nvidia/nemotron-3.5-lightning:free",
     ]);
     expect(proposal.proposed).toHaveLength(1);
-    expect(proposal.proposed[0]?.identity).toEqual({ accessProviderId: "cline", upstreamModelId: "gpt-5.6-sol", modelFamily: "openai/codex" });
+    expect(proposal.proposed[0]?.identity).toEqual({ accessProviderId: "cline", upstreamModelId: "gpt-5.6-luna", modelFamily: "openai/codex" });
     expect(proposal.proposed[0]?.reason).toBe("no-exact-evidence");
     expect(proposal.proposed[0]?.proposedAt).toBe("2026-08-22T00:00:00.000Z");
     expect(proposal.proposed[0]?.observedLimits).toEqual({ contextWindow: 400_000 });
     // The trusted document is never mutated by discovery.
     expect(directProviderRegistry.models).toBe(before);
-    expect(directProviderRegistry.models).toHaveLength(6);
+    expect(directProviderRegistry.models).toHaveLength(11);
     expect(Object.isFrozen(directProviderRegistry.models)).toBe(true);
     expect(Object.isFrozen(directProviderRegistry)).toBe(true);
   });

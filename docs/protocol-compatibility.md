@@ -39,7 +39,9 @@ Exact `(accessProvider, upstreamModelId)` matching fails closed on missing or cr
   configured role, its exact configured model ID, or a known Claude helper
   alias (`claude-haiku-4-5` → `fast`, `claude-sonnet-5` / `claude-opus-4-8` →
   `primary`). Unknown helpers fail closed. Profile-scoped helpers stay inside
-  the activated profile's model-role map.
+  the activated profile's model-role map. Tier aliases (`haiku`/`sonnet`/
+  `opus`/`fable`) are resolved contextually by #69, not through the helper map
+  (see below).
 - No live provider smoke or real token-count validation has been recorded yet.
 - Direct adapters still speak Chat Completions transport; Responses is a client
   protocol boundary, not a new upstream wire format.
@@ -102,6 +104,37 @@ provider wire formats:
   reasoning metadata plus mapping kind and fallback reason. Reasoning **text**,
   prompts, responses, credentials, and account identity are never stored or
   logged.
+
+## Logical model tiers (#69)
+
+Portable agent definitions such as `model: fable` are supported as **logical
+model tiers** — never as four globally fixed physical models:
+
+- Canonical tiers: `haiku`, `sonnet`, `opus`, `fable`. They are typed separately
+  from upstream model ids and resolved deterministically inside the current
+  execution context: access provider first, then the parent model's upstream/
+  model family when that provider exposes multiple families, then trusted
+  capability evidence. `fable` means the configured/verified strongest tier for
+  the current provider/family access path, not a global strongest-model search.
+- Search order: explicit user mapping (`profile.modelRoles[tier]`) → reviewed
+  default mapping → deterministic #68 candidate evaluation inside the same
+  provider+family → explicitly enabled fallback scopes (cross-family within the
+  provider, cross-provider with an explicit provider list). Cross-family or
+  cross-provider substitution never occurs silently.
+- Fail-closed: unknown tier, unknown family without parent context, no eligible
+  same-family target, invalid override, or invalid reviewed mapping each
+  produce a specific typed reason (`tier-unavailable` on the profile error
+  contract plus `family-unknown`/`override-rejected`/`mapping-invalid` detail);
+  RLY never substitutes another provider/model silently and never auto-activates
+  proposed/unreviewed models (#23 boundary).
+- The tier decision feeds #68 capability/compatibility validation and #70
+  canonical reasoning, then the existing account pool selector; it never picks
+  credentials/accounts directly and never emits provider-native fields such as
+  `reasoning_effort`.
+- Existing `primary`/`fast`/`reasoning` profile behavior is unchanged;
+  `helper-map.ts` mappings are preserved. The supported Claude Code baseline's
+  native `fable` alias behavior is classified by #24; a client without it is
+  surfaced as incompatible rather than silently forced through a global override.
 
 ## Compatibility maintenance
 

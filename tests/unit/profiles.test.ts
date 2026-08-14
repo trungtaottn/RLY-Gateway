@@ -56,6 +56,30 @@ describe("profile activation", () => {
     expect(activated).not.toHaveProperty("accountId");
   });
 
+  it("activates a pre-resolved logical tier target without the role helper (#69)", () => {
+    const clinepass = profile({
+      name: "clinepass",
+      modelRoles: { primary: "gpt-5.6-terra", fable: "gpt-5.6-sol" },
+    });
+    const activated = activateProfile([clinepass], {
+      name: "clinepass",
+      requestedModel: "fable",
+      required: [],
+      baseCapabilities: capabilities,
+      resolved: { role: "fable", modelId: "gpt-5.6-sol" },
+    });
+    expect(activated.role).toBe("fable");
+    expect(activated.modelId).toBe("gpt-5.6-sol");
+    // Capability policy still applies on the pre-resolved path.
+    expect(() => activateProfile([profile({ capabilityPolicy: { tools: false } })], {
+      name: "work",
+      requestedModel: "fable",
+      required: ["tools"],
+      baseCapabilities: capabilities,
+      resolved: { role: "fable", modelId: "gpt-5.6-sol" },
+    })).toThrow(ProfileActivationError);
+  });
+
   it("rejects missing pool, unknown helper, and capability overflow", () => {
     expect(() => activateProfile([profile({ poolId: undefined })], {
       name: "work", requestedModel: "primary", required: [], baseCapabilities: capabilities,

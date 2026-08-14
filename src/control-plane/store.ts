@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { openMigratedDatabase, type Migration } from "../storage/migrations.js";
+import { LOGICAL_TIERS } from "../routing/model-tiers/types.js";
 import { ValidationError } from "./errors.js";
 import type { HealthRecord, RouteOutcomeInput } from "./health/types.js";
 import { ControlPlaneRepository } from "./repository.js";
@@ -27,7 +28,13 @@ import type {
 
 export { inspectSchemaColumns } from "./repository.js";
 
-const MODEL_ROLES = new Set(["primary", "fast", "reasoning"]);
+/**
+ * Profile model-role keys: existing `primary`/`fast`/`reasoning` roles plus
+ * logical tier overrides (#69) — a user may pin a tier target for the profile's
+ * provider by adding e.g. `fable: "gpt-5.6-sol"`. Tier targets are validated
+ * fail-closed at resolution through #68 exact-pin eligibility.
+ */
+const MODEL_ROLES = new Set<string>(["primary", "fast", "reasoning", ...LOGICAL_TIERS]);
 
 export class ControlPlaneStore {
   private readonly repo: ControlPlaneRepository;
@@ -441,7 +448,7 @@ function requiredName(value: string): string {
 function validateModelRoles(roles: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
   const parsed = parseJsonObject(JSON.stringify(roles));
   for (const key of Object.keys(parsed)) {
-    if (!MODEL_ROLES.has(key)) throw new ValidationError("profile model roles must be primary, fast, or reasoning");
+    if (!MODEL_ROLES.has(key)) throw new ValidationError("profile model roles must be primary, fast, reasoning, or a logical tier (haiku/sonnet/opus/fable)");
   }
   if (Object.keys(parsed).length === 0) throw new ValidationError("profile requires at least one model role");
   return parsed;

@@ -174,6 +174,79 @@ describe("clinepass profile pool route", () => {
     expect(JSON.stringify(images.json())).toMatch(/capability-rejected|unsupported_feature/);
   });
 
+  it("resolves a logical tier request inside the ClinePass provider and parent family (#69)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cline-tier-"));
+    directories.push(directory);
+    const received: { model?: string }[] = [];
+    provider = Fastify();
+    provider.post("/chat/completions", (request) => {
+      const body = request.body as { model?: unknown };
+      if (typeof body.model === "string") received.push({ model: body.model });
+      return new Response(sseFixture("cline-tier", "CLINE_TIER_OK"), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    const endpoint = await provider.listen({ host: "127.0.0.1", port: 0 });
+    store = await ControlPlaneStore.open(directory);
+    broker = await CredentialBroker.open(directory);
+    await seedClineClaudeProfile(store, broker, directory, {
+      endpoint,
+      // Terra-class parent scopes `fable` to the OpenAI/Codex family.
+      modelRoles: { primary: "gpt-5.6-terra" },
+    });
+    leases = new LeaseManager({ ttlMs: 60_000, idleGraceMs: 60_000, onIdle: () => undefined });
+    const sessions = new LaunchSessionRegistry((id) => leases?.has(id) === true);
+    const traces = new RouteTraceRing();
+    app = createGatewayServer({
+      host: "127.0.0.1",
+      port: 17891,
+      authToken: "instance-secret",
+      instanceId: "00000000-0000-4000-8000-000000000306",
+      configFingerprint: "c".repeat(64),
+      config: gatewayConfigSchema.parse({ schemaVersion: 1, gateway: { port: 17891, logLevel: "silent" } }),
+      controlPlane: store,
+      broker,
+      selector: new RouteSelector(store, new AffinityStore(directory)),
+      launchSessions: sessions,
+      traces,
+      leases,
+    });
+    const token = await issueToken();
+    const fable = await requireApp().inject({
+      method: "POST",
+      url: "/v1/messages",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      payload: { model: "fable", max_tokens: 8, stream: true, messages: [{ role: "user", content: "fixture" }] },
+    });
+    expect(fable.statusCode).toBe(200);
+    expect(fable.body).toContain("CLINE_TIER_OK");
+    // Contextual resolution: same access provider + same model family → Sol,
+    // never an Anthropic/DeepSeek "strong" model.
+    expect(received[0]?.model).toBe("gpt-5.6-sol");
+    const listed = await requireApp().inject({
+      method: "GET",
+      url: "/v1/route-traces",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const listedBody: unknown = listed.json();
+    const body = listedBody && typeof listedBody === "object" && "traces" in listedBody
+      ? listedBody as { traces: { tierResolution?: { requestedTier?: string; accessProviderId?: string; modelFamily?: string; parentModelId?: string; mappingSource?: string; selectedLogicalId?: string; reason?: string }; modelSelection?: { selectedLogicalId?: string; source?: string } }[] }
+      : { traces: [] };
+    expect(body.traces.at(-1)?.tierResolution).toMatchObject({
+      requestedTier: "fable",
+      accessProviderId: "cline",
+      modelFamily: "openai/codex",
+      parentModelId: "gpt-5.6-terra",
+      mappingSource: "reviewed-mapping",
+      selectedLogicalId: "cline/gpt-5.6-sol",
+      reason: "reviewed-mapping-match",
+    });
+    // #68 exact selection then feeds the frozen model into account selection.
+    expect(body.traces.at(-1)?.modelSelection?.selectedLogicalId).toBe("cline/gpt-5.6-sol");
+    expect(body.traces.at(-1)?.modelSelection?.source).toBe("exact");
+    expect(JSON.stringify(body)).not.toMatch(/cline-access-token-fixture|refresh-token|authorization|prompt|@/i);
+  });
+
   it("rotates on pre-output quota using the existing pool machinery", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cline-quota-"));
     directories.push(directory);

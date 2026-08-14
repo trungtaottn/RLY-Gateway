@@ -5,7 +5,7 @@ import { reasoningRequestFromWire } from "../core/reasoning.js";
 import { decideRoute, type RouteRecord } from "../core/router.js";
 import { conservativeTokenCount } from "../core/token-counting.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
-import type { AccountRecord, ProviderRecord } from "../control-plane/types.js";
+import type { AccountRecord, ProfileRecord, ProviderRecord } from "../control-plane/types.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
@@ -18,6 +18,9 @@ import { selectModel } from "../routing/model-selection/selector.js";
 import type { ModelSelectionResult, ReasoningRequirement } from "../routing/model-selection/types.js";
 import { streamPoolRequest } from "../routing/pools/execute.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
+import { isTierResolutionError } from "../routing/model-tiers/errors.js";
+import { resolveTier } from "../routing/model-tiers/resolver.js";
+import { LOGICAL_TIERS, parseLogicalTier, type LogicalTier, type TierResolutionTrace } from "../routing/model-tiers/types.js";
 import { activateProfile, findProfileById, inspectLaunchableProfile } from "./activate.js";
 import { ProfileActivationError } from "./errors.js";
 import { resolveProfileRole } from "./helper-map.js";
@@ -47,16 +50,26 @@ export async function resolveProfileRoute(
   const named = findProfileById(policy.snapshot.profiles, session.profileId)?.name ?? session.profileName;
   const inspected = inspectLaunchableProfile(policy.snapshot.profiles, named);
   const mapped = resolveProfileRole(canonical.requestedModel, inspected.profile.modelRoles);
-  if (!mapped) throw new ProfileActivationError("role-unmapped");
   const pool = policy.snapshot.pools.find((item) => item.id === inspected.poolId);
   if (!pool) throw new ProfileActivationError("profile-has-no-pool");
   const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
   if (!provider) throw new ProfileActivationError("profile-has-no-pool");
+  // #69: a logical tier request (`model: fable`) resolves contextually inside
+  // the profile's access provider and parent model family BEFORE #68 exact
+  // selection. Non-tier requests keep the existing role/helper mapping.
+  const tierResolution = mapped === undefined
+    ? resolveTierForRequest(canonical, provider.name, inspected.profile, dependencies.required ?? [])
+    : undefined;
+  const resolvedModelId = mapped?.modelId ?? tierResolution?.modelId;
+  const resolvedRole = mapped?.role ?? tierResolution?.role;
+  if (resolvedModelId === undefined || resolvedRole === undefined) {
+    throw new ProfileActivationError("role-unmapped");
+  }
   // Stage 1: deterministic model capability selection (#68) against the trusted
   // registry, BEFORE any account/pool selection. The selected physical model is
   // frozen into the effective request/route; account failover can never change it.
   const reasoningRequest = canonical.inference.reasoning ?? reasoningRequestFromWire({});
-  const selection = selectModelForRequest(mapped.modelId, provider.name, dependencies.required ?? [], canonical);
+  const selection = selectModelForRequest(resolvedModelId, provider.name, dependencies.required ?? [], canonical);
   const modelEvidence = selection.model;
   // Stage 1b (#70): translate the canonical reasoning intent into the selected
   // model's native control through the provider-owned boundary, BEFORE account
@@ -82,6 +95,7 @@ export async function resolveProfileRoute(
     requestedModel: canonical.requestedModel,
     required: dependencies.required ?? [],
     baseCapabilities: modelEvidence.capabilities,
+    ...(tierResolution === undefined ? {} : { resolved: { role: tierResolution.role, modelId: tierResolution.modelId } }),
   });
   const capabilities = activated.capabilities;
   const adapterId = adapterIdFor(provider);
@@ -139,7 +153,7 @@ export async function resolveProfileRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -167,6 +181,66 @@ function reasoningRequirementFrom(request: CanonicalRequest, required: readonly 
     return { required: true, ...(request.tools.length > 0 ? { withTools: true } : {}) };
   }
   return required.includes("reasoning") ? { required: true } : undefined;
+}
+
+/**
+ * Parent/current model role order for tier family context (#69): the
+ * profile's main model first, then fallback roles, then configured tier
+ * overrides. The parent model's registry evidence supplies the model family
+ * that scopes a tier request on multi-family access providers.
+ */
+const PARENT_ROLE_ORDER: readonly string[] = ["primary", "reasoning", "fast", ...LOGICAL_TIERS];
+
+function parentModelForProfile(modelRoles: Readonly<Record<string, string>>): string | undefined {
+  for (const role of PARENT_ROLE_ORDER) {
+    const modelId = modelRoles[role];
+    if (modelId !== undefined) return modelId;
+  }
+  return undefined;
+}
+
+/**
+ * Resolves a logical tier request (#69) inside the current execution context:
+ * access provider first, then the parent model's family, then trusted tier
+ * mapping/capability evidence. The tier target is an exact physical model that
+ * then goes through the same #68 exact-selection and #70 reasoning stages.
+ * Fail-closed: an unresolvable tier maps onto the existing profile error
+ * contract (`tier-unavailable` plus the typed tier reason).
+ */
+function resolveTierForRequest(
+  canonical: CanonicalRequest,
+  providerName: string,
+  profile: ProfileRecord,
+  required: readonly CapabilityRequirement[],
+): Readonly<{ role: LogicalTier; modelId: string; trace: TierResolutionTrace }> {
+  const tier = parseLogicalTier(canonical.requestedModel);
+  if (tier === undefined) throw new ProfileActivationError("role-unmapped");
+  const parentModelId = parentModelForProfile(profile.modelRoles);
+  const reasoning = reasoningRequirementFrom(canonical, required);
+  try {
+    const resolution = resolveTier({
+      requestedTier: tier,
+      accessProviderId: providerName,
+      ...(parentModelId === undefined ? {} : { parentModelId }),
+      ...(profile.modelRoles[tier] === undefined ? {} : { explicitUserMapping: profile.modelRoles[tier] }),
+      allowCrossFamilyFallback: false,
+      allowCrossProviderFallback: false,
+    }, {
+      requiredCapabilities: required,
+      ...(reasoning === undefined ? {} : { reasoning }),
+    });
+    return Object.freeze({ role: tier, modelId: resolution.model.identity.upstreamModelId, trace: resolution.trace });
+  } catch (error) {
+    if (isTierResolutionError(error)) {
+      throw new ProfileActivationError(
+        "tier-unavailable",
+        `Tier resolution failed (${error.code}: ${providerName}/${tier})`,
+        undefined,
+        error.code,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
