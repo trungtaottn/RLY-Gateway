@@ -3,7 +3,12 @@ import { parseAgentContext, agentPseudonym } from "../../src/core/agent-context.
 import { AgentExecutionContextRegistry, type ExecutionContext } from "../../src/profiles/agent-contexts.js";
 
 function session(leaseId = "lease-1") {
-  return { profileId: "profile-1", profileName: "clinepass", leaseId };
+  return {
+    profileId: "profile-1",
+    profileName: "clinepass",
+    leaseId,
+    modelUniverse: { policyRevision: 1, policyHash: "h", registryRevision: 4, bindings: [], experimentalModels: false } as const,
+  };
 }
 
 function context(input: Partial<Omit<ExecutionContext, "leaseId" | "profileId" | "profileName">>): Parameters<AgentExecutionContextRegistry["record"]>[1] {

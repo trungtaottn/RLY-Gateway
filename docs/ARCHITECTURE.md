@@ -185,6 +185,16 @@ without becoming a workflow engine or inspecting prompts:
   native `fable` alias behavior is classified by #24 canaries; the gated
   real-client E2E pins the gateway plumbing on the observed client.
 
+### Gateway model discovery and projection (#72)
+
+`GET /v1/models` on the **gateway listener** (not the management listener) exposes the configured, trusted RLY model universe to Claude Code through the supported Anthropic Messages discovery wire contract, and every selected `claude-rly-*` projection id routes back to one exact access-provider/model target + provider pool:
+
+- **Projection module** (`src/routing/model-projection/`): pure, deterministic, secret-free. `RLY_MODEL_PREFIX` (`claude-rly-`) is the canonical Claude-compatible projection namespace (re-exported by the overlay for #74 isolation). `projectModelUniverse(registry, snapshot)` projects trusted registry models through a session's pinned provider→pool bindings (`VERIFIED` by default; `EXPERIMENTAL` only with the explicit `gateway.modelDiscovery.experimentalModels` config opt-in; `BROKEN`/unreviewed/proposed never). `resolveProjection(id, snapshot, registry)` is the explicit reverse mapping — routing never parses id strings, and a removed/BROKEN/ineligible target fails closed rather than substituting another model.
+- **Session universe snapshot**: compiled at `POST /v1/launch-sessions` from the control-plane policy and pinned in the session — policy revision/hash, registry revision, provider→pool bindings (the profile's own pool plus every other enabled provider with exactly one eligible default pool; multiple-pool providers without an explicit binding are excluded — RLY never chooses an arbitrary pool), and the experimental-model policy. A policy/registry change mid-session never silently remaps an already-issued projection id.
+- **Routing**: a request whose model is a projection id resolves through the session's reverse mapping to the exact (provider, model, pool), then runs the unchanged two-stage boundary — #68 exact selection, #70 reasoning translation, then pool/account selection inside the pinned pool. Unknown/removed/BROKEN targets raise a typed `model-unavailable`/`capability-rejected` error. `route-trace` carries the projection id/display name as allowlisted metadata followed by the exact model/account decisions.
+- **Child launch**: RLY-launched Claude children get child-only `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; the overlay strips that key from native settings env (allowlist v2) so an RLY session cannot be silently disabled and a plain `claude` launch never inherits RLY discovery env, auth, or projection ids.
+- **Boundaries**: discovery is presentation + exact-target selection; #67 remains canonical evidence, #69 remains contextual tier resolution, #23 refresh never mutates projections, and the account selector remains the account/credential authority.
+
 ### Provider adapter
 
 - `probe`: reports readiness without leaking credential or account identity.

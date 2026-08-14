@@ -7,14 +7,18 @@ import type { CanonicalRequest } from "../core/canonical-request.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { registerLaunchSessionRoutes } from "../profiles/http.js";
-import { resolveProfileRoute } from "../profiles/resolve-route.js";
+import { resolveProfileRoute, resolveProjectedModelRoute } from "../profiles/resolve-route.js";
 import type { AgentExecutionContextRegistry } from "../profiles/agent-contexts.js";
 import type { LaunchSessionRegistry } from "../profiles/sessions.js";
 import type { RouteTraceRing } from "../profiles/traces.js";
 import { createDirectRouteResolver, type ResolvedDirectRoute } from "../providers/direct/direct-upstream.js";
+import { directProviderRegistry, type RegistryDocument } from "../registry/model-registry.js";
+import { isProjectionId } from "../routing/model-projection/types.js";
+import { compileModelUniverseSnapshot } from "../routing/model-projection/project.js";
 import { ResponseContinuationStore } from "../protocols/openai-responses/continuation.js";
 import { registerAnthropicMessagesRoute } from "../routes/anthropic-messages-route.js";
 import { registerAnthropicDirectCountTokensRoute } from "../routes/anthropic-direct-count-tokens-route.js";
+import { registerAnthropicModelsRoute } from "../routes/anthropic-models-route.js";
 import { registerOpenAiResponsesRoute } from "../routes/openai-responses-route.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 import { RUNTIME_VERSION } from "./gateway-attestation.js";
@@ -41,6 +45,11 @@ export type GatewayServerOptions = Readonly<{
   resident?: boolean;
   /** Authenticated in-process shutdown used by the explicit service stop path. */
   shutdown?: () => Promise<void>;
+  /**
+   * Trusted model registry for gateway model discovery (#72). Defaults to the
+   * reviewed static document (`directProviderRegistry`).
+   */
+  modelRegistry?: RegistryDocument;
 }>;
 
 export type GatewayLeaseRegistry = Readonly<{
@@ -117,6 +126,20 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
     ) => {
       const token = headerToken(headers ?? {});
       const session = token === undefined ? undefined : launchSessions?.resolve(token);
+      // #72: an RLY projection id routes through the session's pinned model
+      // universe to one exact access-provider/model target + provider pool.
+      if (session && isProjectionId(request.requestedModel) && controlPlane && broker && selector && traces) {
+        return resolveProjectedModelRoute(request, session, {
+          store: controlPlane,
+          broker,
+          selector,
+          traces,
+          configFingerprint: options.configFingerprint,
+          ...(options.environment === undefined ? {} : { environment: options.environment }),
+          ...(required === undefined ? {} : { required }),
+          ...(options.modelRegistry === undefined ? {} : { registry: options.modelRegistry }),
+        });
+      }
       // Profile/pool session first, then TOML routes, then Codex pin.
       if (session && controlPlane && broker && selector && traces) {
         return resolveProfileRoute(request, session, {
@@ -144,6 +167,19 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       ...(continuation === undefined ? {} : { continuation }),
     });
     registerAnthropicDirectCountTokensRoute(app, resolveRoute);
+    if (controlPlane && launchSessions) {
+      // #72: authenticated gateway model discovery on the gateway listener. The
+      // `/v1/` auth hook above accepts the instance bearer or a live launch
+      // session child token — the same credentials Claude Code discovery sends.
+      registerAnthropicModelsRoute(app, {
+        controlPlane,
+        sessions: launchSessions,
+        registry: options.modelRegistry ?? directProviderRegistry,
+        experimentalModels: options.config.gateway.modelDiscovery?.experimentalModels ?? false,
+        resolveSession: (token) => token === undefined ? undefined : launchSessions.resolve(token),
+        extractToken: headerToken,
+      });
+    }
     app.addHook("onRequest", async (request, reply) => {
       if (!request.url.startsWith("/v1/")) return;
       const token = headerToken(request.headers);
@@ -161,6 +197,19 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       resolveSession: (token) => token === undefined ? undefined : launchSessions.resolve(token),
       extractToken: headerToken,
       ...(options.leases?.has === undefined ? {} : { leaseActive: (leaseId) => options.leases?.has?.(leaseId) === true }),
+      // #72: pin the session's model universe (bindings + revisions) at issue
+      // time so discovery/reverse mapping stay stable for the active session.
+      compileModelUniverse: (profile) => {
+        const policy = controlPlane.currentPolicy();
+        const registry = options.modelRegistry ?? directProviderRegistry;
+        if (policy === undefined) {
+          return { policyRevision: 0, policyHash: "", registryRevision: registry.registryRevision, bindings: [], experimentalModels: false };
+        }
+        return compileModelUniverseSnapshot(policy, registry, {
+          profile,
+          experimentalModels: options.config?.gateway.modelDiscovery?.experimentalModels ?? false,
+        });
+      },
     });
   }
   const authorizeLease = async (

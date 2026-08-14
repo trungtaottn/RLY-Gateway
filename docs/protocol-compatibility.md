@@ -91,6 +91,20 @@ Other pinned behaviors:
 - RLY gateway URL/token are child-env only and never persisted in overlay settings/history; no RLY credential secret enters the overlay.
 - If a future Claude Code client changes this layout, RLY must pin the new baseline through #24 before composing; unknown surfaces are never recursively copied.
 
+## Gateway model discovery and projection (#72)
+
+RLY exposes the configured, trusted model universe to Claude Code through the official Anthropic Messages gateway discovery surface on the **gateway listener** (`GET /v1/models`, same launch/gateway inference credentials as Messages requests):
+
+| Area | Supported boundary behavior | Limits and readiness condition |
+| --- | --- | --- |
+| Discovery | `GET /v1/models` returns `{ data: [{ type: "model", id, display_name, created_at }], has_more, first_id, last_id }` with `limit` (1–100, default 20), `before_id`, and `after_id` pagination; ids are stable `claude-rly-<provider>-<hash>` handles | Pinned through #24 fixtures; the client's discovery filter only adds ids beginning with `claude`/`anthropic` (regression canary in tests) |
+| Universe | Session tokens serve the session's pinned universe (policy revision/hash + registry revision + provider→pool bindings + experimental policy); the instance bearer serves the policy-derived universe | `VERIFIED` compatibility by default; `EXPERIMENTAL` only with `gateway.modelDiscovery.experimentalModels`; `BROKEN`/unreviewed/proposed never |
+| Selection | A `claude-rly-*` model routes through the explicit reverse mapping to one exact access-provider/model target + pinned pool, then the #68/#70/account pipeline | Unknown/removed/BROKEN/ineligible ids fail closed (`model-unavailable`/`capability-rejected`); no silent substitution |
+| Diagnostics | `route-trace` shows projection id/display name as allowlisted routing metadata plus the exact model/account decisions | No credentials, authorization headers, account identity, prompts, or responses |
+| Child launch | RLY-launched Claude children receive child-only `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`; native settings cannot override it (overlay allowlist strips it); plain `claude` launches never inherit it | Parent/global environment unchanged |
+
+**Exact `/model` targets vs portable tier aliases:** a discovered `/model` entry is one exact physical access-provider/model target. Logical tier aliases (`haiku`/`sonnet`/`opus`/`fable`) used by subagents/aliases resolve contextually through #69 and never equal a projected exact-model id. `display_name` labels are presentation-only (e.g. `GPT-5.6 Sol (Codex)` vs `GPT-5.6 Sol (ClinePass)`); routing uses only the reverse mapping, never the id/display strings.
+
 ## Canonical reasoning contract (#70)
 
 Reasoning intent is a first-class canonical concern, separate from transport and

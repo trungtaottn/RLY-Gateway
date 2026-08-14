@@ -9,7 +9,7 @@ import { loadConfig } from "../../src/config/load-config.js";
 import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { CredentialBroker } from "../../src/credentials/broker.js";
 import { acquireGateway, runtimeDirectory } from "../../src/runtime/gateway-lifecycle.js";
-import { prepareClaudeOverlay } from "../../src/runtime/claude-overlay.js";
+import { prepareClaudeOverlay, CLAUDE_OVERLAY_ALLOWLIST_VERSION } from "../../src/runtime/claude-overlay.js";
 import { seedCodexClaudeProfile, sseFixture } from "../helpers/codex-profile-seed.js";
 
 const directories: string[] = [];
@@ -81,7 +81,7 @@ describe("CLI diagnostics", () => {
       expect(status.claudeOverlay).toMatchObject({
         directory: join(controlPlane, "claude"),
         source: native,
-        allowlistVersion: 1,
+        allowlistVersion: CLAUDE_OVERLAY_ALLOWLIST_VERSION,
       });
       expect(typeof status.claudeOverlay?.lastComposedAt).toBe("string");
       expect(printed.join("\n")).not.toMatch(/ANTHROPIC_AUTH_TOKEN|model|theme|settings|token|secret/i);

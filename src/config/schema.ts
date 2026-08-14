@@ -20,6 +20,14 @@ export const gatewayConfigSchema = z.object({
     port: loopbackPort.default(17871),
     managementPort: loopbackPort.default(17872),
     logLevel: z.enum(["silent", "error", "warn", "info", "debug"]).default("info"),
+    /**
+     * Gateway model discovery policy (#72). `experimentalModels` is the
+     * explicit user opt-in that exposes `EXPERIMENTAL` compatibility targets
+     * through `GET /v1/models`; the default exposes `VERIFIED` targets only.
+     */
+    modelDiscovery: z.object({
+      experimentalModels: z.boolean().default(false),
+    }).optional(),
   }).refine((gateway) => gateway.port !== gateway.managementPort, "Data and management ports must be distinct"),
   controlPlane: z.object({
     dataDirectory: z.string().min(1).optional(),

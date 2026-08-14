@@ -3,6 +3,9 @@ import { constants } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { RLY_MODEL_PREFIX } from "../routing/model-projection/types.js";
+
+export { RLY_MODEL_PREFIX } from "../routing/model-projection/types.js";
 
 /**
  * RLY Claude configuration overlay (#74).
@@ -46,15 +49,13 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 
 export const CLAUDE_OVERLAY_DIRECTORY_NAME = "claude";
 export const CLAUDE_OVERLAY_MARKER_NAME = ".rly-overlay.json";
-export const CLAUDE_OVERLAY_ALLOWLIST_VERSION = 1;
-
 /**
- * Projection prefix for RLY-only gateway model ids (#72). A model id with this
- * prefix is RLY-owned state: it is persisted only inside the overlay and wins
- * over native model input on re-compose, and it can never leak into native
- * settings because RLY never writes native files.
+ * Allowlist composition version. Bumped when the typed allowlist contract
+ * changes (e.g. a new gateway-contract env key): an older overlay marker is
+ * re-composed on the next launch while RLY-owned state (a persisted
+ * `claude-rly-*` model) still wins.
  */
-export const RLY_MODEL_PREFIX = "claude-rly-";
+export const CLAUDE_OVERLAY_ALLOWLIST_VERSION = 2;
 
 /** Env keys RLY owns for the child-only gateway contract and must never inherit from native settings. */
 export const GATEWAY_CONTRACT_ENV_KEYS = [
@@ -65,6 +66,7 @@ export const GATEWAY_CONTRACT_ENV_KEYS = [
   "OPENAI_API_KEY",
   "CODEX_HOME",
   "CODEX_API_KEY",
+  "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
 ] as const;
 
 const SETTINGS_FILE = "settings.json";
