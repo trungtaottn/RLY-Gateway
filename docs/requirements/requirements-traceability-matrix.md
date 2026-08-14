@@ -37,7 +37,17 @@ When a requirement changes, update its owning document and this matrix in the sa
 - BR-001/006/008 have partial verified evidence from the completed Claude direct-provider milestone.
 - Control-plane foundation evidence exists for schema/migrations, authenticated management, CLI administration, and secret-free DTOs.
 - Credential broker and Codex OAuth evidence exists for import, login, refresh CAS, revoke, recovery, and a request-scoped Anthropic route. Request-time pool selection, Claude Code profile integration, and the secret-free local UI are implemented; `rly <profile>` is the canonical Claude Code alias and Codex CLI remains `rly run codex`.
+- The model intelligence registry (`src/registry/model-registry.ts`) is the canonical model-data layer and the source of truth for #68-#72: exact access-provider identity, upstream model id/family, capability/limits/reasoning evidence, typed compatibility state, deterministic query helpers, and a discovery→proposal boundary that never mutates reviewed evidence (#23). `ProviderRecord.capabilityEvidence` is typed against the registry schema (was `unknown`).
 - Exact evidence mapping is completed phase by phase; no pending row is represented as passing.
+
+## Phase 67 executable evidence (model foundation, #67)
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-034 | `tests/unit/model-registry.test.ts` | Verified canonical identity (access provider/upstream id/family), same-upstream-id-across-providers separation with fail-closed cross-provider lookup, aggregator multi-family projection, typed compatibility state separate from raw capability support, deterministic provider/family/capability/compatibility queries, registry revision bump (3→4), static legacy document migration, discovery→proposal non-mutation (#23), secret-free evidence |
+| SR-F-004 / FR-002 capability evidence | `tests/control-plane/repositories.test.ts`, `tests/management/mutations.test.ts` | Verified typed `ProviderCapabilityEvidence` replaces `unknown`; management boundary validates the registry schema; stored-row parse fails closed |
+| NX-004-equivalent (unchanged) | `tests/lifecycle/codex-profile-route.test.ts`, `tests/lifecycle/cline-profile-route.test.ts`, `tests/unit/model-registry.test.ts` | Verified exact `(codex, gpt-5.4)` and `(cline, claude-sonnet-4-5)` evidence still resolve after the schema change; missing/cross-provider evidence still fails closed |
+| Existing Codex OAuth / ClinePass exact evidence | `tests/contract/providers/direct-adapters.test.ts`, lifecycle suites above | Verified unchanged behavior after the schema change |
 
 ## Phase 11 executable evidence
 
