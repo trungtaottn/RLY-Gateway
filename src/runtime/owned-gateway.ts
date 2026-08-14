@@ -14,7 +14,7 @@ import { RouteSelector } from "../routing/pools/selector.js";
 import { defaultControlPlaneDirectory, resolveDefaultControlPlaneDirectory } from "../storage/paths.js";
 import { applyRetentionPolicy } from "../storage/retention.js";
 import { createGatewayServer, listenGateway } from "./gateway-server.js";
-import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS } from "./gateway-attestation.js";
+import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS, RUNTIME_VERSION } from "./gateway-attestation.js";
 import type { AcquireGatewayOptions, GatewayLeaseHandle } from "./gateway-lifecycle.js";
 import { LeaseManager } from "./lease-manager.js";
 import type { ProcessIdentity } from "./ownership-record.js";
@@ -57,6 +57,7 @@ export async function startOwnedGateway(input: Readonly<{
   leaseId: string;
 }>): Promise<GatewayLeaseHandle> {
   const { options, processIdentity, store, baseUrl, managementBaseUrl, configFingerprint, leaseId } = input;
+  const resident = options.resident === true;
   const secretValue = randomBytes(32).toString("base64url");
   const managementSecretValue = randomBytes(32).toString("base64url");
   const instanceId = randomUUID();
@@ -64,31 +65,44 @@ export async function startOwnedGateway(input: Readonly<{
   const traces = new RouteTraceRing();
   const appHolder: { app?: FastifyInstance; management?: FastifyInstance; controlPlane?: ControlPlaneStore; broker?: CredentialBroker } = {};
   const sessionHolder: { registry?: LaunchSessionRegistry } = {};
+  /**
+   * Revokes launch sessions and shuts the owned runtime down boundedly.
+   * Resident mode calls this without a stillIdle guard on explicit stop; the
+   * idle path re-checks stillIdle around the lock exactly as before.
+   */
+  const performShutdown = async (input: { stillIdle?: () => boolean }): Promise<void> => {
+    if (input.stillIdle !== undefined && !input.stillIdle()) return;
+    const cleanupLock = await store.acquireStartupLock(processIdentity, () => false);
+    try {
+      if (input.stillIdle !== undefined && !input.stillIdle()) return;
+      sessions.revokeAll();
+      const managementShutdown = appHolder.management
+        ? await closeGatewayBounded(appHolder.management)
+        : { forced: false };
+      const gatewayShutdown = appHolder.app
+        ? await closeGatewayBounded(appHolder.app)
+        : { forced: false };
+      await appHolder.broker?.close();
+      appHolder.controlPlane?.close();
+      if (gatewayShutdown.forced || managementShutdown.forced) return;
+      await store.removeInstanceArtifacts(instanceId);
+      leases.dispose();
+    } finally {
+      await cleanupLock.release();
+    }
+  };
+  let stoppedResolve: () => void = () => undefined;
+  const stopped = new Promise<void>((resolve) => { stoppedResolve = resolve; });
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = (): Promise<void> => {
+    shutdownPromise ??= performShutdown({}).finally(() => { stoppedResolve(); });
+    return shutdownPromise;
+  };
   const leases = new LeaseManager({
     ttlMs: LEASE_TTL_MS,
     idleGraceMs: IDLE_GRACE_MS,
     onExpire: (expiredLeaseId) => sessionHolder.registry?.dropLease(expiredLeaseId),
-    onIdle: async (stillIdle) => {
-      if (!stillIdle()) return;
-      const cleanupLock = await store.acquireStartupLock(processIdentity, () => false);
-      try {
-        if (!stillIdle()) return;
-        sessions.revokeAll();
-        const managementShutdown = appHolder.management
-          ? await closeGatewayBounded(appHolder.management)
-          : { forced: false };
-        const shutdown = appHolder.app
-          ? await closeGatewayBounded(appHolder.app)
-          : { forced: false };
-        await appHolder.broker?.close();
-        appHolder.controlPlane?.close();
-        if (shutdown.forced || managementShutdown.forced || !stillIdle()) return;
-        await store.removeInstanceArtifacts(instanceId);
-        leases.dispose();
-      } finally {
-        await cleanupLock.release();
-      }
-    },
+    onIdle: (stillIdle) => performShutdown({ stillIdle }),
   });
   const launchSessions = new LaunchSessionRegistry((id) => leases.has(id));
   sessionHolder.registry = launchSessions;
@@ -151,6 +165,8 @@ export async function startOwnedGateway(input: Readonly<{
       selector,
       launchSessions,
       traces,
+      shutdown,
+      ...(resident ? { resident: true } : {}),
     };
     const managementOptions = {
       host,
@@ -203,6 +219,14 @@ export async function startOwnedGateway(input: Readonly<{
     instanceId,
     leaseId,
     reused: false,
+    ...(resident
+      ? {
+          resident: true,
+          runtimeVersion: RUNTIME_VERSION,
+          shutdown,
+          stopped,
+        }
+      : {}),
     release: async () => {
       clearInterval(heartbeat);
       await registry.release(leaseId);

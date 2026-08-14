@@ -28,6 +28,13 @@ export type GatewayLeaseHandle = Readonly<{
   instanceId: string;
   leaseId: string;
   reused: boolean;
+  /** Present when this instance is owned by the per-user resident service. */
+  resident?: boolean;
+  runtimeVersion?: string;
+  /** Explicit in-process shutdown for the resident service stop path. */
+  shutdown?: () => Promise<void>;
+  /** Resolves once the resident runtime has fully shut down. */
+  stopped?: Promise<void>;
   release: () => Promise<void>;
 }>;
 
@@ -41,6 +48,8 @@ export type AcquireGatewayOptions = Readonly<{
   createServer?: typeof createGatewayServer;
   createManagementServer?: typeof createManagementServer;
   heartbeatMs?: number;
+  /** Starts the runtime with explicit per-user service ownership. */
+  resident?: boolean;
 }>;
 
 export function runtimeDirectory(port: number): string {
@@ -120,11 +129,18 @@ export async function acquireGateway(options: AcquireGatewayOptions): Promise<Ga
   throw lastError;
 }
 
-export async function inspectGateway(
+export type RuntimeInspection =
+  | Readonly<{ state: "not-running" }>
+  | Readonly<{ state: "attested-compatible"; resident: boolean; runtimeVersion?: string; instanceId: string }>
+  | Readonly<{ state: "attested-incompatible" }>
+  | Readonly<{ state: "occupied-foreign" }>
+  | Readonly<{ state: "stale-record" }>;
+
+export async function inspectRuntimeGateway(
   config: GatewayConfig,
   directory?: string,
   request: typeof fetch = fetch,
-): Promise<"not-running" | "attested-compatible" | "occupied-foreign" | "stale-record"> {
+): Promise<RuntimeInspection> {
   const store = new RuntimeStore(directory ?? runtimeDirectory(config.gateway.port));
   const baseUrl = `http://${config.gateway.host}:${String(config.gateway.port)}`;
   const managementBaseUrl = `http://${config.gateway.host}:${String(config.gateway.managementPort)}`;
@@ -135,18 +151,32 @@ export async function inspectGateway(
     const attested = await attestedIdentities(request, baseUrl, managementBaseUrl, secret, managementSecret);
     if (attested) {
       const observed = await readProcessIdentity(record.pid);
-      return attested.managementIdentity !== undefined
+      const compatible = attested.managementIdentity !== undefined
         && reusableRecord(record, attested.identity, fingerprintConfig(config))
         && attested.managementIdentity.instanceId === attested.identity.instanceId
-        && observed?.processStartedAt === record.processStartedAt
-        ? "attested-compatible"
-        : "occupied-foreign";
+        && observed?.processStartedAt === record.processStartedAt;
+      return compatible
+        ? {
+            state: "attested-compatible",
+            resident: attested.identity.resident === true,
+            ...(attested.identity.runtimeVersion === undefined ? {} : { runtimeVersion: attested.identity.runtimeVersion }),
+            instanceId: record.instanceId,
+          }
+        : { state: "attested-incompatible" };
     }
   }
   if (await listenerExists(request, baseUrl) || await listenerExists(request, managementBaseUrl)) {
-    return "occupied-foreign";
+    return { state: "occupied-foreign" };
   }
-  return record ? "stale-record" : "not-running";
+  return record ? { state: "stale-record" } : { state: "not-running" };
+}
+
+export async function inspectGateway(
+  config: GatewayConfig,
+  directory?: string,
+  request: typeof fetch = fetch,
+): Promise<"not-running" | "attested-compatible" | "attested-incompatible" | "occupied-foreign" | "stale-record"> {
+  return (await inspectRuntimeGateway(config, directory, request)).state;
 }
 
 async function tryReuseAttestedGateway(input: Readonly<{
