@@ -4,6 +4,7 @@ import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { ManagementActor } from "../control-plane/types.js";
 import { reject, type ManagementAuthorizer } from "./auth.js";
 import { applyCatalogDefaults } from "../providers/catalog.js";
+import { providerCapabilityEvidenceSchema } from "../registry/model-registry.js";
 import {
   toAccountDto,
   toPoolDto,
@@ -17,7 +18,7 @@ const providerBody = z.object({
   name: z.string().min(1),
   integrationMode: z.enum(["direct", "oauth", "bridge"]),
   endpointPolicy: z.string().min(1).optional(),
-  capabilityEvidence: z.unknown().optional(),
+  capabilityEvidence: providerCapabilityEvidenceSchema.optional(),
   requiredTermsRevision: z.string().min(1).optional(),
   provenanceRef: z.string().min(1).optional(),
   enabled: z.boolean().optional(),

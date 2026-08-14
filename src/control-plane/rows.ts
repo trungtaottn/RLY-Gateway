@@ -1,5 +1,6 @@
 import { ValidationError } from "./errors.js";
 import { assertSecretFree } from "./secret-free.js";
+import { providerCapabilityEvidenceSchema, type ProviderCapabilityEvidence } from "../registry/model-registry.js";
 import type { HealthRecord } from "./health/types.js";
 import type {
   AccountRecord,
@@ -53,6 +54,15 @@ function jsonValue(raw: string | undefined): unknown {
   }
 }
 
+function parseCapabilityEvidence(raw: string | undefined): ProviderCapabilityEvidence | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = providerCapabilityEvidenceSchema.safeParse(jsonValue(raw));
+  if (!parsed.success) {
+    throw new ValidationError("stored capability evidence does not match the registry schema");
+  }
+  return parsed.data;
+}
+
 export function parseJsonObject(raw: string): Readonly<Record<string, string>> {
   const value = jsonValue(raw);
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -82,7 +92,7 @@ export function mapProvider(row: SqlRow): ProviderRecord {
     name: text(row, "name"),
     integrationMode: text(row, "integration_mode") as IntegrationMode,
     endpointPolicy: optionalText(row, "endpoint_policy"),
-    capabilityEvidence: jsonValue(optionalText(row, "capability_evidence")),
+    capabilityEvidence: parseCapabilityEvidence(optionalText(row, "capability_evidence")),
     requiredTermsRevision: optionalText(row, "required_terms_revision"),
     provenanceRef: optionalText(row, "provenance_ref"),
     enabled: integer(row, "enabled") === 1,

@@ -1,3 +1,5 @@
+import type { ProviderCapabilityEvidence } from "../registry/model-registry.js";
+
 export type IntegrationMode = "direct" | "oauth" | "bridge";
 export type AccountState = "ready" | "paused" | "unready" | "revoked";
 export type PoolStrategy = "manual" | "round-robin" | "fill-first";
@@ -12,7 +14,7 @@ export type ProviderRecord = Readonly<{
   name: string;
   integrationMode: IntegrationMode;
   endpointPolicy: string | undefined;
-  capabilityEvidence: unknown;
+  capabilityEvidence: ProviderCapabilityEvidence | undefined;
   requiredTermsRevision: string | undefined;
   provenanceRef: string | undefined;
   enabled: boolean;
@@ -98,7 +100,7 @@ export type CreateProviderInput = Readonly<{
   name: string;
   integrationMode: IntegrationMode;
   endpointPolicy?: string | undefined;
-  capabilityEvidence?: unknown;
+  capabilityEvidence?: ProviderCapabilityEvidence | undefined;
   requiredTermsRevision?: string | undefined;
   provenanceRef?: string | undefined;
 }>;
@@ -107,7 +109,7 @@ export type UpdateProviderInput = Readonly<{
   name?: string | undefined;
   integrationMode?: IntegrationMode | undefined;
   endpointPolicy?: string | undefined;
-  capabilityEvidence?: unknown;
+  capabilityEvidence?: ProviderCapabilityEvidence | undefined;
   requiredTermsRevision?: string | undefined;
   provenanceRef?: string | undefined;
   enabled?: boolean | undefined;
