@@ -110,6 +110,17 @@ Outcome: RLY runs as a per-user resident service installed once by `rly init`, s
 
 Exit: lifecycle/service-manager/CLI gates and full `pnpm verify` pass; macOS launchd specifics delivered by #33 (per-user LaunchAgent, idempotent repair, bounded crash policy, no root) and Linux systemd specifics delivered by #34 (per-user `systemd --user` unit, user-manager bus probe, bounded `StartLimit` restart policy, no root, no auto-linger).
 
+## Milestone 10 — Runtime compatibility canary (BL-043 / #24)
+
+Outcome: newly installed Claude Code / Codex CLI versions are never auto-supported; every access path carries reviewed runtime compatibility evidence.
+
+- Exact installed client version reporting separate from binary `found` (version parsed from `--version`; unknown never inferred).
+- Pinned baseline wire-contract fixtures (attribution headers, `/v1/models` discovery incl. id-prefix filter and startup cache, tier aliases incl. `fable`, subagent/session `effort`, streaming framing, `--no-session-persistence`) and a deterministic fake gate matrix (text, streaming, cancellation, tools, reasoning, reasoning+tools, model discovery, subagent routing, parallel subagents, effort signal, long-running sessions).
+- Per-access-path `VERIFIED`/`EXPERIMENTAL`/`BROKEN`/`unknown` classification with no cross-provider evidence reuse; #72 projection gating consumes canary-derived state (VERIFIED default, EXPERIMENTAL opt-in, BROKEN never).
+- `rly canary run|status` secret-free evidence artifacts for #23/#67 review; `rly doctor` reports versions + tested baseline; live provider runs stay opt-in (`RLY_LIVE_CANARY=1`, skipped ≠ pass).
+
+Exit: canary matrix/evidence/CLI/projection-gate/privacy suites and full `pnpm verify` pass.
+
 ## Beyond V1
 
 See [BACKLOG.md](./BACKLOG.md). Nothing there is committed without promotion.
