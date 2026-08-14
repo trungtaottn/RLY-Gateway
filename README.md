@@ -118,6 +118,8 @@ Contract and integration script names already exist and intentionally allow zero
 
 `dev` is the Beta lane and `main` is the Stable lane. Full verification runs once on PRs targeting either lane; trusted post-merge updates release without repeating the suite. The first future public Stable baseline is a separate clean-snapshot operation that keeps historical private development commits private. After that bootstrap, normal promotion preserves branch ancestry.
 
+Git tags and GitHub Releases are the release record. `dev` creates `-beta.N` prereleases and `main` creates stable releases through semantic-release; the package stays private and is never published to npm.
+
 ## License
 
 MIT. Adapted upstream code, when introduced, must be recorded in [`docs/provenance.md`](./docs/provenance.md) with its original notice, pinned artifact hash, and a row in the [adaptation matrix](./docs/source-adaptation-matrix.md).
