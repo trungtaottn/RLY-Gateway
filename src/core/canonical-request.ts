@@ -1,3 +1,5 @@
+import type { ReasoningRequest } from "./reasoning.js";
+
 export type ModelRole = "primary" | "fast" | "reasoning" | "unknown";
 
 export type CanonicalContent =
@@ -41,7 +43,10 @@ export type CanonicalRequest = Readonly<{
     temperature?: number;
     topP?: number;
     stopSequences?: readonly string[];
+    /** Source-mode view (legacy); kept for compatibility. #70 uses `reasoning`. */
     thinking?: "disabled" | "enabled" | "adaptive";
+    /** Provider-neutral reasoning intent plus source fidelity (#70). */
+    reasoning?: ReasoningRequest;
   }>;
   metadata: Readonly<{
     beta?: readonly string[];

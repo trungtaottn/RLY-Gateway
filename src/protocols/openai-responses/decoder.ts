@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
+import { reasoningRequestFromWire } from "../../core/reasoning.js";
 
 const textPart = z.object({ type: z.enum(["input_text", "output_text", "text"]), text: z.string() });
 const imagePart = z.object({
@@ -180,6 +181,12 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
   const choice = parseToolChoice(value.tool_choice);
   const openaiBeta = headers["openai-beta"];
   const beta = typeof openaiBeta === "string" ? openaiBeta.split(",").map((item) => item.trim()).filter(Boolean) : [];
+  const reasoning = value.reasoning === undefined
+    ? undefined
+    : reasoningRequestFromWire({
+        ...(value.reasoning.effort === undefined ? { thinking: "enabled" as const } : {}),
+        ...(value.reasoning.effort === undefined ? {} : { effort: value.reasoning.effort }),
+      });
   return {
     request: {
       id: randomUUID(),
@@ -196,7 +203,9 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
         ...(value.max_output_tokens === undefined ? {} : { maxOutputTokens: value.max_output_tokens }),
         ...(value.temperature === undefined ? {} : { temperature: value.temperature }),
         ...(value.top_p === undefined ? {} : { topP: value.top_p }),
-        ...(value.reasoning === undefined ? {} : { thinking: "enabled" as const }),
+        // #70: preserve the native effort instead of collapsing it to `enabled`.
+        ...(reasoning === undefined ? {} : { reasoning }),
+        ...(reasoning?.sourceMode === undefined ? {} : { thinking: reasoning.sourceMode }),
       },
       metadata: beta.length === 0 ? {} : { beta },
       ...(value.previous_response_id === undefined ? {} : { continuation: { previousResponseId: value.previous_response_id } }),

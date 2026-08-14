@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { decodeAnthropicRequest } from "../../../src/protocols/anthropic/decoder.js";
 import { aggregateAnthropicEvents, encodeAnthropicSse } from "../../../src/protocols/anthropic/encoder.js";
 import { FakeCanonicalUpstream } from "../../../src/protocols/anthropic/fake-upstream.js";
@@ -24,6 +26,32 @@ describe("Anthropic Messages protocol", () => {
     expect(decoded.request.messages[1]?.content[0]).toMatchObject({ type: "tool-result", content: [{ type: "text", text: "fixture result" }] });
     expect(decoded.request.metadata.cacheControl).toEqual([{ scope: "message", index: 1 }]);
     expect(decoded.required).toContain("reasoning");
+    // #70 canonical reasoning intent derived from thinking.type.
+    expect(decoded.request.inference.reasoning).toEqual({ intent: "BALANCED", sourceMode: "enabled", explicit: true });
+  });
+
+  it("decodes the pinned supported-baseline reasoning shape from the fixture (#70)", async () => {
+    const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/upstream/claude-code/reasoning-shape.json"), "utf8")) as { request: Record<string, unknown> };
+    const decoded = decodeAnthropicRequest(fixture.request);
+    // Source fidelity is preserved (never assumed): mode + effort.
+    expect(decoded.request.inference.thinking).toBe("enabled");
+    expect(decoded.request.inference.reasoning).toEqual({ intent: "DEEP", sourceMode: "enabled", sourceEffort: "high", explicit: true });
+    expect(decoded.required).toContain("reasoning");
+  });
+
+  it("preserves adaptive and disabled thinking as distinct canonical kinds (#70)", () => {
+    const adaptive = decodeAnthropicRequest({ model: "fixture-model", max_tokens: 10, thinking: { type: "adaptive" }, messages: [{ role: "user", content: "fixture" }] }).request;
+    expect(adaptive.inference.reasoning).toEqual({ intent: "AUTO", sourceMode: "adaptive", explicit: true });
+    const disabled = decodeAnthropicRequest({ model: "fixture-model", max_tokens: 10, thinking: { type: "disabled" }, messages: [{ role: "user", content: "fixture" }] }).request;
+    expect(disabled.inference.reasoning).toEqual({ intent: "OFF", sourceMode: "disabled", explicit: true });
+    const absent = decodeAnthropicRequest({ model: "fixture-model", max_tokens: 10, messages: [{ role: "user", content: "fixture" }] }).request;
+    expect(absent.inference.reasoning).toEqual({ intent: "AUTO", explicit: false });
+  });
+
+  it("keeps unknown additive fields recorded as ignored, never assumed (#70)", () => {
+    const decoded = decodeAnthropicRequest({ model: "fixture-model", max_tokens: 10, thinking: { type: "enabled" }, future_unknown_field: "x", messages: [{ role: "user", content: "fixture" }] });
+    expect(decoded.ignoredAdditiveFields).toContain("future_unknown_field");
+    expect(decoded.request.inference.reasoning).toEqual({ intent: "BALANCED", sourceMode: "enabled", explicit: true });
   });
 
   it("golden-streams exact framing, event ordering, tool argument deltas and usage", async () => {
