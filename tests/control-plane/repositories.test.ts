@@ -58,6 +58,33 @@ describe("control-plane repositories", () => {
     }
   });
 
+  it("accepts logical tier keys in profile model roles and rejects unknown keys (#69)", async () => {
+    const store = await openStore();
+    try {
+      const provider = store.createProvider({ name: "cline", integrationMode: "direct" }, "cli");
+      const pool = store.createPool({ name: "cline-pass", providerId: provider.id, strategy: "fill-first" }, "cli");
+      store.createProfile({
+        name: "clinepass",
+        harness: "claude",
+        providerId: provider.id,
+        poolId: pool.id,
+        modelRoles: { primary: "gpt-5.6-terra", fable: "gpt-5.6-sol", sonnet: "claude-sonnet-4-5" },
+      }, "cli");
+      const record = store.listProfiles().find((item) => item.name === "clinepass");
+      expect(record?.modelRoles).toEqual({ primary: "gpt-5.6-terra", fable: "gpt-5.6-sol", sonnet: "claude-sonnet-4-5" });
+      // Unknown/typo keys still fail closed.
+      expect(() => store.createProfile({
+        name: "bad",
+        harness: "claude",
+        providerId: provider.id,
+        poolId: pool.id,
+        modelRoles: { primary: "gpt-5.6-terra", fable: "gpt-5.6-sol", fabel: "gpt-5.6-sol" },
+      }, "cli")).toThrow(ValidationError);
+    } finally {
+      store.close();
+    }
+  });
+
   it("rejects stale versions, duplicate memberships, and cross-provider pool members", async () => {
     const store = await openStore();
     try {

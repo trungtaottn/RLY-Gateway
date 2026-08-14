@@ -160,7 +160,7 @@
 - Concurrency: RLY's own writes are atomic and deterministic from native input, so concurrent RLY launches converge without locks; RLY never copies back or restores native settings on exit.
 - Diagnostics: `rly status` reports overlay directory/source/allowlist version/composition timestamp only; no settings, agent, plugin, session, or credential content.
 - Failure: an unresolvable control-plane home or unreadable overlay write returns an actionable error and the launch does not proceed with a throwaway sandbox.
-- Acceptance: AT-057, AT-058, AT-059, AT-060, AT-061, AT-062, AT-063, AT-064.
+- Acceptance: AT-065, AT-066, AT-067, AT-068, AT-069, AT-070, AT-071, AT-072.
 
 ## Unresolved questions
 

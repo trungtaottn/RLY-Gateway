@@ -25,7 +25,7 @@ export function registerAnthropicDirectCountTokensRoute(
       return await reply.header("x-rly-gateway-token-count-quality", result.quality).send({ input_tokens: result.inputTokens });
     } catch (error) {
       if (error instanceof AnthropicProtocolError) return await reply.code(error.statusCode).send({ type: "error", error: { type: error.code, message: "Gateway rejected the protocol event" } });
-      if (error instanceof ProfileActivationError) return await reply.code(400).send({ type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined ? {} : { reason: error.modelFailure }) } });
+      if (error instanceof ProfileActivationError) return await reply.code(400).send({ type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined && error.tierFailure === undefined ? {} : { reason: error.tierFailure ?? error.modelFailure }) } });
       return await reply.code(400).send({ type: "error", error: { type: "invalid_request_error", message: "Invalid token-count request" } });
     }
   });
