@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createGatewayServer, createIdentityProof } from "../../src/runtime/gateway-server.js";
 
@@ -42,6 +42,7 @@ describe("gateway server", () => {
     expect(identity.json()).toMatchObject({
       product: "rly-gateway",
       protocolVersion: 1,
+      runtimeVersion: "0.1.0",
       proof: createIdentityProof(
         "test-only-token",
         "a".repeat(32),
@@ -49,6 +50,61 @@ describe("gateway server", () => {
         "a".repeat(64),
       ),
     });
+  });
+
+  it("advertises resident ownership in the identity handshake", async () => {
+    app = createGatewayServer({
+      host: "127.0.0.1",
+      port: 17871,
+      authToken: "test-only-token",
+      instanceId: "00000000-0000-4000-8000-000000000002",
+      configFingerprint: "a".repeat(64),
+      resident: true,
+    });
+    const identity = await app.inject({
+      method: "GET",
+      url: `/identity?challenge=${"b".repeat(32)}`,
+    });
+    expect(identity.json()).toMatchObject({ resident: true, runtimeVersion: "0.1.0" });
+  });
+
+  it("rejects unauthenticated shutdown and exposes shutdown only when wired", async () => {
+    app = createGatewayServer({
+      host: "127.0.0.1",
+      port: 17871,
+      authToken: "test-only-token",
+      instanceId: "00000000-0000-4000-8000-000000000001",
+      configFingerprint: "a".repeat(64),
+    });
+    const unauthorized = await app.inject({ method: "POST", url: "/shutdown" });
+    expect(unauthorized.statusCode).toBe(401);
+    const unavailable = await app.inject({
+      method: "POST",
+      url: "/shutdown",
+      headers: { authorization: "Bearer test-only-token" },
+    });
+    expect(unavailable.statusCode).toBe(503);
+  });
+
+  it("triggers the wired shutdown after replying 202", async () => {
+    const shutdown = vi.fn().mockResolvedValue(undefined);
+    app = createGatewayServer({
+      host: "127.0.0.1",
+      port: 17871,
+      authToken: "test-only-token",
+      instanceId: "00000000-0000-4000-8000-000000000001",
+      configFingerprint: "a".repeat(64),
+      shutdown,
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/shutdown",
+      headers: { authorization: "Bearer test-only-token" },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ shuttingDown: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(shutdown).toHaveBeenCalledOnce();
   });
 
   it("mounts configured provider routes behind the transient gateway token", async () => {
