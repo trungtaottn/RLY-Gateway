@@ -18,15 +18,15 @@ Owner decision 2026-08-14: stop broadening providers. Next work is **Codex OAuth
 
 ### Codex OAuth → Claude Code
 
-Already in tree: project-owned PKCE login, explicit Codex import, refresh CAS, revoke, `codex-oauth` adapter, selected-account route, `run claude --profile`, opt-in live pool smoke (`RLY_LIVE_CODEX_OAUTH=1`). Missing is a repeatable Claude Code path.
+Already in tree: project-owned PKCE login, explicit Codex import, refresh CAS, revoke, `codex-oauth` adapter, selected-account route, `rly <profile>` / `run claude --profile`, opt-in live pool smoke (`RLY_LIVE_CODEX_OAUTH=1`). Phase 3 adds the Claude Code operator path.
 
 | ID | Issue | Task | Acceptance |
 | --- | --- | --- | --- |
-| NX-001 | [#1](https://github.com/trungtaottn/RLY-Gateway/issues/1) | Operator recipe: create `codex` provider, login or import, pool, Claude profile, `run claude --profile` | README/CONTRIBUTING steps; no raw secrets; `--profile` and `--route` stay exclusive |
-| NX-002 | [#2](https://github.com/trungtaottn/RLY-Gateway/issues/2) | Fake-upstream Claude Code E2E through Codex OAuth (not OpenRouter) | Text + tools + helper map + cancel; no global Claude/Codex config mutation |
-| NX-003 | [#3](https://github.com/trungtaottn/RLY-Gateway/issues/3) | Opt-in live smoke: Claude Code → gateway → Codex OAuth | Gated env; secret-free evidence only; skipped ≠ pass |
-| NX-004 | [#4](https://github.com/trungtaottn/RLY-Gateway/issues/4) | Profile model roles for Codex models used as Claude helpers | Capability preflight rejects unsupported required tools/images; no silent remap |
-| NX-005 | [#5](https://github.com/trungtaottn/RLY-Gateway/issues/5) | Status/quota/route-trace for a live Codex profile | Pseudonym + quota class + decision reason only |
+| NX-001 | [#1](https://github.com/trungtaottn/RLY-Gateway/issues/1) | Operator recipe: create `codex` provider, login or import, pool, Claude profile named `codex`, `rly codex` | Done: README/CONTRIBUTING; no raw secrets; `--profile` and `--route` stay exclusive |
+| NX-002 | [#2](https://github.com/trungtaottn/RLY-Gateway/issues/2) | Fake-upstream Claude Code E2E through Codex OAuth (not OpenRouter) | Done: `tests/e2e/claude-code/codex-oauth.e2e.test.ts` (gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass) plus lifecycle helper/quota/sticky |
+| NX-003 | [#3](https://github.com/trungtaottn/RLY-Gateway/issues/3) | Opt-in live smoke: Claude Code → gateway → Codex OAuth | Done: `tests/e2e/claude-code/codex-oauth-live.e2e.test.ts` (`RLY_LIVE_CODEX_OAUTH=1`; skipped ≠ pass) |
+| NX-004 | [#4](https://github.com/trungtaottn/RLY-Gateway/issues/4) | Profile model roles for Codex models used as Claude helpers | Done: exact `(codex, gpt-5.4)` evidence; missing/cross-provider evidence fails closed |
+| NX-005 | [#5](https://github.com/trungtaottn/RLY-Gateway/issues/5) | Status/quota/route-trace for a live Codex profile | Done: CLI prints pseudonym + quota class + decision reason only |
 
 ### ClinePass → Claude Code
 

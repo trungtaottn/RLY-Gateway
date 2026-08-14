@@ -125,9 +125,6 @@ export async function runQuota(path: string): Promise<number> {
     const items = asItems(body).map((item) => ({
       pseudonym: item["pseudonym"],
       quotaClass: item["quotaClass"],
-      cooldownUntil: item["cooldownUntil"],
-      readiness: item["readiness"],
-      state: item["state"],
     }));
     console.log(JSON.stringify({ accounts: items }));
   });
@@ -141,7 +138,7 @@ export async function runRouteTrace(path: string): Promise<number> {
   const { ok, payload } = await readJson(`http://${config.gateway.host}:${String(config.gateway.port)}/v1/route-traces`, {
     authorization: `Bearer ${token}`,
   });
-  console.log(JSON.stringify(payload));
+  console.log(JSON.stringify({ traces: projectRouteTraces(payload) }));
   return ok ? 0 : 1;
 }
 
@@ -205,4 +202,21 @@ function asItems(value: unknown): Record<string, unknown>[] {
   const items = (value as { items?: unknown }).items;
   if (!Array.isArray(items)) return [];
   return items.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object");
+}
+
+function projectRouteTraces(value: unknown): readonly Record<string, unknown>[] {
+  if (value === null || typeof value !== "object") return [];
+  const traces = (value as { traces?: unknown }).traces;
+  if (!Array.isArray(traces)) return [];
+  return traces.flatMap((item) => {
+    if (item === null || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const selected = record["selected"];
+    const selectedRecord = selected !== null && typeof selected === "object" ? selected as Record<string, unknown> : undefined;
+    return [{
+      profileName: record["profileName"],
+      sourceRule: record["sourceRule"],
+      selectedPseudonym: selectedRecord?.["accountPseudonym"],
+    }];
+  });
 }

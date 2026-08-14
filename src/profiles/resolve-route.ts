@@ -1,6 +1,6 @@
 import type { CanonicalEvent } from "../core/canonical-event.js";
 import type { CanonicalRequest } from "../core/canonical-request.js";
-import type { CapabilityRequirement, ProviderCapabilities } from "../core/capabilities.js";
+import type { CapabilityRequirement } from "../core/capabilities.js";
 import { decideRoute, type RouteRecord } from "../core/router.js";
 import { conservativeTokenCount } from "../core/token-counting.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
@@ -14,22 +14,11 @@ import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route
 import type { CredentialSnapshot } from "../routing/eligibility/reasons.js";
 import { streamPoolRequest } from "../routing/pools/execute.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
-import { activateProfile } from "./activate.js";
+import { activateProfile, findProfileById, inspectLaunchableProfile } from "./activate.js";
 import { ProfileActivationError } from "./errors.js";
-import { applyCapabilityPolicy, parseCapabilityPolicy } from "./schema.js";
+import { resolveProfileRole } from "./helper-map.js";
 import type { LaunchSession } from "./sessions.js";
 import type { RouteTraceRing } from "./traces.js";
-
-const DEFAULT_CAPABILITIES: ProviderCapabilities = Object.freeze({
-  streaming: true,
-  tools: true,
-  parallelTools: false,
-  images: false,
-  reasoning: true,
-  redactedReasoning: false,
-  structuredOutput: false,
-  tokenCounting: "conservative-estimate",
-});
 
 export type ProfileRouteDependencies = Readonly<{
   store: ControlPlaneStore;
@@ -51,22 +40,24 @@ export async function resolveProfileRoute(
 ): Promise<ResolvedProfileRoute> {
   const policy = dependencies.store.currentPolicy();
   if (!policy) throw new ProfileActivationError("profile-not-found");
+  const named = findProfileById(policy.snapshot.profiles, session.profileId)?.name ?? session.profileName;
+  const inspected = inspectLaunchableProfile(policy.snapshot.profiles, named);
+  const mapped = resolveProfileRole(canonical.requestedModel, inspected.profile.modelRoles);
+  if (!mapped) throw new ProfileActivationError("role-unmapped");
+  const pool = policy.snapshot.pools.find((item) => item.id === inspected.poolId);
+  if (!pool) throw new ProfileActivationError("profile-has-no-pool");
+  const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
+  if (!provider) throw new ProfileActivationError("profile-has-no-pool");
+  const modelEvidence = findModelEvidence(directProviderRegistry, provider.name, mapped.modelId);
+  if (!modelEvidence) throw new ProfileActivationError("capability-rejected");
   const activated = activateProfile(policy.snapshot.profiles, {
     profileId: session.profileId,
     name: session.profileName,
     requestedModel: canonical.requestedModel,
     required: dependencies.required ?? [],
-    baseCapabilities: DEFAULT_CAPABILITIES,
+    baseCapabilities: modelEvidence.capabilities,
   });
-  const pool = policy.snapshot.pools.find((item) => item.id === activated.poolId);
-  if (!pool) throw new ProfileActivationError("profile-has-no-pool");
-  const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
-  if (!provider) throw new ProfileActivationError("profile-has-no-pool");
-  const modelEvidence = findModelEvidence(directProviderRegistry, provider.name, activated.modelId);
-  const capabilities = applyCapabilityPolicy(
-    modelEvidence?.capabilities ?? DEFAULT_CAPABILITIES,
-    parseCapabilityPolicy(activated.profile.capabilityPolicy),
-  );
+  const capabilities = activated.capabilities;
   const adapterId = adapterIdFor(provider);
   const route: RouteRecord = {
     role: activated.role,

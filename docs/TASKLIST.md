@@ -104,6 +104,14 @@ Code/live-provider compatibility.
 - [x] Reserved commands stay reserved; unknown profile fails closed; `rly run codex` remains Codex CLI.
 - [x] No global Claude/Codex configuration mutation. Evidence: `tests/unit/cli-main.test.ts`, `tests/lifecycle/global-config-isolation.test.ts`; `pnpm verify` — 232 passed / 10 skipped; AT-031 browser passed.
 
+## Completed milestone: Phase 3 Codex through Claude Code
+
+- [x] Operator recipe for `codex` provider → login/import → pool → Claude profile named `codex` → `rly codex` (#1).
+- [x] Fake-upstream Claude Code E2E through Codex OAuth for text, streaming, tools, and cancellation (#2). Helper mapping, quota rotation, and sticky session use the existing pool path. Gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass.
+- [x] Opt-in live Claude Code → gateway → Codex OAuth smoke (#3). Gated `RLY_LIVE_CODEX_OAUTH=1`; skipped ≠ pass.
+- [x] Exact `(providerId, modelId)` Codex helper evidence; unknown required capability fails closed; no DEFAULT_CAPABILITIES fallback (#4).
+- [x] Secret-free `quota`/`route-trace` for a Codex profile: pseudonym, quota class, and decision reason only (#5).
+
 ## Updating this file
 
 - Check an item only when evidence exists.
@@ -113,4 +121,4 @@ Code/live-provider compatibility.
 
 ## Unresolved questions
 
-- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy. First UI scope is admin plus diagnostics. Next integration is Codex OAuth and ClinePass through Claude Code; Claude subscription OAuth is parked in BACKLOG.
+- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy. First UI scope is admin plus diagnostics. Codex OAuth through Claude Code is in this milestone; next is ClinePass through Claude Code. Claude subscription OAuth stays in BACKLOG.

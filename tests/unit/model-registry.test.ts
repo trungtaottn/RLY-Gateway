@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { gatewayConfigSchema } from "../../src/config/schema.js";
-import { directProviderRegistry, resolveConfiguredRoute, routesFromConfig } from "../../src/registry/model-registry.js";
+import { directProviderRegistry, findModelEvidence, resolveConfiguredRoute, routesFromConfig } from "../../src/registry/model-registry.js";
 
 describe("model registry", () => {
   it("maps explicit routes and known Claude internal models to fixed configured roles", () => {
@@ -15,7 +15,12 @@ describe("model registry", () => {
     expect(resolveConfiguredRoute(routes, "claude-sonnet-not-real")).toBeUndefined();
     expect(resolveConfiguredRoute(routes, "unknown-model")).toBeUndefined();
     expect(Object.isFrozen(routes.get("primary")?.capabilities)).toBe(true);
-    expect(directProviderRegistry.models.at(-1)?.capabilities.tools).toBe(false);
+    const deepseek = directProviderRegistry.models.find((model) => model.logicalId === "deepseek/deepseek-v4-flash");
+    expect(deepseek?.capabilities.tools).toBe(false);
+    const codex = directProviderRegistry.models.find((model) => model.logicalId === "codex/gpt-5.4");
+    expect(codex?.capabilities.streaming).toBe(true);
+    expect(codex?.capabilities.tools).toBe(true);
+    expect(codex?.capabilities.images).toBe(false);
   });
 
   it("refuses routes that lack reviewed model evidence", () => {
@@ -35,5 +40,12 @@ describe("model registry", () => {
       },
     });
     expect(routesFromConfig(config).size).toBe(0);
+  });
+
+  it("matches Codex evidence only for exact provider and model ids", () => {
+    expect(findModelEvidence(directProviderRegistry, "codex", "gpt-5.4")?.logicalId).toBe("codex/gpt-5.4");
+    expect(findModelEvidence(directProviderRegistry, "openrouter", "gpt-5.4")).toBeUndefined();
+    expect(findModelEvidence(directProviderRegistry, "codex", "nvidia/nemotron-3.5-lightning:free")).toBeUndefined();
+    expect(findModelEvidence(directProviderRegistry, "codex", "gpt-unreviewed")).toBeUndefined();
   });
 });
