@@ -8,9 +8,7 @@ import type { AccountRecord, ProviderRecord } from "../control-plane/types.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
-import { DeepSeekAdapter } from "../providers/direct/deepseek-adapter.js";
-import { OpenRouterAdapter } from "../providers/direct/openrouter-adapter.js";
-import { CodexOAuthAdapter, CODEX_OAUTH_ADAPTER_ID } from "../providers/oauth/codex/adapter.js";
+import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
 import { directProviderRegistry, findModelEvidence } from "../registry/model-registry.js";
 import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route.js";
 import type { CredentialSnapshot } from "../routing/eligibility/reasons.js";
@@ -128,12 +126,6 @@ export async function resolveProfileRoute(
   };
 }
 
-function adapterIdFor(provider: ProviderRecord): string {
-  if (provider.integrationMode === "oauth") return CODEX_OAUTH_ADAPTER_ID;
-  if (provider.name === "deepseek") return "deepseek-direct";
-  return "openrouter-direct";
-}
-
 function envCredentialName(handle: string): string | undefined {
   return handle.startsWith("env:") ? handle.slice(4) : undefined;
 }
@@ -145,26 +137,30 @@ async function credentialSnapshots(
 ): Promise<ReadonlyMap<string, CredentialSnapshot>> {
   const entries: [string, CredentialSnapshot][] = [];
   for (const account of accounts) {
-    const envName = envCredentialName(account.credentialHandle);
-    if (envName !== undefined) {
-      entries.push([account.credentialHandle, {
-        present: Boolean(environment[envName]),
-        generation: Math.max(account.credentialGeneration, 1),
-      }]);
-      continue;
-    }
-    try {
-      const metadata = await dependencies.broker.metadata(account.credentialHandle);
-      entries.push([account.credentialHandle, {
-        present: metadata !== undefined && metadata.generation >= 1,
-        generation: metadata?.generation ?? 0,
-        ...(metadata?.expiresAt === undefined ? {} : { expiresAt: metadata.expiresAt }),
-      }]);
-    } catch {
-      entries.push([account.credentialHandle, { present: false, generation: 0 }]);
-    }
+    entries.push([account.credentialHandle, await snapshotForAccount(account, dependencies, environment)]);
   }
   return new Map(entries);
+}
+
+async function snapshotForAccount(
+  account: AccountRecord,
+  dependencies: ProfileRouteDependencies,
+  environment: NodeJS.ProcessEnv,
+): Promise<CredentialSnapshot> {
+  const envName = envCredentialName(account.credentialHandle);
+  if (envName !== undefined) {
+    return { present: Boolean(environment[envName]), generation: Math.max(account.credentialGeneration, 1) };
+  }
+  try {
+    const metadata = await dependencies.broker.metadata(account.credentialHandle);
+    return {
+      present: metadata !== undefined && metadata.generation >= 1,
+      generation: metadata?.generation ?? 0,
+      ...(metadata?.expiresAt === undefined ? {} : { expiresAt: metadata.expiresAt }),
+    };
+  } catch {
+    return { present: false, generation: 0 };
+  }
 }
 
 async function* invokeSelected(
@@ -176,14 +172,23 @@ async function* invokeSelected(
   signal: AbortSignal,
 ): AsyncIterable<CanonicalEvent> {
   const decision = toRouteDecision(route, dependencies.configFingerprint);
-  const endpoint = provider.endpointPolicy;
-  if (provider.integrationMode === "oauth") {
-    const scoped = await dependencies.broker.resolve(route.credentialHandle);
+  if (provider.integrationMode === "oauth" || provider.integrationMode === "bridge") {
+    const scoped = provider.integrationMode === "oauth"
+      ? await dependencies.broker.resolve(route.credentialHandle)
+      : await dependencies.broker.resolve(route.credentialHandle).catch(() => undefined);
     try {
-      const adapter = new CodexOAuthAdapter(dependencies.fetch ?? fetch, scoped.accessToken, endpoint, scoped.accountId);
+      const adapter = createProviderAdapter({
+        provider,
+        request: dependencies.fetch ?? fetch,
+        environment,
+        ...(scoped === undefined ? {} : {
+          accessToken: scoped.accessToken,
+          ...(scoped.accountId === undefined ? {} : { accountId: scoped.accountId }),
+        }),
+      });
       yield* adapter.invoke(request, decision, signal);
     } finally {
-      scoped.dispose();
+      scoped?.dispose();
     }
     return;
   }
@@ -191,8 +196,6 @@ async function* invokeSelected(
   const envDecision = envName === undefined
     ? decision
     : { ...decision, credentialRef: parseCredentialRef(`env:${envName}`) };
-  const adapter = provider.name === "deepseek"
-    ? new DeepSeekAdapter(dependencies.fetch ?? fetch, endpoint, environment)
-    : new OpenRouterAdapter(dependencies.fetch ?? fetch, endpoint, environment);
+  const adapter = createProviderAdapter({ provider, request: dependencies.fetch ?? fetch, environment });
   yield* adapter.invoke(request, envDecision, signal);
 }

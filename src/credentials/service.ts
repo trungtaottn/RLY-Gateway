@@ -3,6 +3,7 @@ import { controlPlanePaths } from "../storage/paths.js";
 import { ControlPlaneError, NotFoundError, ValidationError, VersionConflictError } from "../control-plane/errors.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { AccountRecord, ManagementActor } from "../control-plane/types.js";
+import { providerContract, type CredentialProviderName } from "../providers/catalog.js";
 import { CredentialUnreadyError, isCredentialError, OAuthFlowError } from "./errors.js";
 import type { CredentialBroker } from "./broker.js";
 import type { CredentialMetadata } from "./record.js";
@@ -18,8 +19,9 @@ export class CredentialService {
     private readonly broker: CredentialBroker,
   ) {}
 
-  public async previewImport(sourcePath: string): Promise<unknown> {
-    return this.broker.previewImport(sourcePath);
+  public async previewImport(sourcePath: string, providerId?: string): Promise<unknown> {
+    if (!providerId) throw new ValidationError("credential preview requires a provider id");
+    return this.broker.previewImport(sourcePath, this.usesClineImport(providerId) ? "cline" : "codex");
   }
 
   public async importCodex(input: Readonly<{
@@ -29,11 +31,14 @@ export class CredentialService {
     sourceFingerprint: string;
   }>, actor: ManagementActor): Promise<AccountRecord> {
     this.requireOauthProvider(input.providerId);
-    const metadata = await this.broker.importCodex({
+    const source = {
       sourcePath: input.sourcePath,
       pseudonym: input.pseudonym,
       sourceFingerprint: input.sourceFingerprint,
-    });
+    };
+    const metadata = this.usesClineImport(input.providerId)
+      ? await this.broker.importCline(source)
+      : await this.broker.importCodex(source);
     return this.attachOrRevoke(input.providerId, input.pseudonym, metadata, actor);
   }
 
@@ -42,10 +47,15 @@ export class CredentialService {
     state: string;
     redirectUri: string;
   }>> {
-    this.requireOauthProvider(input.providerId);
+    const provider = this.requireOauthProvider(input.providerId);
+    if (this.usesClineImport(input.providerId)) {
+      throw new ValidationError("cline accounts are imported, not logged in");
+    }
+    const started = await this.broker.startLogin({
+      ...input,
+      provider: provider.credentialProvider,
+    });
     this.pendingLoginProviderId = input.providerId;
-    this.finishingLogin = undefined;
-    const started = await this.broker.startLogin(input);
     this.finishingLogin = this.finishOnce(actor);
     return started;
   }
@@ -74,21 +84,13 @@ export class CredentialService {
     const account = this.account(accountId);
     try {
       const metadata = await this.broker.refresh(account.credentialHandle);
-      return this.store.bindCredential(account.id, version, {
-        credentialHandle: metadata.handle,
-        credentialGeneration: metadata.generation,
-        state: "ready",
-      }, actor);
+      return this.bindReady(account, version, metadata, actor);
     } catch (error) {
       if (error instanceof OAuthFlowError && error.code === "invalid-grant") {
         const current = this.account(accountId);
         const latest = await this.broker.metadata(current.credentialHandle);
         if (latest && latest.generation > current.credentialGeneration) {
-          return this.store.bindCredential(current.id, current.version, {
-            credentialHandle: latest.handle,
-            credentialGeneration: latest.generation,
-            state: "ready",
-          }, actor);
+          return this.bindReady(current, current.version, latest, actor);
         }
         return this.store.bindCredential(current.id, current.version, {
           credentialHandle: current.credentialHandle,
@@ -168,9 +170,29 @@ export class CredentialService {
     }
   }
 
-  private requireOauthProvider(providerId: string): void {
+  private requireOauthProvider(providerId: string): { credentialProvider: CredentialProviderName } {
     const provider = this.store.listProviders().find((item) => item.id === providerId);
     if (!provider || provider.integrationMode !== "oauth") this.missingProvider();
+    const credentialProvider = providerContract(provider.name)?.credentialProvider;
+    if (!credentialProvider) this.missingProvider();
+    return { credentialProvider };
+  }
+
+  private usesClineImport(providerId: string): boolean {
+    return providerContract(this.providerName(providerId) ?? "")?.importMode === "opt-in-interoperability";
+  }
+
+  private bindReady(
+    account: AccountRecord,
+    version: number,
+    metadata: CredentialMetadata,
+    actor: ManagementActor,
+  ): AccountRecord {
+    return this.store.bindCredential(account.id, version, {
+      credentialHandle: metadata.handle,
+      credentialGeneration: metadata.generation,
+      state: "ready",
+    }, actor);
   }
 
   private attachAccount(
@@ -182,11 +204,7 @@ export class CredentialService {
     const existing = this.store.listAccounts().find((account) => account.pseudonym === pseudonym);
     if (existing) {
       const previous = existing.credentialHandle;
-      const bound = this.store.bindCredential(existing.id, existing.version, {
-        credentialHandle: metadata.handle,
-        credentialGeneration: metadata.generation,
-        state: "ready",
-      }, actor);
+      const bound = this.bindReady(existing, existing.version, metadata, actor);
       if (previous !== metadata.handle) void this.broker.revoke(previous).catch(() => undefined);
       return bound;
     }
@@ -196,17 +214,17 @@ export class CredentialService {
       credentialHandle: metadata.handle,
       state: "unready",
     }, actor);
-    return this.store.bindCredential(created.id, created.version, {
-      credentialHandle: metadata.handle,
-      credentialGeneration: metadata.generation,
-      state: "ready",
-    }, actor);
+    return this.bindReady(created, created.version, metadata, actor);
   }
 
   private account(id: string): AccountRecord {
     const account = this.store.listAccounts().find((item) => item.id === id);
     if (!account) throw new NotFoundError("account");
     return account;
+  }
+
+  private providerName(providerId: string): string | undefined {
+    return this.store.listProviders().find((item) => item.id === providerId)?.name;
   }
 
   private missingProvider(): never {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { ManagementActor } from "../control-plane/types.js";
 import { reject, type ManagementAuthorizer } from "./auth.js";
+import { applyCatalogDefaults } from "../providers/catalog.js";
 import {
   toAccountDto,
   toPoolDto,
@@ -61,12 +62,13 @@ export function registerManagementCollections(
     list: () => store.listProviders().map(toProviderDto),
     create: (body, actor) => {
       const parsed = providerBody.parse(body);
+      const catalog = applyCatalogDefaults(parsed);
       return toProviderDto(store.createProvider({
         name: parsed.name,
         integrationMode: parsed.integrationMode,
-        endpointPolicy: parsed.endpointPolicy,
+        endpointPolicy: catalog.endpointPolicy,
         capabilityEvidence: parsed.capabilityEvidence,
-        requiredTermsRevision: parsed.requiredTermsRevision,
+        requiredTermsRevision: catalog.requiredTermsRevision,
         provenanceRef: parsed.provenanceRef,
       }, actor));
     },

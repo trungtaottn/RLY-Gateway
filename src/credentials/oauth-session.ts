@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { CredentialProviderName } from "../providers/catalog.js";
 import { OAuthFlowError } from "./errors.js";
 import { createPkcePair, type PkcePair } from "./pkce.js";
 
@@ -8,7 +9,7 @@ export type OAuthSession = Readonly<{
   state: string;
   pkce: PkcePair;
   redirectUri: string;
-  provider: "codex";
+  provider: CredentialProviderName;
   providerId: string;
   pseudonym: string;
   expiresAt: number;
@@ -23,12 +24,13 @@ export class OAuthSessionStore {
     redirectUri: string;
     providerId: string;
     pseudonym: string;
+    provider: CredentialProviderName;
   }>): OAuthSession {
     const session: OAuthSession = {
       state: randomBytes(32).toString("base64url"),
       pkce: createPkcePair(),
       redirectUri: input.redirectUri,
-      provider: "codex",
+      provider: input.provider,
       providerId: input.providerId,
       pseudonym: input.pseudonym,
       expiresAt: this.now() + STATE_TTL_MS,

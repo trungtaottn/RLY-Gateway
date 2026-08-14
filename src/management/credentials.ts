@@ -18,8 +18,8 @@ export function registerCredentialRoutes(
   app.post("/v1/credentials/import/preview", async (request, reply) => {
     const principal = authorize(request, reply, true);
     if (!principal) return;
-    const parsed = z.object({ sourcePath: z.string().min(1) }).parse(request.body);
-    return wrap(credentials.previewImport(parsed.sourcePath));
+    const parsed = z.object({ sourcePath: z.string().min(1), providerId: z.uuid() }).parse(request.body);
+    return wrap(credentials.previewImport(parsed.sourcePath, parsed.providerId));
   });
   app.post("/v1/credentials/import", async (request, reply) => {
     const principal = authorize(request, reply, true);

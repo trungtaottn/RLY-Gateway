@@ -95,10 +95,11 @@ export function initialCredentialRecord(
   pseudonym: string,
   tokens: OAuthTokenSet,
   sourceFingerprint?: string,
+  provider: CredentialRecord["provider"] = CREDENTIAL_PROVIDER_CODEX,
 ): CredentialRecord {
   return {
     schemaVersion: CREDENTIAL_SCHEMA_VERSION,
-    provider: CREDENTIAL_PROVIDER_CODEX,
+    provider,
     handle,
     pseudonym,
     generation: 1,

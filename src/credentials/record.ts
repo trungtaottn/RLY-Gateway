@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+import { CREDENTIAL_PROVIDERS, type CredentialProviderName } from "../providers/catalog.js";
+
 export const CREDENTIAL_SCHEMA_VERSION = 1;
 export const CREDENTIAL_PROVIDER_CODEX = "codex";
+export type { CredentialProviderName };
 
 const materialSchema = z.object({
   accessToken: z.string().min(1).max(16_384),
@@ -11,7 +14,7 @@ const materialSchema = z.object({
 
 export const credentialRecordSchema = z.object({
   schemaVersion: z.literal(CREDENTIAL_SCHEMA_VERSION),
-  provider: z.literal(CREDENTIAL_PROVIDER_CODEX),
+  provider: z.enum(CREDENTIAL_PROVIDERS),
   handle: z.string().regex(/^cred-[A-Za-z0-9_-]{1,64}$/),
   pseudonym: z.string().min(1).max(128),
   generation: z.number().int().positive(),
@@ -25,7 +28,7 @@ export type CredentialRecord = z.infer<typeof credentialRecordSchema>;
 
 export type CredentialMetadata = Readonly<{
   schemaVersion: number;
-  provider: typeof CREDENTIAL_PROVIDER_CODEX;
+  provider: CredentialProviderName;
   handle: string;
   pseudonym: string;
   generation: number;

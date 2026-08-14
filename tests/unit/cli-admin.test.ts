@@ -62,10 +62,10 @@ describe("admin CLI parsing", () => {
     });
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      await expect(runCli(["admin", "providers", "create", "--name", "codex", "--mode", "direct", "--config", configPath])).resolves.toBe(0);
+      await expect(runCli(["admin", "providers", "create", "--name", "openrouter", "--mode", "direct", "--config", configPath])).resolves.toBe(0);
       await expect(runCli(["admin", "providers", "list", "--config", configPath])).resolves.toBe(0);
-      const listed = log.mock.calls.map((call) => String(call[0])).find((line) => line.includes("codex"));
-      expect(listed).toContain("codex");
+      const listed = log.mock.calls.map((call) => String(call[0])).find((line) => line.includes("openrouter"));
+      expect(listed).toContain("openrouter");
     } finally {
       log.mockRestore();
       await lease.release();

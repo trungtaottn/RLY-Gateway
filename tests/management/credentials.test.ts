@@ -67,7 +67,7 @@ describe("management credential operations", () => {
       method: "POST",
       url: "/v1/credentials/import/preview",
       headers: auth,
-      payload: { sourcePath: source.path },
+      payload: { sourcePath: source.path, providerId },
     });
     expect(preview.statusCode).toBe(200);
     expect(JSON.stringify(preview.json())).not.toMatch(/access-token|refresh-token/i);
@@ -101,5 +101,63 @@ describe("management credential operations", () => {
     expect(revoked.statusCode).toBe(200);
     expect(asRecord(revoked.json())["state"]).toBe("revoked");
     expect(JSON.stringify(revoked.json())).not.toMatch(/accessToken|refreshToken/i);
+  });
+
+  it("imports Cline through the management API and refuses OAuth login", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-gateway-mgmt-cline-"));
+    directories.push(directory);
+    store = await ControlPlaneStore.open(directory);
+    broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
+    const credentials = new CredentialService(store, broker);
+    app = createManagementServer({
+      host: "127.0.0.1",
+      port: 17872,
+      origin: "http://127.0.0.1:17872",
+      managementToken: "mgmt-secret",
+      instanceId: "00000000-0000-4000-8000-000000000099",
+      configFingerprint: "a".repeat(64),
+      store,
+      sessions: new SessionStore(),
+      credentials,
+    });
+    const provider = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "cline", integrationMode: "oauth" },
+    });
+    const providerId = String(asRecord(provider.json())["id"]);
+    const sourcePath = join(directory, "cline-auth.json");
+    const raw = JSON.stringify({ tokens: { access_token: "cline-access-fixture", refresh_token: "cline-refresh-fixture" } });
+    const { writeFile } = await import("node:fs/promises");
+    const { createHash } = await import("node:crypto");
+    await writeFile(sourcePath, raw, "utf8");
+    const preview = await app.inject({
+      method: "POST",
+      url: "/v1/credentials/import/preview",
+      headers: auth,
+      payload: { sourcePath, providerId },
+    });
+    expect(asRecord(preview.json())["provider"]).toBe("cline");
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/credentials/import",
+      headers: auth,
+      payload: {
+        sourcePath,
+        providerId,
+        pseudonym: "acct-cline",
+        sourceFingerprint: createHash("sha256").update(raw).digest("hex"),
+      },
+    });
+    expect(imported.statusCode).toBe(201);
+    const login = await app.inject({
+      method: "POST",
+      url: "/v1/credentials/login",
+      headers: auth,
+      payload: { providerId, pseudonym: "acct-cline-login" },
+    });
+    expect(login.statusCode).toBe(400);
+    expect(asRecord(login.json())["error"]).toBe("invalid");
   });
 });

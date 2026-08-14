@@ -2,7 +2,8 @@ import { OAuthFlowError } from "./errors.js";
 import { OAuthSessionStore } from "./oauth-session.js";
 import { matchesPkceChallenge } from "./pkce.js";
 import type { CredentialMetadata } from "./record.js";
-import type { CodexOAuthClient, OAuthTokenSet } from "../providers/oauth/codex/protocol.js";
+import type { CredentialProviderName } from "../providers/catalog.js";
+import type { OAuthClient, OAuthTokenSet } from "../providers/oauth/shared.js";
 import { listenOauthCallback, type OAuthCallbackServer } from "../providers/oauth/codex/callback-server.js";
 
 export class OauthLoginCoordinator {
@@ -14,46 +15,58 @@ export class OauthLoginCoordinator {
   private loginReject: ((error: unknown) => void) | undefined;
 
   public constructor(
-    private readonly oauth: CodexOAuthClient,
-    private readonly persistTokens: (pseudonym: string, tokens: OAuthTokenSet) => Promise<CredentialMetadata>,
+    private readonly oauthFor: (provider: CredentialProviderName) => OAuthClient,
+    private readonly persistTokens: (pseudonym: string, tokens: OAuthTokenSet, provider: CredentialProviderName) => Promise<CredentialMetadata>,
     private readonly callbackPort?: number,
   ) {}
 
-  public async start(input: Readonly<{ providerId: string; pseudonym: string }>): Promise<Readonly<{
+  public async start(input: Readonly<{
+    providerId: string;
+    pseudonym: string;
+    provider?: CredentialProviderName;
+  }>): Promise<Readonly<{
     authorizationUrl: string;
     state: string;
     redirectUri: string;
   }>> {
     if (this.callback || this.loginBusy) throw new OAuthFlowError("callback-collision", "oauth callback is already active", 409);
+    const provider = input.provider;
+    if (!provider) throw new OAuthFlowError("oauth-unconfigured", "oauth provider is required", 400);
+    const oauth = this.oauthFor(provider);
+    oauth.authorizeUrl({
+      state: "preflight",
+      challenge: "preflight",
+      redirectUri: "http://127.0.0.1/preflight",
+    });
     this.loginBusy = true;
     try {
       this.callback = await listenOauthCallback(
         async (callback) => this.handleCallback(callback),
         this.callbackPort === undefined ? {} : { port: this.callbackPort },
       );
+      this.loginCompletion = new Promise((resolve, reject) => {
+        this.loginResolve = resolve;
+        this.loginReject = reject;
+      });
+      const session = this.sessions.create({
+        redirectUri: this.callback.redirectUri,
+        providerId: input.providerId,
+        pseudonym: input.pseudonym,
+        provider,
+      });
+      return {
+        authorizationUrl: oauth.authorizeUrl({
+          state: session.state,
+          challenge: session.pkce.challenge,
+          redirectUri: session.redirectUri,
+        }),
+        state: session.state,
+        redirectUri: session.redirectUri,
+      };
     } catch (error) {
-      this.loginBusy = false;
-      this.callback = undefined;
+      await this.close();
       throw error;
     }
-    this.loginCompletion = new Promise((resolve, reject) => {
-      this.loginResolve = resolve;
-      this.loginReject = reject;
-    });
-    const session = this.sessions.create({
-      redirectUri: this.callback.redirectUri,
-      providerId: input.providerId,
-      pseudonym: input.pseudonym,
-    });
-    return {
-      authorizationUrl: this.oauth.authorizeUrl({
-        state: session.state,
-        challenge: session.pkce.challenge,
-        redirectUri: session.redirectUri,
-      }),
-      state: session.state,
-      redirectUri: session.redirectUri,
-    };
   }
 
   public async wait(): Promise<CredentialMetadata> {
@@ -93,11 +106,11 @@ export class OauthLoginCoordinator {
     if (!matchesPkceChallenge(session.pkce.verifier, session.pkce.challenge)) {
       throw new OAuthFlowError("pkce-mismatch", "pkce verifier does not match challenge");
     }
-    return this.persistTokens(session.pseudonym, await this.oauth.exchangeAuthorizationCode({
+    return this.persistTokens(session.pseudonym, await this.oauthFor(session.provider).exchangeAuthorizationCode({
       code: callback.code,
       verifier: session.pkce.verifier,
       redirectUri: session.redirectUri,
-    }));
+    }), session.provider);
   }
 
   private succeed(metadata: CredentialMetadata): void {

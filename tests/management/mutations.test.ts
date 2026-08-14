@@ -138,8 +138,32 @@ describe("management mutations", () => {
       payload: { version: 99, enabled: false },
     });
     expect(stale.statusCode).toBe(409);
+    expect(asRecord(stale.json())["error"]).toBe("stale-version");
     const listed = await app.inject({ method: "GET", url: "/v1/providers", headers: auth });
     expect(asItems(listed.json())).toHaveLength(1);
     expect(asRecord(asItems(listed.json())[0])).toMatchObject({ name: "keep", enabled: true, version: 1 });
+  });
+
+  it("applies catalog terms and rejects a catalog name with the wrong mode", async () => {
+    await start();
+    if (!app) throw new Error("missing app");
+    const alibaba = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "alibaba", integrationMode: "direct" },
+    });
+    expect(alibaba.statusCode).toBe(201);
+    expect(asRecord(alibaba.json())).toMatchObject({
+      name: "alibaba",
+      requiredTermsRevision: "alibaba-terms-1",
+    });
+    const wrong = await app.inject({
+      method: "POST",
+      url: "/v1/providers",
+      headers: auth,
+      payload: { name: "gemini", integrationMode: "direct" },
+    });
+    expect(wrong.statusCode).toBe(400);
   });
 });

@@ -12,14 +12,18 @@ import {
   type CredentialRecord,
 } from "./record.js";
 import { CredentialStore } from "./store.js";
+import type { CredentialProviderName } from "../providers/catalog.js";
 import {
   createCodexOAuthClient,
   initialCredentialRecord,
   nextCredentialGeneration,
-  type CodexOAuthClient,
-  type OAuthTokenSet,
 } from "../providers/oauth/codex/protocol.js";
+import { createClaudeOAuthClient } from "../providers/oauth/claude/protocol.js";
+import { createGeminiOAuthClient } from "../providers/oauth/gemini/protocol.js";
+import { unsupportedOAuthClient } from "../providers/oauth/unsupported.js";
+import type { OAuthClient, OAuthTokenSet } from "../providers/oauth/shared.js";
 import { readCodexAuthSource, type CodexImportPreview } from "../providers/oauth/codex/source.js";
+import { previewClineSource, readClineSource, rejectSilentClineDiscovery } from "../providers/interop/cline.js";
 
 const REFRESH_SKEW_MS = 60_000;
 
@@ -32,9 +36,11 @@ export type RequestScopedCredential = Readonly<{
 }>;
 
 export type CredentialBrokerOptions = Readonly<{
-  oauth?: CodexOAuthClient;
+  oauth?: OAuthClient;
+  oauthClients?: Partial<Record<CredentialProviderName, OAuthClient>>;
   callbackPort?: number;
   clock?: () => Date;
+  environment?: NodeJS.ProcessEnv;
 }>;
 
 export class CredentialBroker {
@@ -43,27 +49,40 @@ export class CredentialBroker {
 
   public constructor(
     readonly store: CredentialStore,
-    private readonly oauth: CodexOAuthClient,
+    private readonly oauth: OAuthClient,
     private readonly clock: () => Date,
     callbackPort?: number,
+    private readonly oauthClients: Partial<Record<CredentialProviderName, OAuthClient>> = {},
   ) {
     this.login = new OauthLoginCoordinator(
-      oauth,
-      (pseudonym, tokens) => this.persistTokens(pseudonym, tokens),
+      (provider) => this.clientFor(provider),
+      (pseudonym, tokens, provider) => this.persistTokens(pseudonym, tokens, undefined, provider),
       callbackPort,
     );
   }
 
   public static async open(directory: string, options: CredentialBrokerOptions = {}): Promise<CredentialBroker> {
+    const environment = options.environment ?? process.env;
     return new CredentialBroker(
       await CredentialStore.open(directory),
       options.oauth ?? createCodexOAuthClient(),
       options.clock ?? (() => new Date()),
       options.callbackPort,
+      {
+        codex: options.oauth ?? options.oauthClients?.codex ?? createCodexOAuthClient(),
+        gemini: options.oauthClients?.gemini ?? createGeminiOAuthClient(fetch, environment),
+        claude: options.oauthClients?.claude ?? createClaudeOAuthClient(fetch, environment),
+        cline: options.oauthClients?.cline ?? unsupportedOAuthClient("cline"),
+        ...options.oauthClients,
+      },
     );
   }
 
-  public async previewImport(sourcePath: string): Promise<CodexImportPreview> {
+  public async previewImport(sourcePath: string, kind: "codex" | "cline" = "codex"): Promise<CodexImportPreview | Awaited<ReturnType<typeof previewClineSource>>> {
+    if (kind === "cline") {
+      rejectSilentClineDiscovery(sourcePath);
+      return previewClineSource(sourcePath);
+    }
     return (await readCodexAuthSource(sourcePath)).preview;
   }
 
@@ -73,17 +92,33 @@ export class CredentialBroker {
     sourceFingerprint: string;
   }>): Promise<CredentialMetadata> {
     const read = await readCodexAuthSource(input.sourcePath);
-    if (read.preview.sourceFingerprint !== input.sourceFingerprint) {
-      throw new ImportIncompatibleError("credential source changed during import");
-    }
+    assertUnchangedFingerprint(read.preview.sourceFingerprint, input.sourceFingerprint);
     const after = await readCodexAuthSource(input.sourcePath);
-    if (after.preview.sourceFingerprint !== read.preview.sourceFingerprint) {
-      throw new ImportIncompatibleError("credential source changed during import");
-    }
-    return this.persistTokens(input.pseudonym, read.tokens, read.preview.sourceFingerprint);
+    assertUnchangedFingerprint(after.preview.sourceFingerprint, read.preview.sourceFingerprint);
+    return this.persistTokens(input.pseudonym, read.tokens, read.preview.sourceFingerprint, "codex");
   }
 
-  public startLogin(input: Readonly<{ providerId: string; pseudonym: string }>): Promise<Readonly<{
+  public async importCline(input: Readonly<{
+    sourcePath: string;
+    pseudonym: string;
+    sourceFingerprint: string;
+  }>): Promise<CredentialMetadata> {
+    rejectSilentClineDiscovery(input.sourcePath);
+    const read = await readClineSource(input.sourcePath);
+    assertUnchangedFingerprint(read.preview.sourceFingerprint, input.sourceFingerprint);
+    return this.persistTokens(input.pseudonym, {
+      accessToken: read.tokens.accessToken,
+      refreshToken: read.tokens.refreshToken,
+      expiresAt: undefined,
+      accountId: undefined,
+    }, read.preview.sourceFingerprint, "cline");
+  }
+
+  public startLogin(input: Readonly<{
+    providerId: string;
+    pseudonym: string;
+    provider?: CredentialProviderName;
+  }>): Promise<Readonly<{
     authorizationUrl: string;
     state: string;
     redirectUri: string;
@@ -113,12 +148,15 @@ export class CredentialBroker {
 
   public async revoke(handle: string): Promise<void> {
     let refreshToken: string | undefined;
+    let provider: CredentialProviderName = "codex";
     try {
-      refreshToken = (await this.store.read(handle)).material.refreshToken;
+      const record = await this.store.read(handle);
+      refreshToken = record.material.refreshToken;
+      provider = record.provider;
     } catch (error) {
       if (!(error instanceof CredentialUnreadyError)) throw error;
     }
-    if (refreshToken) await this.oauth.revoke(refreshToken).catch(() => undefined);
+    if (refreshToken) await this.clientFor(provider).revoke(refreshToken).catch(() => undefined);
     await this.store.purge(handle);
   }
 
@@ -130,16 +168,21 @@ export class CredentialBroker {
     return this.login.close();
   }
 
+  private clientFor(provider: CredentialProviderName): OAuthClient {
+    return this.oauthClients[provider] ?? this.oauth;
+  }
+
   private async persistTokens(
     pseudonym: string,
     tokens: OAuthTokenSet,
     sourceFingerprint?: string,
+    provider: CredentialProviderName = "codex",
   ): Promise<CredentialMetadata> {
     const handle = `cred-${randomBytes(16).toString("hex")}`;
     const committed = await this.store.commit(
       handle,
       0,
-      initialCredentialRecord(handle, pseudonym, tokens, sourceFingerprint),
+      initialCredentialRecord(handle, pseudonym, tokens, sourceFingerprint, provider),
     );
     return toCredentialMetadata(committed);
   }
@@ -154,7 +197,7 @@ export class CredentialBroker {
 
   private async refreshOnce(handle: string): Promise<CredentialMetadata> {
     const current = await this.store.read(handle);
-    const tokens = await this.oauth.refresh(current.material.refreshToken);
+    const tokens = await this.clientFor(current.provider).refresh(current.material.refreshToken);
     try {
       const committed = await this.store.commit(handle, current.generation, nextCredentialGeneration(current, tokens));
       return toCredentialMetadata(committed);
@@ -166,6 +209,10 @@ export class CredentialBroker {
       throw error;
     }
   }
+}
+
+function assertUnchangedFingerprint(actual: string, expected: string): void {
+  if (actual !== expected) throw new ImportIncompatibleError("credential source changed during import");
 }
 
 function needsRefresh(expiresAt: string | undefined, now: Date): boolean {

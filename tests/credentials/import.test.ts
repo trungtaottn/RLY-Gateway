@@ -61,4 +61,15 @@ describe("codex credential import", () => {
     expect(leftover.filter((name) => name.startsWith("cred-") || name.endsWith(".tmp"))).toEqual([]);
     await broker.close();
   });
+
+  it("requires a destination provider before previewing a credential source", async () => {
+    const directory = await tempDirectory("agent-gateway-cred-preview-");
+    directories.push(directory);
+    const store = await ControlPlaneStore.open(directory);
+    const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
+    const service = new CredentialService(store, broker);
+    await expect(service.previewImport("/tmp/source.json")).rejects.toThrow(/provider id/);
+    store.close();
+    await broker.close();
+  });
 });

@@ -26,12 +26,23 @@ async function availablePort(): Promise<number> {
 }
 
 describe("codex oauth login", () => {
+  it("refuses login when the oauth provider is omitted", async () => {
+    const directory = await tempDirectory("agent-gateway-oauth-kind-");
+    directories.push(directory);
+    const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
+    await expect(broker.startLogin({
+      providerId: "00000000-0000-4000-8000-000000000001",
+      pseudonym: "acct-fixture-001",
+    })).rejects.toMatchObject({ code: "oauth-unconfigured" });
+    await broker.close();
+  });
+
   it("completes PKCE login through an exact loopback callback", async () => {
     const directory = await tempDirectory("agent-gateway-oauth-ok-");
     directories.push(directory);
     const port = await availablePort();
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
-    const started = await broker.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-001" });
+    const started = await broker.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-001", provider: "codex" });
     expect(started.authorizationUrl).toContain("code_challenge=");
     expect(started.authorizationUrl).toContain("code_challenge_method=S256");
     expect(started.redirectUri).toBe(`http://127.0.0.1:${String(port)}/callback`);
@@ -50,7 +61,7 @@ describe("codex oauth login", () => {
     directories.push(directory);
     const port = await availablePort();
     const broker = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
-    const started = await broker.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-001" });
+    const started = await broker.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-001", provider: "codex" });
     const mismatch = await fetch(`${started.redirectUri}?code=fixture-code&state=wrong-state`);
     expect(mismatch.status).toBe(400);
     const first = await fetch(`${started.redirectUri}?code=fixture-code&state=${started.state}`);
@@ -60,18 +71,19 @@ describe("codex oauth login", () => {
     await broker.close();
 
     const next = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
-    const login = await next.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-002" });
+    const login = await next.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-002", provider: "codex" });
     const cancelled = next.waitForLogin();
     await next.cancelLogin(login.state);
     await expect(cancelled).rejects.toBeInstanceOf(OAuthFlowError);
     await next.close();
 
     const holder = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
-    await holder.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-003" });
+    await holder.startLogin({ providerId: "00000000-0000-4000-8000-000000000001", pseudonym: "acct-fixture-003", provider: "codex" });
     const colliding = await CredentialBroker.open(directory, { oauth: fakeOauth(), callbackPort: port });
     await expect(colliding.startLogin({
       providerId: "00000000-0000-4000-8000-000000000001",
       pseudonym: "acct-fixture-004",
+      provider: "codex",
     })).rejects.toMatchObject({ code: "callback-collision" });
     await colliding.close();
     await holder.close();
@@ -87,6 +99,7 @@ describe("codex oauth login", () => {
       redirectUri: "http://127.0.0.1:17873/callback",
       providerId: "00000000-0000-4000-8000-000000000001",
       pseudonym: "acct-fixture-001",
+      provider: "codex",
     });
     sessions.consume(created.state, created.redirectUri);
     expect(() => sessions.consume(created.state, created.redirectUri)).toThrow(/already used/);
@@ -94,6 +107,7 @@ describe("codex oauth login", () => {
       redirectUri: "http://127.0.0.1:17873/callback",
       providerId: "00000000-0000-4000-8000-000000000001",
       pseudonym: "acct-fixture-002",
+      provider: "codex",
     });
     now += 11 * 60 * 1000;
     expect(() => sessions.consume(expiring.state, expiring.redirectUri)).toThrow(/expired/);
