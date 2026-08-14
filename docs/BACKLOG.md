@@ -66,12 +66,19 @@ Still next-focus, not Phase 10 close: parked Claude OAuth (#12–#15). Live Gemi
 
 ## Provider expansion
 
-- Additional providers beyond the committed Codex OAuth, Gemini, Cline, Claude, OpenCode Go, Alibaba, and bridge sequence.
-- Anthropic API direct adapter.
-- OpenAI API-key direct adapter separate from Codex subscription bridge.
-- Gemini API direct adapter separate from Antigravity subscription bridge.
-- Z.AI/GLM coding plan.
-- Additional coding plans only after terms and protocol capability review.
+Phase 6 review (2026-08-14): none of these are committed-V1 Must gaps. SPEC §5 already lists the V1 sequence; additional adapters stay here until promoted. Do not implement, duplicate catalog entries, or unpark Claude subscription OAuth (#12–#15). Local evidence: `plans/reports/phase-6-provider-review.md`.
+
+In-tree catalog (do not duplicate): `openrouter`, `deepseek`, `codex`, `gemini`, `antigravity`, `cline`, `claude` (text-only, parked), `opencode-go`, `alibaba` (terms-gated).
+
+| ID | Issue | Verdict | V1 surface already in tree | Missing (not V1) |
+| --- | --- | --- | --- | --- |
+| BL-050 | [#26](https://github.com/trungtaottn/RLY-Gateway/issues/26) | backlog-not-V1 | SPEC §5 sequence is catalogued and dispatched | Providers beyond that sequence |
+| BL-051 | [#27](https://github.com/trungtaottn/RLY-Gateway/issues/27) | backlog-not-V1 | Claude subscription OAuth exists but is parked text-only (#12–#15). Gateway Anthropic Messages is the harness protocol, not an Anthropic API-key provider | Anthropic API-key direct adapter |
+| BL-052 | [#28](https://github.com/trungtaottn/RLY-Gateway/issues/28) | partial | Codex subscription OAuth plus shared OpenAI-compatible transport used by named catalog providers | OpenAI API-key catalog provider separate from Codex |
+| BL-053 | [#29](https://github.com/trungtaottn/RLY-Gateway/issues/29) | partial | `gemini` project-owned OAuth and `antigravity` attested bridge are distinct catalog entries | Gemini API-key direct adapter |
+| BL-054 | [#30](https://github.com/trungtaottn/RLY-Gateway/issues/30) | backlog-not-V1 | Terms-gated Alibaba is the V1 coding-plan example | Z.AI/GLM after terms and protocol capability review |
+
+Additional coding plans only after terms and protocol capability review.
 
 ## Routing evolution
 
