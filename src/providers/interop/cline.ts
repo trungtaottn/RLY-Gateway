@@ -83,6 +83,7 @@ async function digestClineFile(path: string): Promise<{ fingerprint: string; con
   }
 }
 
+/** Unused opt-in helpers. Do not call from default import or launch; RLY owns imported records. */
 export async function lockClineInterop(directory: string, sourcePath: string): Promise<void> {
   const existing = await readPrivateTextIfPresent(join(directory, CLINE_INTEROP_LOCK));
   if (existing) throw new CredentialUnreadyError("cline interoperability lock is already held");

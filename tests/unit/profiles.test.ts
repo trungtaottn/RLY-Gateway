@@ -84,6 +84,22 @@ describe("profile activation", () => {
     })).toThrow(ProfileActivationError);
   });
 
+  it("maps Claude helpers onto ClinePass model roles without remapping unknown shortcuts", () => {
+    const clinepass = profile({
+      name: "clinepass",
+      modelRoles: { primary: "claude-sonnet-4-5", fast: "claude-sonnet-4-5" },
+    });
+    expect(resolveProfileRole("claude-haiku-4-5", clinepass.modelRoles)).toEqual({ role: "fast", modelId: "claude-sonnet-4-5" });
+    expect(resolveProfileRole("claude-sonnet-4-5", clinepass.modelRoles)).toEqual({ role: "primary", modelId: "claude-sonnet-4-5" });
+    expect(resolveProfileRole("claude-haiku-unknown", clinepass.modelRoles)).toBeUndefined();
+    expect(() => activateProfile([clinepass], {
+      name: "clinepass",
+      requestedModel: "primary",
+      required: ["images"],
+      baseCapabilities: { ...capabilities, images: false },
+    })).toThrow(ProfileActivationError);
+  });
+
   it("keeps launch sessions lease-scoped and account-free", () => {
     const active = new Set(["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"]);
     const registry = new LaunchSessionRegistry((leaseId) => active.has(leaseId));

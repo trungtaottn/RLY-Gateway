@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CredentialBroker } from "../../../src/credentials/broker.js";
-import { OAuthFlowError } from "../../../src/credentials/errors.js";
+import { ImportIncompatibleError, OAuthFlowError } from "../../../src/credentials/errors.js";
 import { createProviderAdapter } from "../../../src/providers/dispatch.js";
 import { ProviderAdapterError } from "../../../src/providers/provider-adapter.js";
 import { fakeOauth, fingerprint, tempDirectory, writeCodexSource } from "../../credentials/helpers.js";
@@ -88,6 +88,42 @@ describe("provider credential isolation", () => {
     });
     expect(typeof after.state).toBe("string");
     expect(after.state.length).toBeGreaterThan(0);
+    await broker.close();
+  });
+
+  it("does not mutate Codex credential files when Cline import or refresh fails", async () => {
+    const directory = await tempDirectory("rly-gateway-cline-codex-iso-");
+    directories.push(directory);
+    const source = await writeCodexSource(directory);
+    const broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
+    const codex = await broker.importCodex({
+      sourcePath: source.path,
+      pseudonym: "acct-codex",
+      sourceFingerprint: source.sourceFingerprint,
+    });
+    const { readFile } = await import("node:fs/promises");
+    const activePath = join(broker.store.paths().credentials, `${codex.handle}.json`);
+    const before = await readFile(activePath);
+    const clinePath = join(directory, "cline-auth.json");
+    await writeFile(clinePath, JSON.stringify({}), "utf8");
+    await expect(broker.importCline({
+      sourcePath: clinePath,
+      pseudonym: "acct-cline-bad",
+      sourceFingerprint: fingerprint("{}"),
+    })).rejects.toBeInstanceOf(ImportIncompatibleError);
+    const validCline = join(directory, "cline-valid.json");
+    const raw = JSON.stringify({ tokens: { access_token: "cline-access-fixture", refresh_token: "cline-refresh-fixture" } });
+    await writeFile(validCline, raw, "utf8");
+    const imported = await broker.importCline({
+      sourcePath: validCline,
+      pseudonym: "acct-cline",
+      sourceFingerprint: fingerprint(raw),
+    });
+    await expect(broker.refresh(imported.handle)).rejects.toBeInstanceOf(OAuthFlowError);
+    expect(await readFile(activePath)).toEqual(before);
+    const still = await broker.metadata(codex.handle);
+    expect(still?.generation).toBe(1);
+    expect(still?.provider).toBe("codex");
     await broker.close();
   });
 

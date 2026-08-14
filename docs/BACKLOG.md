@@ -30,16 +30,16 @@ Already in tree: project-owned PKCE login, explicit Codex import, refresh CAS, r
 
 ### ClinePass → Claude Code
 
-Already in tree: explicit Cline import, `cline` credential provider, no Codex refresh, `O_NOFOLLOW` read, `ClineInteropAdapter` (needs `endpointPolicy`). Continuous shared-store write-back is **not** in this slice.
+Already in tree: explicit Cline import, `cline` credential provider, no Codex refresh, `O_NOFOLLOW` read, `ClineInteropAdapter` (needs `endpointPolicy`). Continuous shared-store write-back is **superseded for V1**; default remains one-time read-only import.
 
 | ID | Issue | Task | Acceptance |
 | --- | --- | --- | --- |
 | NX-010 | [#6](https://github.com/trungtaottn/RLY-Gateway/issues/6) | Pin a redacted ClinePass source schema from a real `auth.json` shape | Done: `tests/fixtures/upstream/clinepass/auth-shape.json` (synthetic; tokens omitted) |
 | NX-011 | [#7](https://github.com/trungtaottn/RLY-Gateway/issues/7) | Declare the ClinePass upstream endpoint policy | Done: create requires explicit loopback or HTTPS endpoint; protected ports rejected |
-| NX-012 | [#8](https://github.com/trungtaottn/RLY-Gateway/issues/8) | Operator recipe: explicit preview+import with `providerId`, pool, Claude profile | Preview without `providerId` stays rejected; import does not write the Cline store |
-| NX-013 | [#9](https://github.com/trungtaottn/RLY-Gateway/issues/9) | Fake-upstream Claude Code E2E through `cline-interop` | Text + tools; Cline failure does not touch Codex credential files |
-| NX-014 | [#10](https://github.com/trungtaottn/RLY-Gateway/issues/10) | Opt-in live smoke: Claude Code → gateway → ClinePass | Gated env; skipped ≠ pass |
-| NX-015 | [#11](https://github.com/trungtaottn/RLY-Gateway/issues/11) | Continuous Cline store lock/backup/restore | Separate opt-in later; default remains one-time read-only import |
+| NX-012 | [#8](https://github.com/trungtaottn/RLY-Gateway/issues/8) | Operator recipe: explicit preview+import with `providerId`, pool, Claude profile | Done: README/CONTRIBUTING; preview without `providerId` stays rejected; import does not write the Cline store |
+| NX-013 | [#9](https://github.com/trungtaottn/RLY-Gateway/issues/9) | Fake-upstream Claude Code E2E through `cline-interop` | Done: `tests/e2e/claude-code/cline-interop.e2e.test.ts` (gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass) plus lifecycle helper/quota/sticky and Codex-file isolation |
+| NX-014 | [#10](https://github.com/trungtaottn/RLY-Gateway/issues/10) | Opt-in live smoke: Claude Code → gateway → ClinePass | Done: `tests/e2e/claude-code/cline-interop-live.e2e.test.ts` (`RLY_LIVE_CLINEPASS=1`; skipped ≠ pass) |
+| NX-015 | [#11](https://github.com/trungtaottn/RLY-Gateway/issues/11) | Continuous Cline store lock/backup/restore | **Superseded for V1.** Default remains one-time read-only import into the project store. `lockClineInterop` / `backupClineSource` / `restoreClineSource` stay unused and are not wired into import or launch. |
 
 ## Deferred from Phase 10 (do not enable for Claude Code)
 
@@ -58,7 +58,7 @@ Code exists (`src/providers/oauth/claude/`, catalog `claude`) but is **text-only
 
 Closed in the Phase 10 worktree: #16 README + skipped live smoke, #17 success probe + skipped live smoke, #18 no TOML routes without reviewed models, #19 Chromium AT-031 subset, #20 create-time catalog reject, #6 synthetic ClinePass shape, #7 explicit Cline endpoint policy.
 
-Still next-focus, not Phase 10 close: Cline Claude Code E2E/live (#8–#10), continuous Cline store (#11), parked Claude OAuth (#12–#15). Live Gemini/Antigravity smokes remain opt-in; skipped ≠ pass.
+Still next-focus, not Phase 10 close: parked Claude OAuth (#12–#15). Live Gemini/Antigravity/ClinePass smokes remain opt-in; skipped ≠ pass.
 
 ## Provider expansion
 
@@ -103,4 +103,3 @@ Before moving an item to `TASKLIST.md`:
 ## Unresolved questions
 
 - Exact ClinePass upstream URL and whether any request needs a Cline-specific header besides the imported bearer.
-- Whether the next Codex Claude Code E2E uses the existing opt-in live handle or a new profile-only recipe.

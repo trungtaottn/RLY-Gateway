@@ -37,6 +37,14 @@ describe("admin CLI parsing", () => {
       action: "create",
       fields: { name: "codex", mode: "oauth" },
     });
+    expect(parseCliArgs([
+      "admin", "providers", "create", "--name", "cline", "--mode", "oauth", "--endpoint", "https://example.invalid/clinepass", "--config", "gateway.toml",
+    ], "/work")).toMatchObject({
+      command: "admin",
+      resource: "providers",
+      action: "create",
+      fields: { name: "cline", mode: "oauth", endpoint: "https://example.invalid/clinepass" },
+    });
     expect(parseCliArgs(["admin", "accounts", "pause", "--id", "acct", "--version", "2"], "/work")).toMatchObject({
       resource: "accounts",
       action: "pause",
@@ -63,9 +71,15 @@ describe("admin CLI parsing", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       await expect(runCli(["admin", "providers", "create", "--name", "openrouter", "--mode", "direct", "--config", configPath])).resolves.toBe(0);
+      await expect(runCli([
+        "admin", "providers", "create", "--name", "cline", "--mode", "oauth",
+        "--endpoint", "https://example.invalid/clinepass", "--config", configPath,
+      ])).resolves.toBe(0);
       await expect(runCli(["admin", "providers", "list", "--config", configPath])).resolves.toBe(0);
-      const listed = log.mock.calls.map((call) => String(call[0])).find((line) => line.includes("openrouter"));
+      const listed = log.mock.calls.map((call) => String(call[0])).join("\n");
       expect(listed).toContain("openrouter");
+      expect(listed).toContain("cline");
+      expect(listed).toContain("https://example.invalid/clinepass");
     } finally {
       log.mockRestore();
       await lease.release();

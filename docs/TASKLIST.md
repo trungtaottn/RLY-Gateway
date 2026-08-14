@@ -86,7 +86,7 @@ Code/live-provider compatibility.
 - [x] Doctor does not open or migrate the control-plane store.
 
 ## Later committed V1 milestones
-- [x] Secret-free local UI and provider expansion. Evidence: `pnpm verify` including `pnpm test:browser`; create-time catalog reject; Cline endpoint policy; Gemini/Antigravity live smokes opt-in skipped. Claude OAuth and Cline Claude Code E2E stay in BACKLOG.
+- [x] Secret-free local UI and provider expansion. Evidence: `pnpm verify` including `pnpm test:browser`; create-time catalog reject; Cline endpoint policy; Gemini/Antigravity live smokes opt-in skipped. Claude OAuth stays in BACKLOG.
 - [x] OpenAI Responses and Codex CLI E2E. Evidence: `tests/contract/openai-responses/responses.test.ts`, `tests/e2e/codex/fake-upstream.e2e.test.ts`, `run codex` isolation in `tests/lifecycle/global-config-isolation.test.ts`.
 - [x] Release hardening, packaging, provenance, migration, recovery, and daily workflow gates. Evidence: `pnpm test:release`, `tests/storage/retention.test.ts`, existing migration/crash suites plus license/package/clean-install scripts.
 - [x] Release-lane automation and post-Stable alignment. Evidence: `tests/unit/release-automation.test.ts`, `.github/workflows/release-beta.yml`, `.github/workflows/release-stable.yml`; Slack delivery requires the repository `SLACK_WEBHOOK_URL` secret and the documented GitHub Actions ruleset bypass.
@@ -112,6 +112,14 @@ Code/live-provider compatibility.
 - [x] Exact `(providerId, modelId)` Codex helper evidence; unknown required capability fails closed; no DEFAULT_CAPABILITIES fallback (#4).
 - [x] Secret-free `quota`/`route-trace` for a Codex profile: pseudonym, quota class, and decision reason only (#5).
 
+## Completed milestone: Phase 4 ClinePass through Claude Code
+
+- [x] Operator recipe for `cline` provider → explicit preview+import with `providerId` → pool → Claude profile named `clinepass` → `rly clinepass` (#8). Preview without `providerId` stays rejected. Import does not write the Cline store.
+- [x] Fake-upstream Claude Code E2E through `cline-interop` for text and tools (#9). Cline failure does not mutate Codex credential files. Gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass.
+- [x] Opt-in live Claude Code → gateway → ClinePass smoke (#10). Gated `RLY_LIVE_CLINEPASS=1`; skipped ≠ pass.
+- [x] Exact `(cline, claude-sonnet-4-5)` helper evidence; missing/cross-provider evidence fails closed; no DEFAULT_CAPABILITIES fallback.
+- [x] Supersede continuous Cline store lock/backup/restore as default (#11). One-time read-only import remains. Helpers stay unwired.
+
 ## Updating this file
 
 - Check an item only when evidence exists.
@@ -121,4 +129,4 @@ Code/live-provider compatibility.
 
 ## Unresolved questions
 
-- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy. First UI scope is admin plus diagnostics. Codex OAuth through Claude Code is in this milestone; next is ClinePass through Claude Code. Claude subscription OAuth stays in BACKLOG.
+- CLIProxy Plus is independently MIT-licensed and pinned as a release tarball, but `+dirty` blocks source copy. First UI scope is admin plus diagnostics. Codex OAuth and ClinePass through Claude Code are in this milestone; Claude subscription OAuth stays in BACKLOG.
