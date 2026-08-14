@@ -4,6 +4,20 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { childExitCode, parseCliArgs, runCli } from "../../src/cli/main.js";
 import { ProfileActivationError } from "../../src/profiles/errors.js";
+import type { ClaudeOverlayResolution } from "../../src/runtime/claude-overlay.js";
+
+const cliOverlayDirectory = join(tmpdir(), "rly-gateway-cli-overlay");
+
+function overlayDependency(): { prepareClaudeOverlay: (controlPlaneDirectory: string) => Promise<ClaudeOverlayResolution> } {
+  return {
+    prepareClaudeOverlay: vi.fn<(controlPlaneDirectory: string) => Promise<ClaudeOverlayResolution>>().mockResolvedValue({
+      directory: cliOverlayDirectory,
+      source: cliOverlayDirectory,
+      composed: false,
+      refreshed: [],
+    }),
+  };
+}
 
 describe("CLI parsing", () => {
   it("parses quota and route-trace diagnostic commands", () => {
@@ -48,7 +62,7 @@ describe("CLI parsing", () => {
     const launch = vi.fn().mockResolvedValue({ code: 0, signal: null });
     await expect(runCli(
       ["run", "claude", "--config", configPath, "--route", "openrouter/provider/model", "--", "-p", "fixture"],
-      { environment: { PATH: "/bin" }, acquireGateway: vi.fn().mockResolvedValue({ baseUrl: "http://127.0.0.1:17871", authToken: "transient", instanceId: "00000000-0000-4000-8000-000000000001", leaseId: "00000000-0000-4000-8000-000000000011", reused: false, release }), launchClaude: launch },
+      { environment: { PATH: "/bin" }, ...overlayDependency(), acquireGateway: vi.fn().mockResolvedValue({ baseUrl: "http://127.0.0.1:17871", authToken: "transient", instanceId: "00000000-0000-4000-8000-000000000001", leaseId: "00000000-0000-4000-8000-000000000011", reused: false, release }), launchClaude: launch },
     )).resolves.toBe(0);
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({ args: ["--model", "primary", "-p", "fixture"] }));
   });
@@ -79,6 +93,7 @@ describe("CLI parsing", () => {
       ["run", "claude", "--config", configPath, "--profile", "work", "--", "-p", "fixture"],
       {
         environment: { PATH: "/bin" },
+        ...overlayDependency(),
         acquireGateway: vi.fn().mockResolvedValue({
           baseUrl: "http://127.0.0.1:17871",
           authToken: "instance-secret",
@@ -164,6 +179,7 @@ describe("CLI parsing", () => {
       ["codex", "--config", configPath, "--", "-p", "fixture"],
       {
         environment: { PATH: "/bin" },
+        ...overlayDependency(),
         acquireGateway: vi.fn().mockResolvedValue({
           baseUrl: "http://127.0.0.1:17871",
           authToken: "instance-secret",
@@ -193,6 +209,7 @@ describe("CLI parsing", () => {
       ["missing", "--config", configPath],
       {
         environment: { PATH: "/bin" },
+        ...overlayDependency(),
         acquireGateway: vi.fn().mockResolvedValue({
           baseUrl: "http://127.0.0.1:17871",
           authToken: "instance-secret",
@@ -243,7 +260,7 @@ describe("CLI parsing", () => {
     const launch = vi.fn().mockResolvedValue({ code: 0, signal: null });
     await expect(runCli(
       ["run", "claude", "--config", configPath, "--", "--model", "test"],
-      { environment: { PATH: "/bin" }, acquireGateway: acquire, launchClaude: launch },
+      { environment: { PATH: "/bin" }, ...overlayDependency(), acquireGateway: acquire, launchClaude: launch },
     )).resolves.toBe(0);
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
       gatewayBaseUrl: "http://127.0.0.1:17871",

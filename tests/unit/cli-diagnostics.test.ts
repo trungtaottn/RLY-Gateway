@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import { loadConfig } from "../../src/config/load-config.js";
 import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { CredentialBroker } from "../../src/credentials/broker.js";
 import { acquireGateway, runtimeDirectory } from "../../src/runtime/gateway-lifecycle.js";
+import { prepareClaudeOverlay } from "../../src/runtime/claude-overlay.js";
 import { seedCodexClaudeProfile, sseFixture } from "../helpers/codex-profile-seed.js";
 
 const directories: string[] = [];
@@ -46,6 +47,44 @@ describe("CLI diagnostics", () => {
       expect(printed).toContain('"claudeTarget"');
       expect(printed).toContain('"codexTarget"');
       expect(printed).not.toMatch(/OPENROUTER_API_KEY|accessToken|authorization|prompt/i);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("reports the RLY Claude overlay summary secret-free", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-overlay-diag-"));
+    directories.push(directory);
+    const controlPlane = join(directory, "control-plane");
+    const native = join(directory, ".claude");
+    await mkdir(native);
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: "claude-sonnet-4-5", theme: "dark" }), "utf8");
+    await prepareClaudeOverlay(controlPlane, { environment: { HOME: directory, PATH: "/bin" } });
+    const port = await availablePort();
+    const configPath = join(directory, "gateway.toml");
+    await writeFile(configPath, [
+      "schemaVersion = 1",
+      "[gateway]",
+      `port = ${String(port)}`,
+      'logLevel = "silent"',
+      "[controlPlane]",
+      `dataDirectory = "${controlPlane}"`,
+    ].join("\n"), "utf8");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      // Gateway is not running, but the overlay summary is still reported.
+      await expect(runStatus(configPath)).resolves.toBe(1);
+      const printed = log.mock.calls.map((call) => String(call[0]));
+      const status = JSON.parse(printed.find((line) => line.includes("claudeOverlay")) ?? "{}") as {
+        claudeOverlay?: { directory?: string; source?: string; allowlistVersion?: number; lastComposedAt?: string };
+      };
+      expect(status.claudeOverlay).toMatchObject({
+        directory: join(controlPlane, "claude"),
+        source: native,
+        allowlistVersion: 1,
+      });
+      expect(typeof status.claudeOverlay?.lastComposedAt).toBe("string");
+      expect(printed.join("\n")).not.toMatch(/ANTHROPIC_AUTH_TOKEN|model|theme|settings|token|secret/i);
     } finally {
       log.mockRestore();
     }
