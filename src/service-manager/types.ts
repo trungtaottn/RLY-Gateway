@@ -21,6 +21,23 @@ export type ServiceDefinitionInput = Readonly<{
 
 export type ServiceStatus = "running" | "stopped" | "not-registered" | "unknown";
 
+/**
+ * Platform-specific detailed service state, reported separately from runtime
+ * readiness. Implemented by the macOS adapter (`detail()`); the shared adapter
+ * contract deliberately does not grow this member.
+ */
+export type ServiceDetail = Readonly<{
+  label: string;
+  definitionPath: string;
+  registered: boolean;
+  /** The service definition is currently loaded into the per-user session. */
+  loaded: boolean;
+  /** The loaded service currently has a running process. */
+  running: boolean;
+  /** Process identifier of the running service instance, when known. */
+  pid?: number;
+}>;
+
 export type ServiceCommandResult = Readonly<{ code: number; stdout: string; stderr: string }>;
 
 export type ServiceCommandRunner = (
@@ -41,6 +58,16 @@ export interface ServiceManagerAdapter {
   start(): Promise<void>;
   stop(): Promise<void>;
   status(): Promise<ServiceStatus>;
+}
+
+/**
+ * Returns the platform-specific service detail when the adapter provides it
+ * (macOS LaunchAgent). Never part of the required contract: other adapters
+ * return undefined and CLI callers simply omit the detail fields.
+ */
+export async function serviceDetail(manager: ServiceManagerAdapter): Promise<ServiceDetail | undefined> {
+  const candidate = manager as ServiceManagerAdapter & { detail?: () => Promise<ServiceDetail> };
+  return typeof candidate.detail === "function" ? candidate.detail() : undefined;
 }
 
 export async function defaultServiceCommandRunner(

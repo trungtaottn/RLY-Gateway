@@ -15,11 +15,16 @@ function xmlEscape(value: string): string {
 }
 
 export function buildLaunchAgentPlist(
-  input: ServiceDefinitionInput & Readonly<{ label: string }>,
+  input: ServiceDefinitionInput
+    & Readonly<{ label: string }>
+    & Readonly<{ workingDirectory?: string }>,
 ): string {
   const programArguments = [input.executable, input.entrypoint, "gateway", "start", "--config", input.configPath]
     .map((value) => `    <string>${xmlEscape(value)}</string>`)
     .join("\n");
+  const workingBlock = input.workingDirectory === undefined
+    ? ""
+    : `  <key>WorkingDirectory</key>\n  <string>${xmlEscape(input.workingDirectory)}</string>\n`;
   const logBlock = input.logPath === undefined
     ? ""
     : `  <key>StandardOutPath</key>
@@ -44,9 +49,11 @@ ${programArguments}
     <key>SuccessfulExit</key>
     <false/>
   </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
   <key>ProcessType</key>
   <string>Background</string>
-${logBlock}</dict>
+${workingBlock}${logBlock}</dict>
 </plist>
 `;
 }

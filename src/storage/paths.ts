@@ -15,6 +15,7 @@ export const MANUAL_SELECTION_NAME = "manual-selection.json";
 export const SELECTOR_AFFINITY_NAME = "selector-affinity.json";
 export const RESPONSES_DIRECTORY = "responses";
 export const LOG_DIRECTORY = "logs";
+export const SERVICE_LOG_NAME = "service.log";
 export const RETENTION_MARKER_NAME = "retention.marker";
 export const INSTALLATION_NAME = "installation.json";
 export const RLY_STATE_DIRECTORY_NAME = ".rly";
