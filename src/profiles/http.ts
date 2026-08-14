@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
+import type { ProfileRecord } from "../control-plane/types.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
+import type { ModelUniverseSnapshot } from "../routing/model-projection/types.js";
 import { ProfileActivationError } from "./errors.js";
 import { inspectLaunchableProfile } from "./activate.js";
 import type { LaunchSessionRegistry } from "./sessions.js";
@@ -25,6 +27,12 @@ export function registerLaunchSessionRoutes(
     resolveSession: (token: string | undefined) => { profileName: string } | undefined;
     extractToken: (headers: Readonly<{ authorization?: string | undefined; "x-api-key"?: string | string[] | undefined }>) => string | undefined;
     leaseActive?: (leaseId: string) => boolean;
+    /**
+     * Compiles the session-pinned model-universe snapshot (#72) from the
+     * current policy + registry at issue time, so discovery and reverse
+     * mapping stay stable for the active session.
+     */
+    compileModelUniverse: (profile: ProfileRecord) => ModelUniverseSnapshot;
   }>,
 ): void {
   app.post("/v1/launch-sessions", async (request, reply) => {
@@ -42,6 +50,7 @@ export function registerLaunchSessionRoutes(
         profileId: profile.id,
         profileName: profile.name,
         leaseId: parsed.data.leaseId,
+        modelUniverse: input.compileModelUniverse(profile),
       });
       return await reply.code(201).send({
         profileName: profile.name,

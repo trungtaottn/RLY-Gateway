@@ -52,6 +52,7 @@ describe("RLY Claude configuration overlay", () => {
       permissions: { allow: ["Bash"] },
       env: {
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "0",
         ANTHROPIC_BASE_URL: "http://native.example",
         ANTHROPIC_AUTH_TOKEN: "native-secret",
         ANTHROPIC_API_KEY: "native-key",
@@ -69,6 +70,8 @@ describe("RLY Claude configuration overlay", () => {
     expect(overlay["model"]).toBe("claude-sonnet-4-5");
     expect(overlay["theme"]).toBe("dark");
     expect(overlay["permissions"]).toEqual({ allow: ["Bash"] });
+    // #72: the gateway model-discovery flag is child-only RLY contract state;
+    // a native setting cannot silently disable or override it in RLY sessions.
     expect(overlay["env"]).toEqual({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" });
     // Native input is never modified.
     expect(await digest(join(native, "settings.json"))).toBe(before);

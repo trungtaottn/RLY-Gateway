@@ -8,6 +8,7 @@ import { ShutdownController } from "./shutdown-controller.js";
 const CLAUDE_BASE_URL_VARIABLE = "ANTHROPIC_BASE_URL";
 const CLAUDE_AUTH_TOKEN_VARIABLE = "ANTHROPIC_AUTH_TOKEN";
 const CLAUDE_CONFIG_DIRECTORY_VARIABLE = "CLAUDE_CONFIG_DIR";
+const CLAUDE_GATEWAY_MODEL_DISCOVERY_VARIABLE = "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY";
 const CODEX_BASE_URL_VARIABLE = "OPENAI_BASE_URL";
 const CODEX_API_KEY_VARIABLE = "OPENAI_API_KEY";
 const CODEX_HOME_VARIABLE = "CODEX_HOME";
@@ -94,7 +95,12 @@ function overlayChildEnvironment(
   return Object.fromEntries(Object.entries(childEnvironment).filter(([key]) => key !== remove));
 }
 
-/** Creates a child-only Claude environment without mutating the parent process. */
+/**
+ * Creates a child-only Claude environment without mutating the parent process.
+ * `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` is child-only (#72): the
+ * gateway exposes `GET /v1/models`, so RLY-launched Claude sessions query the
+ * RLY gateway for their model universe instead of the Anthropic API.
+ */
 export function createClaudeChildEnvironment(
   environment: Readonly<NodeJS.ProcessEnv>,
   gatewayBaseUrl: string,
@@ -106,6 +112,7 @@ export function createClaudeChildEnvironment(
     {
       [CLAUDE_BASE_URL_VARIABLE]: gatewayBaseUrl,
       [CLAUDE_AUTH_TOKEN_VARIABLE]: authToken,
+      [CLAUDE_GATEWAY_MODEL_DISCOVERY_VARIABLE]: "1",
       ...(configDirectory === undefined ? {} : { [CLAUDE_CONFIG_DIRECTORY_VARIABLE]: configDirectory }),
     },
     "ANTHROPIC_API_KEY",

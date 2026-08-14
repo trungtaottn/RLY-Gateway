@@ -11,6 +11,9 @@ import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
 import { ReasoningTranslationError, resolveReasoning } from "../providers/reasoning.js";
+import { directProviderRegistry, type RegistryDocument } from "../registry/model-registry.js";
+import { createModelProjectionTrace, resolveProjection } from "../routing/model-projection/project.js";
+import type { ModelProjectionTrace } from "../routing/model-projection/types.js";
 import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route.js";
 import type { CredentialSnapshot } from "../routing/eligibility/reasons.js";
 import { isModelSelectionError } from "../routing/model-selection/errors.js";
@@ -37,6 +40,9 @@ export type ProfileRouteDependencies = Readonly<{
   fetch?: typeof fetch;
   required?: readonly CapabilityRequirement[];
 }>;
+
+/** Profile-route dependencies plus an optional trusted registry override (#72). */
+export type ProjectedRouteDependencies = ProfileRouteDependencies & Readonly<{ registry?: RegistryDocument }>;
 
 export type ResolvedProfileRoute = Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }>;
 
@@ -161,6 +167,135 @@ export async function resolveProfileRoute(
   };
 }
 
+/**
+ * Routes a request whose model is an RLY projection id (`claude-rly-...`,
+ * #72) to one exact access-provider/model target and the pinned provider pool.
+ *
+ * The projection id is a user-selection handle only: the explicit reverse
+ * mapping (`resolveProjection`) yields the exact physical target from the
+ * session's pinned model universe, then the existing two-stage boundary runs
+ * unchanged — #68 exact model selection + #70 reasoning translation, followed
+ * by pool/account selection inside the pinned pool. Fail-closed: an unknown,
+ * removed, BROKEN, or EXPERIMENTAL-ineligible projection (or a provider/pool
+ * that is no longer in the current policy) raises a typed error and never
+ * substitutes another model or provider.
+ */
+export async function resolveProjectedModelRoute(
+  canonical: CanonicalRequest,
+  session: LaunchSession,
+  dependencies: ProjectedRouteDependencies,
+): Promise<ResolvedProfileRoute> {
+  const universe = session.modelUniverse;
+  const registry = dependencies.registry ?? directProviderRegistry;
+  const resolved = resolveProjection(canonical.requestedModel, universe, registry);
+  if (resolved === undefined) {
+    throw new ProfileActivationError(
+      "model-unavailable",
+      `RLY projection model is not available in this session (${canonical.requestedModel})`,
+    );
+  }
+  const policy = dependencies.store.currentPolicy();
+  if (!policy) throw new ProfileActivationError("profile-not-found");
+  const pool = policy.snapshot.pools.find((item) => item.id === resolved.binding.poolId);
+  const provider = policy.snapshot.providers.find((item) => item.id === resolved.binding.providerId);
+  if (pool === undefined || provider === undefined || !provider.enabled) {
+    throw new ProfileActivationError(
+      "model-unavailable",
+      `Projection target is no longer available (${resolved.binding.providerName}/${resolved.projection.upstreamModelId})`,
+    );
+  }
+  // Stage 1: deterministic exact model selection (#68) against the trusted
+  // registry. Re-validates capabilities/compatibility/reasoning for the exact
+  // physical target — a BROKEN or unsupported target fails closed here.
+  const reasoningRequest = canonical.inference.reasoning ?? reasoningRequestFromWire({});
+  const selection = selectModelForRequest(
+    resolved.evidence.identity.upstreamModelId,
+    provider.name,
+    dependencies.required ?? [],
+    canonical,
+    registry,
+  );
+  const modelEvidence = selection.model;
+  // Stage 1b (#70): translate the canonical reasoning intent into the selected
+  // model's native control; fail closed on untranslatable explicit intents.
+  let resolvedReasoning: ReturnType<typeof resolveReasoning>;
+  try {
+    resolvedReasoning = resolveReasoning(reasoningRequest, modelEvidence.reasoning);
+  } catch (error) {
+    if (error instanceof ReasoningTranslationError) {
+      throw new ProfileActivationError(
+        "capability-rejected",
+        `Reasoning translation failed (${error.code}: ${provider.name}/${modelEvidence.identity.upstreamModelId})`,
+        translationFailureCode(error.code),
+      );
+    }
+    throw error;
+  }
+  const capabilities = modelEvidence.capabilities;
+  const adapterId = adapterIdFor(provider);
+  const route: RouteRecord = {
+    role: "unknown",
+    providerId: provider.name,
+    modelId: modelEvidence.identity.upstreamModelId,
+    adapterId,
+    credentialRef: { kind: "handle", handle: "cred-profile-policy" },
+    capabilities,
+    reasoningEvidence: modelEvidence.reasoning,
+  };
+  decideRoute({
+    requestId: canonical.id,
+    route,
+    required: dependencies.required ?? [],
+    configFingerprint: dependencies.configFingerprint,
+    resolvedReasoning,
+  });
+  const environment = dependencies.environment ?? process.env;
+  const members = policy.snapshot.accounts.filter((account) => pool.memberships.some((item) => item.accountId === account.id));
+  const snapshots = await credentialSnapshots(dependencies, members, environment);
+  const effectiveRequest: CanonicalRequest = Object.freeze({
+    ...canonical,
+    requestedModel: modelEvidence.identity.upstreamModelId,
+    modelRole: "unknown",
+  });
+  const projectionTrace: ModelProjectionTrace = createModelProjectionTrace(resolved.projection, universe);
+  return {
+    route,
+    upstream: {
+      invoke: (_ignored: CanonicalRequest, signal: AbortSignal): AsyncIterable<CanonicalEvent> => {
+        return streamPoolRequest({
+          selector: dependencies.selector,
+          store: dependencies.store,
+          request: effectiveRequest,
+          select: {
+            poolId: resolved.binding.poolId,
+            policy,
+            required: dependencies.required ?? [],
+            capabilities,
+            modelId: modelEvidence.identity.upstreamModelId,
+            adapterId,
+            role: "unknown",
+            credentialSnapshots: snapshots,
+            sessionKey: session.leaseId,
+            reasoningEvidence: modelEvidence.reasoning,
+            resolvedReasoning,
+          },
+          invoke: (selected, invokeSignal) => invokeSelected(
+            effectiveRequest,
+            selected,
+            provider,
+            dependencies,
+            environment,
+            invokeSignal,
+          ),
+          signal,
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, undefined, projectionTrace),
+        });
+      },
+      countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
+    },
+  };
+}
+
 function envCredentialName(handle: string): string | undefined {
   return handle.startsWith("env:") ? handle.slice(4) : undefined;
 }
@@ -256,6 +391,7 @@ function selectModelForRequest(
   providerId: string,
   required: readonly CapabilityRequirement[],
   request: CanonicalRequest,
+  registry: RegistryDocument = directProviderRegistry,
 ): ModelSelectionResult {
   try {
     const reasoning = reasoningRequirementFrom(request, required);
@@ -264,7 +400,7 @@ function selectModelForRequest(
       exactModelId: modelId,
       requiredCapabilities: required,
       ...(reasoning === undefined ? {} : { reasoning }),
-    });
+    }, registry);
   } catch (error) {
     if (isModelSelectionError(error)) {
       throw new ProfileActivationError(

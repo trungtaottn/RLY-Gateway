@@ -162,6 +162,16 @@
 - Failure: an unresolvable control-plane home or unreadable overlay write returns an actionable error and the launch does not proceed with a throwaway sandbox.
 - Acceptance: AT-065, AT-066, AT-067, AT-068, AT-069, AT-070, AT-071, AT-072.
 
+### FR-021 — Expose the trusted RLY model universe through Claude gateway discovery
+
+- Traces: BR-001, BR-005, BR-009, SR-F-025, SR-NF-002.
+- Preconditions: the gateway listener is up and authenticated; at least one enabled control-plane provider has an eligible pool; the model registry has trusted evidence.
+- Behavior: expose an authenticated `GET /v1/models` on the gateway listener (not the management listener) matching the supported Claude Code discovery wire contract: `{ data: [{ type: "model", id, display_name, created_at }], has_more, first_id, last_id }` with `limit`/`before_id`/`after_id` pagination. Serve the launch session's pinned model universe when the request carries a launch-session child token, or the universe derived from the current control-plane policy for the instance bearer. Project only trusted registry models from enabled configured provider→pool bindings: `VERIFIED` compatibility by default, `EXPERIMENTAL` only with the explicit `gateway.modelDiscovery.experimentalModels` config opt-in, `BROKEN`/unreviewed/proposed targets never. Every discoverable id uses the Claude-compatible RLY projection namespace (`claude-rly-...`); the same upstream model through two access providers gets two distinct ids/display labels because auth/pool/endpoint/terms differ. Maintain an explicit reverse mapping (projection id → exact access-provider/model target + pinned pool); routing never parses id strings. An exact projected model routes through #68/#70 validation and the pinned provider pool's account selector; an unknown, removed, BROKEN, or ineligible projection target fails closed with a typed error and never substitutes another model or provider. Pin the session's universe (policy revision/hash, registry revision, bindings, experimental policy) at launch-session issue time so a policy/registry change never silently remaps an already-issued projection id mid-session.
+- Child launch: RLY-launched Claude sessions receive child-only `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` (the parent/global environment is unchanged) and the overlay strips that key from native settings env so RLY sessions cannot be silently disabled; a plain `claude` launch never inherits RLY discovery env, auth, or projection ids.
+- Diagnostics: `route-trace` shows projection id/display name as allowlisted routing metadata followed by the exact access-provider/model and account decisions; discovery responses and traces never contain credentials, authorization headers, account identity, prompts, or responses.
+- Failure: an unauthenticated request is rejected; an unknown/ineligible projection id, a missing provider/pool, or no policy returns an actionable typed error without partial state or secrets.
+- Acceptance: AT-073, AT-074, AT-075, AT-076, AT-077, AT-078, AT-079, AT-080, AT-081, AT-082, AT-083.
+
 ## Unresolved questions
 
 - Exact quota-aware strategy behavior after live quota evidence is pinned.

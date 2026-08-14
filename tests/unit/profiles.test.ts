@@ -127,12 +127,14 @@ describe("profile activation", () => {
   it("keeps launch sessions lease-scoped and account-free", () => {
     const active = new Set(["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"]);
     const registry = new LaunchSessionRegistry((leaseId) => active.has(leaseId));
-    const tokenA = registry.issue({ profileId: "p1", profileName: "alpha", leaseId: "00000000-0000-4000-8000-000000000011" });
-    const tokenB = registry.issue({ profileId: "p2", profileName: "beta", leaseId: "00000000-0000-4000-8000-000000000012" });
-    expect(() => registry.issue({ profileId: "p3", profileName: "dead", leaseId: "00000000-0000-4000-8000-000000000099" })).toThrow("lease-not-active");
+    const universe = { policyRevision: 1, policyHash: "h", registryRevision: 4, bindings: [], experimentalModels: false } as const;
+    const tokenA = registry.issue({ profileId: "p1", profileName: "alpha", leaseId: "00000000-0000-4000-8000-000000000011", modelUniverse: universe });
+    const tokenB = registry.issue({ profileId: "p2", profileName: "beta", leaseId: "00000000-0000-4000-8000-000000000012", modelUniverse: universe });
+    expect(() => registry.issue({ profileId: "p3", profileName: "dead", leaseId: "00000000-0000-4000-8000-000000000099", modelUniverse: universe })).toThrow("lease-not-active");
     expect(registry.resolve(tokenA)?.profileName).toBe("alpha");
     expect(registry.resolve(tokenB)?.profileName).toBe("beta");
     expect(registry.resolve(tokenA)).not.toHaveProperty("accountId");
+    expect(registry.resolve(tokenA)?.modelUniverse.policyRevision).toBe(1);
     active.delete("00000000-0000-4000-8000-000000000011");
     expect(registry.resolve(tokenA)).toBeUndefined();
     expect(registry.resolve(tokenB)?.profileName).toBe("beta");
