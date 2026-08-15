@@ -1,0 +1,8 @@
+{
+  "purpose": "Synthetic field-level fixture (#119): an OpenAI Responses request carrying an unknown additive top-level field. The fidelity envelope must record an intentionally-ignored disposition for the field instead of silently discarding required continuation state. The additive value is a synthetic placeholder.",
+  "request": {
+    "model": "fixture-model",
+    "input": "redacted fixture turn",
+    "custom_additive_field": "synthetic-additive-value"
+  }
+}

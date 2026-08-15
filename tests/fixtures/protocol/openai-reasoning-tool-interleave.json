@@ -1,0 +1,30 @@
+{
+  "purpose": "Synthetic field-level fixture (#119): an OpenAI Responses multi-turn continuation request interleaving a reasoning item (item identity + opaque encrypted content), an assistant text message, a function call, and a function call output. Proves opaque artifact association survives decode -> continuation storage -> subsequent request construction without being reconstructed from summary text. All values are synthetic placeholders, never real credentials, prompts, responses, or tokens.",
+  "request": {
+    "model": "fixture-model",
+    "input": [
+      {
+        "type": "reasoning",
+        "id": "rs_turn2",
+        "summary": [{ "type": "summary_text", "text": "redacted fixture summary turn 2" }],
+        "encrypted_content": "synthetic-encrypted-content-turn2"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": "redacted fixture tool ask turn 2" }]
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_fixture_2",
+        "name": "fixture_tool",
+        "arguments": "{\"unit\":\"fixture-turn-2\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_fixture_2",
+        "output": "redacted fixture result turn 2"
+      }
+    ]
+  }
+}

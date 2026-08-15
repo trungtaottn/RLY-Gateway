@@ -18,17 +18,23 @@ export function encodeAnthropicEvents(events: readonly CanonicalEvent[], final =
   const result: AnthropicWireEvent[] = [];
   let lastSequence = -1;
   let requestId: string | undefined;
-  const open = new Set<number>();
+  // #119: block index -> content type so `signature_delta` can fail closed on
+  // a non-thinking block instead of emitting a signature that the aggregate
+  // would silently drop.
+  const open = new Map<number, "text" | "reasoning" | "redacted-reasoning" | "tool-call">();
   for (const item of events) {
     if (item.sequence <= lastSequence) throw new AnthropicProtocolError("invalid_event_sequence", "Canonical event sequence is not monotonic", 500);
     if (requestId && item.requestId !== requestId) throw new AnthropicProtocolError("invalid_event_provenance", "Canonical events have mixed provenance", 500);
     requestId ??= item.requestId; lastSequence = item.sequence;
     switch (item.type) {
       case "response-started": result.push(wire("message_start", { type: "message_start", message: { id: item.responseId, type: "message", role: "assistant", content: [], model: item.modelId, stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } })); break;
-      case "content-started": open.add(item.index); result.push(wire("content_block_start", { type: "content_block_start", index: item.index, content_block: contentBlock(item.contentType, item) })); break;
+      case "content-started": open.set(item.index, item.contentType); result.push(wire("content_block_start", { type: "content_block_start", index: item.index, content_block: contentBlock(item.contentType, item) })); break;
       case "text-delta": result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "text_delta", text: item.text } })); break;
       case "reasoning-delta": result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "thinking_delta", thinking: item.text } })); break;
-      case "signature-delta": if (!open.has(item.index)) throw new AnthropicProtocolError("invalid_event_order", "Signature delta before content start", 500); result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "signature_delta", signature: item.signature } })); break;
+      case "signature-delta":
+        if (open.get(item.index) !== "reasoning") throw new AnthropicProtocolError("invalid_event_order", "Signature delta before content start or on a non-thinking block", 500);
+        result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "signature_delta", signature: item.signature } }));
+        break;
       case "tool-arguments-delta": result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "input_json_delta", partial_json: item.partialJson } })); break;
       case "content-completed": if (!open.delete(item.index)) throw new AnthropicProtocolError("invalid_event_order", "Content completed before start", 500); result.push(wire("content_block_stop", { type: "content_block_stop", index: item.index })); break;
       case "usage-updated": result.push(wire("message_delta", { type: "message_delta", delta: {}, usage: { input_tokens: item.inputTokens, output_tokens: item.outputTokens } })); break;
