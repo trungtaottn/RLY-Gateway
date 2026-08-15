@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest } from "../../core/canonical-request.js";
+import { artifactValue, fidelityEnvelopeSchema, mergeFidelity, type FidelityEnvelope } from "../../core/fidelity.js";
 import { controlPlanePaths } from "../../storage/paths.js";
 import {
   ensurePrivateDirectory,
@@ -21,6 +22,7 @@ const storedSchema = z.object({
     role: z.enum(["user", "assistant"]),
     content: z.array(z.unknown()),
   })),
+  fidelity: fidelityEnvelopeSchema.optional(),
 }).strict();
 
 export type StoredResponse = Readonly<{
@@ -28,6 +30,8 @@ export type StoredResponse = Readonly<{
   createdAt: string;
   model: string;
   messages: readonly CanonicalMessage[];
+  /** #119: opaque continuation artifacts + provenance carried across turns. */
+  fidelity?: FidelityEnvelope;
 }>;
 
 function textField(value: unknown): string | undefined {
@@ -63,7 +67,11 @@ function messagesFromOutput(output: readonly unknown[]): CanonicalMessage[] {
     }
     if (record.type === "reasoning") {
       const summary = Array.isArray(record.summary) ? record.summary : [];
-      messages.push({ role: "assistant", content: [{ type: "reasoning", text: summary.map((part) => textField(part) ?? "").join("\n") }] });
+      const itemId = typeof record.id === "string" ? record.id : undefined;
+      messages.push({
+        role: "assistant",
+        content: [{ type: "reasoning", text: summary.map((part) => textField(part) ?? "").join("\n"), ...(itemId === undefined ? {} : { id: itemId }) }],
+      });
     }
   }
   return messages;
@@ -93,6 +101,7 @@ export class ResponseContinuationStore {
       createdAt: parsed.data.createdAt,
       model: parsed.data.model,
       messages: parsed.data.messages as CanonicalMessage[],
+      ...(parsed.data.fidelity === undefined ? {} : { fidelity: parsed.data.fidelity as FidelityEnvelope }),
     };
   }
 
@@ -106,10 +115,14 @@ export class ResponseContinuationStore {
     if (previousId === undefined) return request;
     const previous = await this.get(previousId);
     if (!previous) throw new ResponsesProtocolError("compatibility_unready", "previous_response_id is unknown or expired", 409);
+    // #119: opaque continuation artifacts (encrypted reasoning content) ride
+    // the fidelity envelope into the next turn; never reconstructed from text.
+    const fidelity = mergeFidelity(previous.fidelity, request.fidelity);
     return {
       ...request,
       messages: [...previous.messages, ...request.messages],
       input: [...previous.messages.flatMap((message) => message.content), ...request.input],
+      ...(fidelity === undefined ? {} : { fidelity }),
     };
   }
 
@@ -124,6 +137,7 @@ export class ResponseContinuationStore {
       createdAt: new Date().toISOString(),
       model: String(aggregated.model),
       messages: [...request.messages, ...messagesFromOutput(output)],
+      ...(request.fidelity === undefined ? {} : { fidelity: request.fidelity }),
     };
     await this.put(stored);
     return stored;
@@ -136,7 +150,16 @@ export class ResponseContinuationStore {
       for (const item of message.content) {
         if (item.type === "text") output.push({ type: "message", role: "assistant", content: [{ type: "output_text", text: item.text }] });
         if (item.type === "tool-call") output.push({ type: "function_call", call_id: item.id, name: item.name, arguments: JSON.stringify(item.input) });
-        if (item.type === "reasoning") output.push({ type: "reasoning", summary: [{ type: "summary_text", text: item.text }] });
+        if (item.type === "reasoning") {
+          const association = item.id ?? "reasoning-item";
+          const encrypted = artifactValue(stored.fidelity, "openai-reasoning-encrypted-content", association);
+          output.push({
+            type: "reasoning",
+            ...(item.id === undefined ? {} : { id: item.id }),
+            summary: [{ type: "summary_text", text: item.text }],
+            ...(encrypted === undefined ? {} : { encrypted_content: encrypted }),
+          });
+        }
       }
     }
     return { id: stored.id, object: "response", status: "completed", model: stored.model, output };

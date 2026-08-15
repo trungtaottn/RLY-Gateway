@@ -3,6 +3,7 @@ import { z } from "zod";
 import { parseAgentContext } from "../../core/agent-context.js";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
+import { emptyFidelityEnvelope, withArtifacts, withNotes, withRequired, type FidelityEnvelope, type OpaqueArtifact } from "../../core/fidelity.js";
 import { reasoningRequestFromWire } from "../../core/reasoning.js";
 
 const cacheControl = z.object({ type: z.literal("ephemeral") }).optional();
@@ -10,7 +11,7 @@ const textBlock = z.object({ type: z.literal("text"), text: z.string(), cache_co
 const imageBlock = z.object({ type: z.literal("image"), source: z.object({ type: z.literal("base64"), media_type: z.string().min(1), data: z.string().min(1) }), cache_control: cacheControl });
 const toolUseBlock = z.object({ type: z.literal("tool_use"), id: z.string().min(1), name: z.string().min(1), input: z.unknown() });
 const toolResultBlock = z.object({ type: z.literal("tool_result"), tool_use_id: z.string().min(1), content: z.union([z.string(), z.array(z.unknown())]).optional(), is_error: z.boolean().optional(), cache_control: cacheControl });
-const thinkingBlock = z.object({ type: z.literal("thinking"), thinking: z.string() });
+const thinkingBlock = z.object({ type: z.literal("thinking"), thinking: z.string(), signature: z.string().optional() });
 const redactedThinkingBlock = z.object({ type: z.literal("redacted_thinking"), data: z.string() });
 const contentBlock = z.discriminatedUnion("type", [textBlock, imageBlock, toolUseBlock, toolResultBlock, thinkingBlock, redactedThinkingBlock]);
 const content = z.union([z.string(), z.array(contentBlock)]);
@@ -30,6 +31,20 @@ export class AnthropicProtocolError extends Error {
 }
 
 export type DecodedAnthropicRequest = Readonly<{ request: CanonicalRequest; required: readonly CapabilityRequirement[]; ignoredAdditiveFields: readonly string[] }>;
+
+/** Wire-significant thinking signatures (#119): preserved natively, never interpreted. */
+function thinkingSignatureArtifacts(messages: readonly { role: string; content: z.infer<typeof content> }[]): OpaqueArtifact[] {
+  const artifacts: OpaqueArtifact[] = [];
+  for (const [messageIndex, message] of messages.entries()) {
+    if (typeof message.content === "string") continue;
+    for (const [blockIndex, block] of message.content.entries()) {
+      if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
+        artifacts.push({ kind: "anthropic-thinking-signature", association: `${String(messageIndex)}:${String(blockIndex)}`, value: block.signature });
+      }
+    }
+  }
+  return artifacts;
+}
 
 function blocks(value: z.infer<typeof content>): CanonicalContent[] {
   if (typeof value === "string") return [{ type: "text", text: value }];
@@ -93,6 +108,26 @@ export function decodeAnthropicRequest(raw: unknown, headers: Record<string, str
   // the canonical request. These identifiers are parsed from headers only —
   // never from prompt/body content — and carry no authorization meaning.
   const agent = parseAgentContext(headers);
+  // #119: fidelity envelope carries wire-significant opaque artifacts and
+  // translation provenance. Thinking text is a semantic projection (translated);
+  // its signature is preserved natively; unknown additive fields are recorded as
+  // intentionally ignored. Signatures are required when present: a path that
+  // cannot represent them must fail closed.
+  const signatureArtifacts = thinkingSignatureArtifacts(value.messages);
+  const fidelity: FidelityEnvelope | undefined = (() => {
+    if (signatureArtifacts.length === 0 && ignored.length === 0) return undefined;
+    let envelope = emptyFidelityEnvelope("anthropic-messages", typeof headers["anthropic-version"] === "string" ? headers["anthropic-version"] : undefined);
+    envelope = withArtifacts(envelope, signatureArtifacts);
+    envelope = withNotes(envelope, [
+      ...(input.some((item) => item.type === "reasoning" || item.type === "redacted-reasoning")
+        ? [{ field: "messages[].content[].thinking", disposition: "translated" as const, reason: "thinking text projected to semantic reasoning content" }]
+        : []),
+      ...signatureArtifacts.map((artifact) => ({ field: "messages[].content[].thinking.signature", disposition: "preserved-native" as const, reason: `preserved at ${artifact.association}` })),
+      ...ignored.map((key) => ({ field: key, disposition: "ignored" as const, reason: "unknown additive field; not required for continuation" })),
+    ]);
+    if (signatureArtifacts.length > 0) envelope = withRequired(envelope, ["anthropic-thinking-signature"]);
+    return envelope;
+  })();
   return {
     request: {
       id: randomUUID(), source: { protocol: "anthropic-messages", ...(typeof headers["anthropic-version"] === "string" ? { protocolVersion: headers["anthropic-version"] } : {}) }, requestedModel: value.model, modelRole: "unknown",
@@ -100,6 +135,7 @@ export function decodeAnthropicRequest(raw: unknown, headers: Record<string, str
       stream: value.stream ?? false, inference: { maxOutputTokens: value.max_tokens, ...(value.temperature === undefined ? {} : { temperature: value.temperature }), ...(value.top_p === undefined ? {} : { topP: value.top_p }), ...(value.stop_sequences === undefined ? {} : { stopSequences: value.stop_sequences }), ...(value.thinking?.type === undefined ? {} : { thinking: value.thinking.type }), reasoning },
       metadata: { ...(betaValues.length === 0 ? {} : { beta: betaValues }), ...(cacheControl.length === 0 ? {} : { cacheControl }) },
       ...(agent === undefined ? {} : { agent }),
+      ...(fidelity === undefined ? {} : { fidelity }),
     }, required, ignoredAdditiveFields: ignored,
   };
 }

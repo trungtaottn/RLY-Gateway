@@ -213,6 +213,43 @@ from the RLY logical selector namespace before any routing. Core invariant:
   target only — never prompts, credentials, account identity, or settings
   contents.
 
+## Native protocol rails and fidelity envelope (#119)
+
+RLY is a protocol-preserving gateway first and a model router second. Three
+separate authorities own the protocol boundary:
+
+1. **Native protocol rail** — the encoder/decoder wire shapes (`src/protocols/
+anthropic/`, `src/protocols/openai-responses/`) remain the source of wire truth
+   for same-protocol traffic. RLY patches only RLY-owned controls (selected
+   model, auth, endpoint).
+2. **Semantic projection** — `CanonicalRequest` / `CanonicalEvent` stay the
+   routing, capability, tool, reasoning-intent, diagnostics, and cross-protocol
+   translation projection. Provider-specific opaque fields are not forced into
+   semantic core types.
+3. **Fidelity/continuation envelope** (`src/core/fidelity.ts`, version 1) —
+   versioned metadata for source protocol/revision, typed opaque continuation
+   artifacts (kind, stable item/block association, value), translation
+   provenance (`preserved-native` / `translated` / `ignored` / `unsupported`),
+   and the artifact kinds a compatibility claim requires. Adapters/codecs may
+   preserve opaque artifacts; routing policy inspects only explicitly modeled
+   safe metadata (kind, association, disposition), never artifact values.
+
+| Area | Supported boundary behavior | Limits and readiness condition |
+| --- | --- | --- |
+| Anthropic thinking signatures | Assistant `thinking.signature` decodes into the fidelity envelope (`anthropic-thinking-signature`, association `message:block`) and is marked required when present; thinking text stays the semantic projection | The signature is preserved natively, never interpreted; a path that cannot represent a required signature fails closed |
+| Streaming signature deltas | Canonical `signature-delta` events emit Anthropic `signature_delta` in valid order (after `thinking_delta`, before `content_block_stop`); the aggregator attaches the signature to the aggregate thinking block | A signature delta on a non-thinking block or before its content block fails closed (`invalid_event_order`); byte-level golden fixture pins the SSE |
+| Responses reasoning identity + encrypted content | Reasoning item `id` survives on the semantic reasoning content; opaque `encrypted_content` rides the fidelity envelope (`openai-reasoning-encrypted-content`) and is required when present; continuation storage retains the exact artifact-to-item association and re-encode attaches each item's exact encrypted content | Opaque content is never reconstructed from summary text; association stays with the correct reasoning item across multi-turn continuation |
+| Unknown additive fields | Recorded as `ignored` provenance notes (field + reason), on both protocols, and listed in `ignoredAdditiveFields` | Unknown required behavior still fails closed (`compatibility_unready` on Responses); an additive unknown is not silently treated as required continuation state |
+| Cross-protocol fail-closed | A required artifact on a translation path that cannot preserve it fails with `unsupported-fidelity` before any upstream call (e.g. Chat Completions transport for OpenRouter/DeepSeek) | Nothing is fabricated, decrypted, or silently dropped; a request without required artifacts routes normally |
+| Extension points | `OpaqueArtifactKind` is a typed union | Gemini thought signatures, OpenRouter reasoning details, DeepSeek reasoning continuation extend the envelope without redesigning canonical routing |
+
+**Privacy invariant:** opaque artifact values are runtime/protocol state, not
+diagnostics. They are never logged, never placed in route traces, and never
+included in normal diagnostic bundles; `describeFidelity()` is the only
+diagnostic surface and exposes provenance metadata (kinds, dispositions, field
+names, counts) only. Continuation persistence applies the existing private-file
+storage rules.
+
 ## Claude Code agent attribution and subagent model resolution (#71)
 
 Claude Code sends runtime attribution headers on gateway requests; RLY uses
