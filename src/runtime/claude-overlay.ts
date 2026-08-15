@@ -271,9 +271,14 @@ export function composeOverlaySettings(
   const previousRecord = normalizeSettings(previous);
   const result: Record<string, unknown> = {};
 
-  // 4. user native settings/env (gateway contract env stripped).
+  // 4. user native settings/env (gateway contract env stripped; unsupported
+  //    credential-bearing shapes like `oauthAccounts` are never composed).
   if (nativeRecord !== undefined) {
-    Object.assign(result, stripGatewayEnv(nativeRecord));
+    const nativeSurface = stripGatewayEnv(nativeRecord);
+    const composedSurface = Object.fromEntries(
+      Object.entries(nativeSurface).filter(([key]) => !(UNSUPPORTED_SETTINGS_KEYS as readonly string[]).includes(key)),
+    );
+    Object.assign(result, composedSurface);
   }
 
   // 5. client persistence: keys Claude added in the view and absent from native.
@@ -281,6 +286,7 @@ export function composeOverlaySettings(
     const previousEnv = previousRecord["env"];
     for (const [key, value] of Object.entries(previousRecord)) {
       if (key === "env" || key === "model") continue;
+      if ((UNSUPPORTED_SETTINGS_KEYS as readonly string[]).includes(key)) continue;
       if (!(key in result)) result[key] = value;
     }
     if (typeof previousEnv === "object" && previousEnv !== null && !Array.isArray(previousEnv)) {
@@ -601,8 +607,11 @@ async function acquireReconcileLock(path: string): Promise<ReconcileLock | undef
     try {
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
       const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-      await handle.writeFile(`${lockId}\n`);
-      await handle.close();
+      try {
+        await handle.writeFile(`${lockId}\n`);
+      } finally {
+        await handle.close();
+      }
       return {
         release: async () => {
           const current = await readFile(path, "utf8").catch(() => "");
@@ -619,25 +628,51 @@ async function acquireReconcileLock(path: string): Promise<ReconcileLock | undef
 
 /**
  * Moves the legacy shared `<control-plane>/claude` overlay into
- * `views/default` exactly once (atomic rename, idempotent under concurrent
- * launches). Native `~/.claude` is never touched; ambiguous shared persisted
- * state is never assigned to a profile — it stays in the unprofiled default
- * view, which doctor/status surface.
+ * `views/default` exactly once, idempotent under concurrent launches.
+ * `rename` cannot move a directory into its own subtree, so the move is
+ * two-phase: `claude` → `claude.legacy` (sibling) then `claude.legacy` →
+ * `claude/views/default`. A crash between the phases leaves the sibling
+ * staging directory; the next launch completes phase two. Native `~/.claude`
+ * is never touched; ambiguous shared persisted state is never assigned to a
+ * profile — it stays in the unprofiled default view, which doctor/status
+ * surface.
  */
 async function migrateSharedOverlay(controlPlaneDirectory: string, source: string): Promise<boolean> {
   const legacy = join(controlPlaneDirectory, CLAUDE_OVERLAY_DIRECTORY_NAME);
   const viewsRoot = join(controlPlaneDirectory, CLAUDE_OVERLAY_DIRECTORY_NAME, CLAUDE_VIEWS_DIRECTORY_NAME);
   const defaultView = join(viewsRoot, DEFAULT_CLAUDE_VIEW_ID);
-  if (!(await isDirectory(legacy))) return false;
+  const staging = join(controlPlaneDirectory, `${CLAUDE_OVERLAY_DIRECTORY_NAME}.legacy`);
+  if (!(await isDirectory(legacy))) {
+    // Legacy absent: a previous run may have crashed after phase one — finish
+    // the move from the sibling staging directory.
+    if (await isDirectory(staging)) {
+      await mkdir(viewsRoot, { recursive: true, mode: 0o700 });
+      try {
+        await rename(staging, defaultView);
+        return true;
+      } catch {
+        return await isDirectory(defaultView);
+      }
+    }
+    return false;
+  }
   if (samePath(source, legacy)) return false; // never migrate a live native root
   if (await isDirectory(defaultView)) return false; // already migrated
+  // A `views/` subdirectory means `<cp>/claude` is already the profile-scoped
+  // view container, not a #74-era shared overlay — never migrate the container.
+  if (await isDirectory(join(legacy, CLAUDE_VIEWS_DIRECTORY_NAME))) return false;
+  try {
+    await rename(legacy, staging);
+  } catch (error) {
+    // A sibling completed phase one concurrently; finish phase two ourselves.
+    if (!(await isDirectory(staging))) throw error;
+  }
   await mkdir(viewsRoot, { recursive: true, mode: 0o700 });
   try {
-    await rename(legacy, defaultView);
+    await rename(staging, defaultView);
     await chmod(defaultView, 0o700).catch(() => undefined);
     return true;
   } catch {
-    // A sibling process migrated concurrently; verify and treat as done.
     return await isDirectory(defaultView);
   }
 }
@@ -655,20 +690,25 @@ function withoutEntry(
 }
 
 /**
- * Deletion/rename reconciliation for one imported surface whose native source
- * disappeared. RLY deletes the view file only when the manifest says it was
- * native-imported AND the view copy still matches the imported hash; any
- * divergent copy is reclassified view-owned and never deleted. Never touches
- * entries RLY does not own as imports.
+ * Deletion/rename reconciliation for one imported surface. RLY deletes the
+ * view file only when (a) the native source is gone (deleted/renamed) AND
+ * (b) the manifest says it was native-imported AND (c) the view copy still
+ * matches the imported hash. A divergent view copy is reclassified view-owned
+ * and never deleted. A native source that still exists is a live import — the
+ * view copy is never deleted for it (the refresh loop already updated its
+ * hash). Never touches entries RLY does not own as imports.
  * Returns `{ deleted, reclassified }`.
  */
 async function reconcileMissingImport(
   viewPath: string,
+  nativeSourcePath: string,
   entry: ManifestEntry | undefined,
 ): Promise<{ deleted: boolean; reclassified: boolean }> {
   if (entry === undefined || entry.category !== "native-imported") {
     return { deleted: false, reclassified: false };
   }
+  // Native source still present: the import is live; never delete the view copy.
+  if (await isRegularFile(nativeSourcePath)) return { deleted: false, reclassified: false };
   const currentHash = await fileHash(viewPath);
   if (currentHash === undefined) return { deleted: false, reclassified: false };
   if (entry.sourceHash === currentHash) {
@@ -750,9 +790,16 @@ export async function prepareClaudeOverlay(
     const nativeEnvKeys = typeof nativeEnv === "object" && nativeEnv !== null && !Array.isArray(nativeEnv)
       ? Object.keys(nativeEnv)
       : [];
+    // Keys that can actually appear in the composed view (gateway-contract and
+    // unsupported shapes are never composed, so they are not reconciliation
+    // metadata — keeping the manifest lean and privacy-preserving).
     const settingsSourceKeys = [
-      ...Object.keys(nativeSettings as Record<string, unknown>),
-      ...nativeEnvKeys.map((key) => `env.${key}`),
+      ...Object.keys(nativeSettings as Record<string, unknown>).filter(
+        (key) => !(UNSUPPORTED_SETTINGS_KEYS as readonly string[]).includes(key),
+      ),
+      ...nativeEnvKeys
+        .filter((key) => !(GATEWAY_CONTRACT_ENV_KEYS as readonly string[]).includes(key))
+        .map((key) => `env.${key}`),
     ];
     const sourceHashValue = await fileHash(nativeSettingsPath);
     const viewHashValue = await fileHash(paths.settings);
@@ -900,7 +947,10 @@ export async function prepareClaudeOverlay(
 
   // Deletion/rename reconciliation: manifest-tracked imports whose native
   // source disappeared are deleted (matching hash) or reclassified view-owned
-  // (divergent copy). Entries RLY does not own as imports are never touched.
+  // (divergent copy); live native sources are never touched. Entries RLY does
+  // not own as imports are never touched. The pass runs outside the reconcile
+  // lock too: it is idempotent (unlink/rename are safe to repeat) and the
+  // manifest write below is atomic, so a busy sibling never corrupts state.
   for (const [relativePath, entry] of Object.entries(manifest?.entries ?? {})) {
     if (entry.category !== "native-imported") continue;
     if (relativePath === SETTINGS_FILE || relativePath === PLUGIN_CONFIG_RELATIVE) continue;
@@ -908,7 +958,8 @@ export async function prepareClaudeOverlay(
       continue;
     }
     const viewPath = join(paths.directory, relativePath);
-    const outcome = await reconcileMissingImport(viewPath, entry);
+    // Manifest keys for these surfaces are native-root-relative paths.
+    const outcome = await reconcileMissingImport(viewPath, join(source, relativePath), entry);
     if (outcome.deleted) {
       reconciledDeletions.push(relativePath);
       manifestChanged = true;
@@ -979,7 +1030,7 @@ export async function prepareClaudeOverlay(
   } else if (!pluginSourcePresent && pluginEntry !== undefined && pluginEntry.sourceHash !== undefined) {
     // Native plugin config removed: delete only the owned allowlist projection
     // when it still matches what we imported; otherwise view-owned.
-    const outcome = await reconcileMissingImport(paths.pluginConfig, pluginEntry);
+    const outcome = await reconcileMissingImport(paths.pluginConfig, join(source, PLUGIN_CONFIG_RELATIVE), pluginEntry);
     if (outcome.deleted) {
       reconciledDeletions.push(PLUGIN_CONFIG_RELATIVE);
       manifestChanged = true;

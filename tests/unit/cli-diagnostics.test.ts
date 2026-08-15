@@ -11,7 +11,7 @@ import { loadConfig } from "../../src/config/load-config.js";
 import { ControlPlaneStore } from "../../src/control-plane/store.js";
 import { CredentialBroker } from "../../src/credentials/broker.js";
 import { acquireGateway, runtimeDirectory } from "../../src/runtime/gateway-lifecycle.js";
-import { prepareClaudeOverlay, CLAUDE_OVERLAY_ALLOWLIST_VERSION } from "../../src/runtime/claude-overlay.js";
+import { prepareClaudeOverlay, CLAUDE_OVERLAY_ALLOWLIST_VERSION, DEFAULT_CLAUDE_VIEW_ID } from "../../src/runtime/claude-overlay.js";
 import { CLAUDE_CODE_FIXTURE_BASELINE } from "../../src/canary/client-fixtures.js";
 import { seedCodexClaudeProfile, sseFixture } from "../helpers/codex-profile-seed.js";
 
@@ -149,12 +149,13 @@ describe("CLI diagnostics", () => {
         claudeOverlay?: { directory?: string; source?: string; allowlistVersion?: number; lastComposedAt?: string };
       };
       expect(status.claudeOverlay).toMatchObject({
-        directory: join(controlPlane, "claude"),
+        directory: join(controlPlane, "claude", "views", DEFAULT_CLAUDE_VIEW_ID),
         source: native,
         allowlistVersion: CLAUDE_OVERLAY_ALLOWLIST_VERSION,
       });
       expect(typeof status.claudeOverlay?.lastComposedAt).toBe("string");
-      expect(printed.join("\n")).not.toMatch(/ANTHROPIC_AUTH_TOKEN|model|theme|settings|token|secret/i);
+      // Ownership metadata only: never settings values, credentials, or tokens.
+      expect(printed.join("\n")).not.toMatch(/ANTHROPIC_AUTH_TOKEN|"model"\s*:\s*"|"theme"\s*:\s*"|oauthToken|Bearer|token|secret/i);
     } finally {
       log.mockRestore();
     }

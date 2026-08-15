@@ -107,7 +107,7 @@ describe.skipIf(!enabled)("Claude Code overlay E2E", () => {
     const protectedFiles = await seedNativeConfig(directory);
     const before = await Promise.all(protectedFiles.map(digest));
     const config = await writeConfig(directory, baseUrl);
-    const overlay = join(directory, ".rly", "claude");
+    const overlay = join(directory, ".rly", "claude", "views", "default");
 
     const first = await run(process.execPath, [
       "dist/cli/main.js", "run", "claude", "--config", config,
@@ -129,7 +129,7 @@ describe.skipIf(!enabled)("Claude Code overlay E2E", () => {
     const pluginConfig = JSON.parse(await readFile(join(overlay, "plugins", "config.json"), "utf8")) as Record<string, unknown>;
     expect(pluginConfig).toEqual({ enabledPlugins: ["https://example.com/marketplace"] });
     expect(JSON.stringify(pluginConfig)).not.toMatch(/token|oauthAccount/i);
-    expect(JSON.parse(await readFile(join(overlay, ".rly-overlay.json"), "utf8"))).toMatchObject({ allowlistVersion: 1 });
+    expect(JSON.parse(await readFile(join(overlay, ".rly-overlay.json"), "utf8"))).toMatchObject({ allowlistVersion: 3 });
 
     // Native files remain byte-identical after the RLY launch.
     expect(await Promise.all(protectedFiles.map(digest))).toEqual(before);
@@ -158,7 +158,7 @@ describe.skipIf(!enabled)("Claude Code overlay E2E", () => {
     expect(statusPayload.claudeOverlay).toMatchObject({
       directory: overlay,
       source: join(directory, ".claude"),
-      allowlistVersion: 1,
+      allowlistVersion: 3,
     });
   }, timeoutMs);
 });
