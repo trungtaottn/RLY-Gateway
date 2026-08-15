@@ -57,7 +57,9 @@ export type CompatFailureCategory =
   | "malformed-continuation"
   | "timeout-cancel-failure"
   | "environment-inability"
-  | "client-not-installed";
+  | "client-not-installed"
+  | "provider-did-not-call-tool"
+  | "not-applicable-to-access-path";
 
 /** One feature-scoped black-box/live observation (pre-evidence record). */
 export type RunnerGateObservation = Readonly<{
