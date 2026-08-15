@@ -63,11 +63,13 @@ function sseText(responseText) {
   const blocks = responseText.split("\n\n");
   let text = "";
   for (const block of blocks) {
+    let event = "";
     for (const line of block.split("\n")) {
+      if (line.startsWith("event: ")) event = line.slice(7).trim();
       if (line.startsWith("data: ")) {
         try {
           const parsed = JSON.parse(line.slice(6));
-          if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
+          if (event === "response.output_text.delta" && typeof parsed.delta === "string") {
             text += parsed.delta;
           }
         } catch {

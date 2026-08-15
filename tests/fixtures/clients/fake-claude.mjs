@@ -20,7 +20,7 @@ if (!baseUrl) {
 }
 
 function headers(overrides = {}) {
-  return {
+  const base = {
     authorization: `Bearer ${process.env.ANTHROPIC_AUTH_TOKEN ?? "fixture-token-blackbox"}`,
     "content-type": "application/json",
     "x-claude-code-session-id": sessionId,
@@ -28,6 +28,12 @@ function headers(overrides = {}) {
     "x-claude-code-parent-agent-id": "parent-synthetic-0001",
     ...overrides,
   };
+  if (gate === "drop-session-header") {
+    delete base["x-claude-code-session-id"];
+    delete base["x-claude-code-agent-id"];
+    delete base["x-claude-code-parent-agent-id"];
+  }
+  return base;
 }
 
 async function post(body) {

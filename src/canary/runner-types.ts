@@ -127,7 +127,7 @@ export type InstalledClientRunSummary = Readonly<{
 
 /** Result of a Layer C run for one exact access path. */
 export type LiveAccessPathSummary = Readonly<{
-  identity: Readonly<{
+  claimIdentity: Readonly<{
     client: ClientKind;
     clientVersion: string;
     adapterId: string;
@@ -163,6 +163,8 @@ export type InvocationContext = Readonly<{
   fixtureBaseUrl: string;
   configDirectory: string;
   environment: NodeJS.ProcessEnv;
+  /** Distinct per concurrent session (subagent-parallel gate). */
+  sessionId: string;
 }>;
 
 /**

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { accessSync, constants } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -146,13 +147,18 @@ class BlackBoxFixtureServer {
     contentBlocks?: unknown; reasoning?: unknown; effort?: unknown; headers: Readonly<Record<string, string | string[] | undefined>>;
   }>): void {
     const contentBlocks = Array.isArray(request.contentBlocks) ? request.contentBlocks : [];
+    const hasToolResult = contentBlocks.some((block) => {
+      if (typeof block !== "object" || block === null) return false;
+      const type = (block as { type?: unknown }).type;
+      return type === "tool_result" || type === "function_call_output";
+    });
     this.records.push(Object.freeze({
       method: request.method,
       path: request.path,
       ...(typeof request.model === "string" ? { model: request.model } : {}),
       ...(typeof request.stream === "boolean" ? { streamRequested: request.stream } : {}),
       ...(Array.isArray(request.tools) && request.tools.length > 0 ? { toolsRequested: true } : {}),
-      ...(contentBlocks.some((block) => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "tool_result") ? { toolResultReceived: true } : {}),
+      ...(hasToolResult ? { toolResultReceived: true } : {}),
       ...(request.reasoning !== undefined ? { reasoningRequested: true } : {}),
       ...(typeof request.effort === "string" ? { effortSignalPresent: true } : {}),
       sessionHeaderPresent: Boolean(request.headers["x-claude-code-session-id"]),
@@ -266,8 +272,12 @@ class BlackBoxFixtureServer {
 
   private anthropicToolKind(scenario: Scenario, requestIndex: number, hasToolResult: boolean): "tool" | "parallel-tool" | undefined {
     if (!["tool", "reasoning-tool", "multi-tool", "parallel-tool"].includes(scenario)) return undefined;
+    if (scenario === "multi-tool") {
+      // Multi-turn continuation: every request carries the prior tool result
+      // and still receives the next tool call until the final text request.
+      return requestIndex < 3 ? "tool" : undefined;
+    }
     if (hasToolResult) return undefined;
-    if (scenario === "multi-tool" && requestIndex >= 3) return undefined;
     return scenario === "parallel-tool" ? "parallel-tool" : "tool";
   }
 
@@ -382,9 +392,9 @@ class BlackBoxFixtureServer {
             write("event: response.in_progress\ndata: {}\n\n");
             write("event: response.output_item.added\ndata: {}\n\n");
             if (toolKind !== undefined) {
-              write("event: response.function_call_arguments.delta\ndata: {}\n\n");
+              write(`event: response.function_call_arguments.delta\ndata: {"delta":"{}"}\n\n`);
             } else {
-              write("event: response.output_text.delta\ndata: {}\n\n");
+              write(`event: response.output_text.delta\ndata: {"delta":"${BLACKBOX_MARKER}"}\n\n`);
             }
             write("event: response.output_item.done\ndata: {}\n\n");
             write("event: response.completed\ndata: {}\n\n");
@@ -524,7 +534,7 @@ async function writeConfigOverlay(client: ClientKind, configDirectory: string): 
 
 function buildInvocation(spec: InstalledClientRunSpec, fixtureBaseUrl: string, configDirectory: string, gate: ClaimFeature, sessionId: string): ChildInvocation {
   const environment = spec.environment ?? process.env;
-  const context: InvocationContext = Object.freeze({ gate, fixtureBaseUrl, configDirectory, environment });
+  const context: InvocationContext = Object.freeze({ gate, fixtureBaseUrl, configDirectory, environment, sessionId });
   if (spec.invoke !== undefined) return spec.invoke(context);
   const blackboxEnv: NodeJS.ProcessEnv = {
     RLY_BLACKBOX_GATE: gate,
@@ -670,6 +680,57 @@ export async function runInstalledClientMatrix(spec: InstalledClientRunSpec): Pr
   });
   const timeoutMs = spec.timeoutMs ?? DEFAULT_GATE_TIMEOUT_MS;
   const fixtureRevision = spec.fixtureRevision ?? INSTALLED_CLIENT_FIXTURE_REVISION;
+  // Missing/non-executable binary: every gate is `not-run` (`client-not-installed`),
+  // never PASS. The CLI already skips undetected binaries; this guards direct use.
+  let executableMissing = false;
+  try {
+    accessSync(spec.executable, constants.X_OK);
+  } catch {
+    executableMissing = true;
+  }
+  if (executableMissing) {
+    const gatesRun = gates.map((gate) => observation(gate, "not-run", "client-not-installed", "installed client binary not found or not executable"));
+    const claimsByKey = new Map<string, CompatibilityClaimDocument>();
+    const evidence: EvidenceArtifactV2[] = [];
+    for (const gateObservation of gatesRun) {
+      const claimIdentity = claimIdentityFor({
+        client,
+        clientVersion: spec.observedVersion,
+        contract,
+        adapterId: "installed-client-blackbox",
+        accessProviderId: "local-installed",
+        physicalModelId: "installed-binary",
+      });
+      const claimKey = claimKeyFor(claimIdentity, gateObservation.gate);
+      const record: EvidenceArtifactV2 = Object.freeze({
+        claimKey,
+        feature: gateObservation.gate,
+        layer: "B",
+        kind: "installed-client",
+        fixtureRevision,
+        runnerVersion: INSTALLED_CLIENT_RUNNER_VERSION,
+        checkedAt: now(),
+        result: gateObservation.result,
+        ...(gateObservation.failureReason === undefined ? {} : { failureReason: gateObservation.failureReason }),
+        environment,
+      });
+      evidence.push(record);
+      const existing = claimsByKey.get(claimKey) ?? emptyClaimDocument(claimIdentity, gateObservation.gate);
+      claimsByKey.set(claimKey, appendObservation(existing, record));
+    }
+    return Object.freeze({
+      client,
+      executable: spec.executable,
+      observedVersion: spec.observedVersion,
+      supportedBaseline: spec.supportedBaseline,
+      fixtureRevision,
+      gates: Object.freeze(gatesRun),
+      evidence: Object.freeze(evidence),
+      claims: Object.freeze([...claimsByKey.values()]),
+      environment,
+      error: "client-not-installed",
+    });
+  }
   const fixture = new BlackBoxFixtureServer(client === "claude-code" ? "anthropic-messages" : "openai-responses");
   const address = await fixture.app.listen({ host: "127.0.0.1", port: 0 });
   const gatesRun: RunnerGateObservation[] = [];

@@ -72,10 +72,11 @@ function canaryToolPrompt(): string {
   return "Use the Bash tool once, then reply OK.";
 }
 
-function canaryToolDefinitions(): readonly Readonly<Record<string, unknown>>[] {
-  return Object.freeze([
-    Object.freeze({ name: "Bash", description: "synthetic canary tool", input_schema: { type: "object", properties: { command: { type: "string" } } } }),
-  ]);
+function canaryToolDefinitions(parallel = false): readonly Readonly<Record<string, unknown>>[] {
+  const bash = Object.freeze({ name: "Bash", description: "synthetic canary tool", input_schema: { type: "object", properties: { command: { type: "string" } } } });
+  if (!parallel) return Object.freeze([bash]);
+  const grep = Object.freeze({ name: "Grep", description: "synthetic canary tool", input_schema: { type: "object", properties: { pattern: { type: "string" } } } });
+  return Object.freeze([bash, grep]);
 }
 
 function anthropicBody(feature: ClaimFeature, model: string): Record<string, unknown> {
@@ -94,7 +95,7 @@ function anthropicBody(feature: ClaimFeature, model: string): Record<string, unk
       return {
         ...base,
         messages: [{ role: "user", content: canaryToolPrompt() }],
-        tools: canaryToolDefinitions(),
+        tools: canaryToolDefinitions(feature === "tools-parallel"),
       };
     case "reasoning":
     case "reasoning-tools":
@@ -132,7 +133,12 @@ function responsesBody(feature: ClaimFeature, model: string): Record<string, unk
       return {
         ...base,
         input: canaryToolPrompt(),
-        tools: [{ type: "function", name: "Bash", description: "synthetic canary tool", parameters: { type: "object", properties: { command: { type: "string" } } } }],
+        tools: (feature === "tools-parallel"
+          ? [
+              { type: "function", name: "Bash", description: "synthetic canary tool", parameters: { type: "object", properties: { command: { type: "string" } } } },
+              { type: "function", name: "Grep", description: "synthetic canary tool", parameters: { type: "object", properties: { pattern: { type: "string" } } } },
+            ]
+          : [{ type: "function", name: "Bash", description: "synthetic canary tool", parameters: { type: "object", properties: { command: { type: "string" } } } }]),
       };
     case "reasoning":
     case "reasoning-tools":
@@ -429,7 +435,8 @@ function buildGateway(spec: LiveAccessPathSpec, environment: NodeJS.ProcessEnv):
     const controlPlane = await ControlPlaneStore.open(directory);
     const actor = "system" as const;
     const provider = controlPlane.createProvider({ name: spec.accessProviderId, integrationMode: "direct" }, actor);
-    const pool = controlPlane.createPool({ name: "runner-pool", providerId: provider.id, strategy: "round-robin" }, actor);
+    const account = controlPlane.createAccount({ pseudonym: "runner-account", providerId: provider.id, credentialHandle: "cred-runner", state: "ready" }, actor);
+    const pool = controlPlane.createPool({ name: "runner-pool", providerId: provider.id, strategy: "round-robin", accountIds: [account.id] }, actor);
     controlPlane.createProfile({ name: "runner-profile", harness: "claude", providerId: provider.id, poolId: pool.id, modelRoles: { primary: spec.physicalModelId } }, actor);
     const app = createGatewayServer({
       host: "127.0.0.1",
@@ -472,15 +479,6 @@ export async function runLiveAccessPath(spec: LiveAccessPathSpec): Promise<LiveA
     accessProviderId: spec.accessProviderId,
     physicalModelId: spec.physicalModelId,
   });
-  const identity = Object.freeze({
-    client: spec.client,
-    clientVersion: spec.clientVersion,
-    adapterId: spec.adapterId,
-    accessProviderId: spec.accessProviderId,
-    authMode: spec.authMode,
-    endpointContract: spec.endpointContract,
-    physicalModelId: spec.physicalModelId,
-  });
 
   const buildRecords = (observations: readonly RunnerGateObservation[]): Readonly<{
     evidence: readonly EvidenceArtifactV2[];
@@ -515,7 +513,7 @@ export async function runLiveAccessPath(spec: LiveAccessPathSpec): Promise<LiveA
     const observations = gates.map((gate) => observation(gate, "not-run", "authentication-credentials-unavailable", `credential env ${spec.credentialEnvName} is unset`));
     const { evidence, claims } = buildRecords(observations);
     return Object.freeze({
-      identity,
+      claimIdentity,
       gates: Object.freeze(observations),
       evidence,
       claims,
@@ -543,7 +541,7 @@ export async function runLiveAccessPath(spec: LiveAccessPathSpec): Promise<LiveA
     }
     const { evidence, claims } = buildRecords(observations);
     return Object.freeze({
-      identity,
+      claimIdentity,
       gates: Object.freeze(observations),
       evidence,
       claims,

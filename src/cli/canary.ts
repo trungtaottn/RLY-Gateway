@@ -245,7 +245,7 @@ async function runLayerC(configPath: string, controlPlaneDirectory: string): Pro
   const output = Object.freeze({
     layer: "C",
     executed: executed.map((summary) => Object.freeze({
-      identity: summary.identity,
+      claimIdentity: summary.claimIdentity,
       gates: gatesView(summary.gates),
       evidence: claimEvidenceView(summary),
       ...(summary.error === undefined ? {} : { error: summary.error }),
