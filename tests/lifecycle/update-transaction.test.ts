@@ -458,7 +458,7 @@ describe("transactional activation crash recovery (#93, real refs)", () => {
     // recovery terminal state and the no-loop guarantee are the contract.
     await installer.activateStaged();
     await harness.restartTo("2.0.0");
-    const manager = new FakeServiceManager(async () => {
+    const manager = new FakeServiceManager(() => {
       throw new Error("service restart failed (simulated crash of the rollback restart)");
     });
     const store = new UpdateStateStore(controlPlaneDir);
@@ -792,7 +792,7 @@ describe("update lock ownership (#93)", () => {
   it("records the real process-start identity and keeps a same-process holder alive", async () => {
     const controlPlaneDir = await temporaryDirectory("rly-txn-lock-");
     const fixedStart = "2026-08-13T00:00:00.000Z";
-    const store = new UpdateStateStore(controlPlaneDir, async () => ({ processStartedAt: fixedStart }));
+    const store = new UpdateStateStore(controlPlaneDir, () => ({ processStartedAt: fixedStart }));
     const lock = await store.acquireLock();
     const contents = await (await import("node:fs/promises")).readFile(join(controlPlaneDir, "update.lock"), "utf8");
     const parsed = JSON.parse(contents) as { owner: { pid: number; processStartedAt: string; identityVerified?: boolean } };
@@ -809,7 +809,7 @@ describe("update lock ownership (#93)", () => {
   it("never reclaims a live foreign lock whose identity matches, regardless of pid", async () => {
     const controlPlaneDir = await temporaryDirectory("rly-txn-lock-");
     const start = "2026-08-13T00:00:00.000Z";
-    const store = new UpdateStateStore(controlPlaneDir, async (pid) => (pid === 42_424 ? { processStartedAt: start } : undefined));
+    const store = new UpdateStateStore(controlPlaneDir, (pid) => (pid === 42_424 ? { processStartedAt: start } : undefined));
     const { writePrivateTextAtomically } = await import("../../src/storage/private-files.js");
     await writePrivateTextAtomically(join(controlPlaneDir, "update.lock"), `${JSON.stringify({
       lockId: "00000000-0000-4000-8000-000000000093",
@@ -822,7 +822,7 @@ describe("update lock ownership (#93)", () => {
 
   it("reclaims only a lock whose owner identity is proven stale/dead", async () => {
     const controlPlaneDir = await temporaryDirectory("rly-txn-lock-");
-    const store = new UpdateStateStore(controlPlaneDir, async (pid) => (pid === 42_424 ? undefined : { processStartedAt: "2026-08-13T00:00:00.000Z" }));
+    const store = new UpdateStateStore(controlPlaneDir, (pid) => (pid === 42_424 ? undefined : { processStartedAt: "2026-08-13T00:00:00.000Z" }));
     const { writePrivateTextAtomically } = await import("../../src/storage/private-files.js");
     // Dead owner: the pid is no longer in the process table ⇒ reclaimable.
     await writePrivateTextAtomically(join(controlPlaneDir, "update.lock"), `${JSON.stringify({
