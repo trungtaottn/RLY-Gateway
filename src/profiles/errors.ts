@@ -1,4 +1,5 @@
 import type { ModelSelectionFailure } from "../routing/model-selection/errors.js";
+import type { ModelIntentFailure } from "../routing/model-intent/errors.js";
 import type { TierResolutionFailure } from "../routing/model-tiers/errors.js";
 
 export class ProfileActivationError extends Error {
@@ -27,6 +28,13 @@ export class ProfileActivationError extends Error {
      * HTTP contract as an additive `cause` for actionability.
      */
     readonly tierCause?: string,
+    /**
+     * Typed model-intent classification failure (#125) when the selector could
+     * not be classified into a known namespace/kind (e.g. `unknown-namespace`
+     * for an invalid `rly-tier:*` value). Carried so the HTTP contract can
+     * surface the actionable selector-namespace reason without leaking content.
+     */
+    readonly intentFailure?: ModelIntentFailure,
   ) {
     super(message);
   }

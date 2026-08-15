@@ -46,6 +46,14 @@
 - Effective tier mappings are stable for an active session/policy revision: the built-in reviewed mapping and per-profile overrides are immutable per revision, and catalog refresh (#23) proposes better mappings without silently changing trusted tier mappings.
 - Existing `primary`/`fast`/`reasoning` profile roles remain unchanged; tier resolution is a parallel path for portable tier aliases (`model: fable`), and `profile.modelRoles` additionally accepts tier keys as per-profile user overrides (validated fail-closed through #68 exact evidence).
 
+## Model intent and selector namespaces (#125)
+
+- The incoming model selector is classified into one typed `ModelIntent` (`EXACT_PROJECTION`, `RLY_LOGICAL_TIER`, `CLIENT_NATIVE_ALIAS`, `EXACT_CLIENT_MODEL`, `INHERIT`, `DEFAULT`) before any routing, with exact source-selector provenance preserved for diagnostics. Core invariant: **`fable != rly-tier:fable`** — the client-native alias vocabulary (owned by Claude/Codex) is a different namespace from RLY's logical selector namespace.
+- RLY logical tiers are addressed only through the explicit `rly-tier:<tier>` namespace; a selector claiming the namespace with an unknown value fails closed (`unknown-namespace`) and is never silently reinterpreted as an alias/exact model. Bare tier strings are never RLY policy selectors by string equality.
+- Bare client-native aliases keep working for existing agent/skill files (`model: fable`) without rewriting them to physical provider model ids: they map to the equivalent RLY tier through the explicit, traceable client-alias contract, then the #69 provider/family resolver runs unchanged. The classification is deliberate and visible in the route trace (`kind`/`source`), never string equality.
+- The #69 tier resolver is invoked **only** for an explicitly typed tier intent — never through accidental string matching. Exact projected selection (#72) remains exact and is dispatched before profile resolution; persisted exact model ids keep the exact #68 path and are never reinterpreted as tiers.
+- Precedence is deterministic and documented (explicit `rly-tier:` → projection → client alias → inherit → default → exact model); conflicting selector sources and namespace errors have a typed failure taxonomy mapped onto the existing profile error contract. Diagnostics expose selector kind/source/resolved target only — never prompts, credentials, account identity, or settings contents.
+
 ## Subagent model resolution (#71)
 
 - Claude Code orchestrates agents; RLY resolves their requested execution target and reasoning safely. RLY never inspects prompts to infer task type and never becomes a workflow engine — it responds only to explicit agent/tier/effort signals (`X-Claude-Code-Session-Id`, `X-Claude-Code-Agent-Id`, `X-Claude-Code-Parent-Agent-Id` and the portable `model: fable`/effort request).

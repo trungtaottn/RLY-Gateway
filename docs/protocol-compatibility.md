@@ -177,6 +177,42 @@ model tiers** — never as four globally fixed physical models:
   native `fable` alias behavior is classified by #24; a client without it is
   surfaced as incompatible rather than silently forced through a global override.
 
+## Model intent and selector namespaces (#125)
+
+The gateway separates the client-native alias vocabulary (owned by Claude/Codex)
+from the RLY logical selector namespace before any routing. Core invariant:
+**`fable != rly-tier:fable`**.
+
+- **Selector namespaces**: `rly-tier:<tier>` is the explicit RLY logical-tier
+  namespace (`rly-tier:haiku|sonnet|opus|fable`); `claude-rly-*` is the RLY
+  projection namespace (#72); bare `haiku|sonnet|opus|fable` are client-native
+  aliases; `inherit`/`default`/empty express inheritance/default intent; anything
+  else is an exact client model id / profile role / helper alias. Classification
+  is deterministic with documented precedence (explicit `rly-tier:` → projection
+  → alias → inherit → default → exact model) and preserves the exact source
+  selector for diagnostics.
+- **Compatibility for existing selectors**: bare tier names in user agent/skill
+  files or requests (e.g. `model: fable`) keep working without rewriting those
+  files to physical provider model ids — they are classified as client-native
+  aliases and mapped through the explicit, traceable client-alias contract to
+  the equivalent RLY tier, then resolved by the #69 provider/family resolver.
+  They are no longer RLY policy selectors by string equality: the trace records
+  `kind: CLIENT_NATIVE_ALIAS` / `source: client-native-alias-contract`. An
+  explicit `rly-tier:fable` is recorded as `kind: RLY_LOGICAL_TIER` / `source:
+  rly-tier-namespace`. A selector that claims the RLY namespace with an unknown
+  value fails closed (`unknown-namespace`) and is never reinterpreted.
+- **Persisted exact model ids never become tiers**: a persisted profile/role
+  value such as `gpt-5.6-sol` or `claude-sonnet-4-5` is classified as an exact
+  client model and keeps the #68 exact path; `profile.modelRoles` tier keys
+  (`haiku`/`sonnet`/`opus`/`fable`) keep their #69 meaning as per-profile user
+  overrides. Ambiguous persisted values never silently change meaning.
+- **Error/version gate**: the alias contract is part of the pinned supported
+  baseline (see #24 fixtures above for `fable`/`haiku`/`sonnet`/`opus` alias
+  semantics); classification failures surface typed reasons on the existing
+  profile error contract. Diagnostics expose selector kind/source/resolved
+  target only — never prompts, credentials, account identity, or settings
+  contents.
+
 ## Claude Code agent attribution and subagent model resolution (#71)
 
 Claude Code sends runtime attribution headers on gateway requests; RLY uses
