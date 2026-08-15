@@ -125,4 +125,40 @@ describe("update state store (#73)", () => {
     const lost = recoverUpdateState(record("pending-activation"));
     expect(lost?.state).toBe("failed");
   });
+
+  it("recovers transaction-journal phases deterministically (#93)", () => {
+    const transaction = (phase: "staged" | "draining" | "switching" | "probation" | "committing" | "committed" | "rolling-back" | "recovery-required", overrides: Partial<UpdateStateRecord["transaction"]> = {}): UpdateStateRecord["transaction"] => ({
+      schemaVersion: 1,
+      phase,
+      startedAt: "2026-08-13T00:00:00.000Z",
+      updatedAt: "2026-08-13T00:00:01.000Z",
+      candidateVersion: "2.0.0",
+      candidateArtifactId: "a".repeat(64),
+      previousVersion: "0.1.0",
+      previousArtifactId: "b".repeat(64),
+      rollbackAttempts: 0,
+      ...overrides,
+    });
+    // Pre-switch phases resume activation (nothing was switched).
+    expect(recoverUpdateState(record("pending-activation", { transaction: transaction("staged") }))?.state).toBe("pending-activation");
+    expect(recoverUpdateState(record("activating", { transaction: transaction("draining") }))?.state).toBe("pending-activation");
+    // Post-switch phases roll back — NEVER silently commit.
+    for (const phase of ["switching", "probation", "committing"] as const) {
+      const recovered = recoverUpdateState(record("activating", { transaction: transaction(phase) }));
+      expect(recovered?.state).toBe("rollback-required");
+      expect(recovered?.failureReason).toContain(phase);
+    }
+    // A durable commit promotes to active.
+    const committed = recoverUpdateState(record("activating", { transaction: transaction("committed") }));
+    expect(committed?.state).toBe("active");
+    expect(committed?.currentVersion).toBe("2.0.0");
+    expect(committed?.currentArtifactId).toBe("a".repeat(64));
+    expect(committed?.pendingVersion).toBeUndefined();
+    // Interrupted rollback with the bounded attempt consumed is terminal.
+    const interrupted = recoverUpdateState(record("rollback-required", { transaction: transaction("rolling-back", { rollbackAttempts: 1 }) }));
+    expect(interrupted?.state).toBe("recovery-required");
+    expect(interrupted?.failureReason).toContain("doctor");
+    // Recovery-required stays terminal.
+    expect(recoverUpdateState(record("recovery-required", { transaction: transaction("recovery-required") }))?.state).toBe("recovery-required");
+  });
 });

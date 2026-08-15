@@ -80,10 +80,12 @@ async function profileInventory(config: GatewayConfig): Promise<{ total: number;
 }
 
 /**
- * Allowlisted update metadata (#73): durable update state plus the serving
- * runtime's attested identity (state/schema version, active launch sessions,
- * draining, live update snapshot) and CLI↔runtime compatibility. Versions and
- * counts only — never credentials, prompts, responses, or account identity.
+ * Allowlisted update metadata (#73/#93): durable update state plus the
+ * serving runtime's attested identity (state/schema version, active launch
+ * sessions, draining, live update snapshot) and CLI↔runtime compatibility.
+ * Includes the durable activation-transaction phase and lock-owner status.
+ * Versions, counts, and identifiers only — never credentials, prompts,
+ * responses, or account identity.
  */
 async function updateSummary(config: GatewayConfig): Promise<Record<string, unknown>> {
   const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
@@ -96,6 +98,8 @@ async function updateSummary(config: GatewayConfig): Promise<Record<string, unkn
   }
   const identity = await attestedIdentityOrUndefined(config);
   const residentVersion = identity?.runtimeVersion;
+  const transactionPhase = identity?.update?.phase ?? record?.transaction?.phase;
+  const lock = await store.lockStatus().catch(() => undefined);
   return {
     state: identity?.update?.state ?? record?.state ?? "idle",
     ...(identity?.update?.pendingVersion === undefined
@@ -104,6 +108,7 @@ async function updateSummary(config: GatewayConfig): Promise<Record<string, unkn
     ...(identity?.update?.previousVersion === undefined
       ? record?.previousVersion === undefined ? {} : { previousVersion: record.previousVersion }
       : { previousVersion: identity.update.previousVersion }),
+    ...(transactionPhase === undefined ? {} : { phase: transactionPhase }),
     ...(identity === undefined ? {} : {
       stateVersion: identity.stateVersion,
       activeSessions: identity.activeSessions ?? 0,
@@ -114,9 +119,11 @@ async function updateSummary(config: GatewayConfig): Promise<Record<string, unkn
       ...(residentVersion === undefined ? {} : { resident: residentVersion }),
       compatible: runtimeProtocolCompatible(RUNTIME_VERSION, residentVersion ?? RUNTIME_VERSION),
     },
+    ...(lock === undefined ? {} : { lock: lock.held ? { held: true, ...(lock.ownerPid === undefined ? {} : { ownerPid: lock.ownerPid }), ...(lock.stale === undefined ? {} : { stale: lock.stale }) } : { held: false } }),
     ...(record?.lastActivationResult === undefined ? {} : { lastActivationResult: record.lastActivationResult }),
     ...(record?.lastRollbackResult === undefined ? {} : { lastRollbackResult: record.lastRollbackResult }),
     ...(record?.failureReason === undefined ? {} : { failureReason: record.failureReason }),
+    ...(record?.state === "recovery-required" ? { recovery: "manual" } : {}),
   };
 }
 
@@ -126,7 +133,7 @@ async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
   stateVersion?: number;
   activeSessions?: number;
   draining?: boolean;
-  update?: { state: string; pendingVersion?: string; previousVersion?: string };
+  update?: { state: string; pendingVersion?: string; previousVersion?: string; phase?: string };
 } | undefined> {
   const store = new RuntimeStore(runtimeDirectory(config.gateway.port));
   const secret = await store.readInstanceSecret();
@@ -144,7 +151,7 @@ async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
       stateVersion?: number;
       activeSessions?: number;
       draining?: boolean;
-      update?: { state: string; pendingVersion?: string; previousVersion?: string };
+      update?: { state: string; pendingVersion?: string; previousVersion?: string; phase?: string };
       proof?: string;
     };
     if (payload.proof === undefined || payload.instanceId === undefined || payload.configFingerprint === undefined) return undefined;

@@ -144,6 +144,8 @@ export async function runUpdateCommand(
     outcome: result.outcome,
     currentVersion: result.currentVersion,
     ...(result.pendingVersion === undefined ? {} : { pendingVersion: result.pendingVersion }),
+    ...(result.phase === undefined ? {} : { phase: result.phase }),
+    ...(result.state === "recovery-required" ? { recovery: "manual" } : {}),
     ...(result.message === undefined ? {} : { message: result.message }),
   }));
   return result.outcome === "failed" ? 1 : 0;

@@ -332,6 +332,11 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
         state: update?.state ?? "idle",
         ...(update?.pendingVersion === undefined ? {} : { pendingVersion: update.pendingVersion }),
         ...(update?.previousVersion === undefined ? {} : { previousVersion: update.previousVersion }),
+        // #93: the durable activation-transaction phase (staged/draining/
+        // switching/probation/committing/committed/rolling-back/
+        // recovery-required) so status/doctor show exactly where a
+        // transactional activation stands.
+        ...(update?.transaction === undefined ? {} : { phase: update.transaction.phase }),
       },
       proof: createIdentityProof(
         options.authToken,
