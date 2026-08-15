@@ -8,13 +8,17 @@ import type { ClaudeOverlayResolution } from "../../src/runtime/claude-overlay.j
 
 const cliOverlayDirectory = join(tmpdir(), "rly-gateway-cli-overlay");
 
-function overlayDependency(): { prepareClaudeOverlay: (controlPlaneDirectory: string) => Promise<ClaudeOverlayResolution> } {
+function overlayDependency(): { prepareClaudeOverlay: (controlPlaneDirectory: string, options?: { environment?: Readonly<NodeJS.ProcessEnv>; viewId?: string; explicit?: { model?: string; env?: Readonly<Record<string, string>> } }) => Promise<ClaudeOverlayResolution> } {
   return {
-    prepareClaudeOverlay: vi.fn<(controlPlaneDirectory: string) => Promise<ClaudeOverlayResolution>>().mockResolvedValue({
+    prepareClaudeOverlay: vi.fn().mockResolvedValue({
+      viewId: "default",
       directory: cliOverlayDirectory,
       source: cliOverlayDirectory,
       composed: false,
       refreshed: [],
+      reconciledDeletions: [],
+      reclassified: [],
+      migratedFromShared: false,
     }),
   };
 }
@@ -103,7 +107,7 @@ describe("CLI parsing", () => {
           release,
         }),
         launchClaude: launch,
-        issueProfileLaunch: vi.fn().mockResolvedValue({ token: "child-token", args: ["-p", "fixture"], executable: "claude" }),
+        issueProfileLaunch: vi.fn().mockResolvedValue({ token: "child-token", args: ["-p", "fixture"], executable: "claude", profileId: "p-1", explicit: undefined }),
       },
     )).resolves.toBe(0);
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({ authToken: "child-token", args: ["-p", "fixture"] }));
@@ -174,7 +178,7 @@ describe("CLI parsing", () => {
     const release = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const launchClaude = vi.fn().mockResolvedValue({ code: 0, signal: null });
     const launchCodex = vi.fn().mockResolvedValue({ code: 0, signal: null });
-    const issueProfileLaunch = vi.fn().mockResolvedValue({ token: "child-token", args: ["-p", "fixture"], executable: "claude" });
+    const issueProfileLaunch = vi.fn().mockResolvedValue({ token: "child-token", args: ["-p", "fixture"], executable: "claude", profileId: "p-1", explicit: undefined });
     await expect(runCli(
       ["codex", "--config", configPath, "--", "-p", "fixture"],
       {
