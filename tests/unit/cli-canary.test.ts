@@ -239,7 +239,7 @@ describe("canary CLI (#24)", () => {
       log.mockRestore();
       if (previousLive === undefined) {
         const envWithoutLive = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== RLY_LIVE_CANARY_ENV));
-        process.env = envWithoutLive as NodeJS.ProcessEnv;
+        process.env = envWithoutLive;
       } else {
         process.env[RLY_LIVE_CANARY_ENV] = previousLive;
       }
