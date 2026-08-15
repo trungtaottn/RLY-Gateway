@@ -201,6 +201,14 @@
 - Prohibition: no credential, token, prompt, response, or account identity in update state, logs, or diagnostics; never signal a process from port occupancy alone; never loop restart/rollback indefinitely; no silent forward-only migration.
 - Acceptance: AT-103, AT-104, AT-105, AT-106, AT-107, AT-108, AT-109, AT-110, AT-111, AT-112, AT-113, AT-114, AT-115, AT-116, AT-117, AT-118.
 
+### FR-024 — Classify model selectors into typed model intents (#125)
+
+- Traces: BR-005, BR-008, BR-009, SR-F-028, SR-NF-002.
+- Preconditions: a request carries a model selector string; routing has not yet started.
+- Behavior: classify the incoming model selector into exactly one typed `ModelIntent` (`EXACT_PROJECTION`, `RLY_LOGICAL_TIER`, `CLIENT_NATIVE_ALIAS`, `EXACT_CLIENT_MODEL`, `INHERIT`, `DEFAULT`) before any routing, preserving the exact source selector and the namespace/rule that produced the classification. Give RLY logical tiers an explicit namespace (`rly-tier:haiku|sonnet|opus|fable`) so bare client-native alias strings (`haiku`/`sonnet`/`opus`/`fable`) are never RLY policy selectors by string equality (core invariant `fable != rly-tier:fable`); a selector claiming the RLY namespace with an unknown value fails closed (`unknown-namespace`) and is never silently reinterpreted. Invoke the #69 provider/family tier resolver only for an explicitly typed tier intent (`RLY_LOGICAL_TIER`, or a client-native alias mapped through the explicit traceable client-alias contract); exact projected selection (#72) remains exact and is dispatched before profile resolution; persisted exact model ids and `profile.modelRoles` tier keys keep their meaning and are never reinterpreted (exact ids keep the #68 exact path). Apply deterministic precedence among exact projection, explicit RLY tier, client alias, profile override, inherit, and default, and distinguish the typed failure taxonomy (unknown namespace, unsupported client alias, unknown exact model, invalid projection, tier unavailable, conflicting selector sources) on the existing profile error contract.
+- Diagnostics: route traces expose selector kind/source and the resolved logical target only — never prompts, credentials, account identity, or settings contents.
+- Acceptance: AT-119, AT-120, AT-121, AT-122, AT-123, AT-124, AT-125, AT-126, AT-127, AT-128.
+
 ## Unresolved questions
 
 - Exact quota-aware strategy behavior after live quota evidence is pinned.
