@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest, CanonicalToolChoice } from "../../core/canonical-request.js";
+import { emptyFidelityEnvelope, withArtifacts, withNotes, withRequired, type FidelityEnvelope, type OpaqueArtifact } from "../../core/fidelity.js";
 import { reasoningRequestFromWire } from "../../core/reasoning.js";
 
 const textPart = z.object({ type: z.enum(["input_text", "output_text", "text"]), text: z.string() });
@@ -34,7 +35,9 @@ const functionOutputItem = z.object({
 });
 const reasoningItem = z.object({
   type: z.literal("reasoning"),
+  id: z.string().min(1).optional(),
   summary: z.array(z.object({ type: z.literal("summary_text"), text: z.string() })).optional(),
+  encrypted_content: z.string().optional(),
 });
 const knownItem = z.discriminatedUnion("type", [messageItem, functionCallItem, functionOutputItem, reasoningItem]);
 const rawSchema = z.object({
@@ -95,7 +98,7 @@ function parseJsonOrRaw(value: string): unknown {
   try { return JSON.parse(value); } catch { return value; }
 }
 
-function parseItem(raw: unknown): { role?: "user" | "assistant"; content: CanonicalContent[]; system?: CanonicalContent } {
+function parseItem(raw: unknown): { role?: "user" | "assistant"; content: CanonicalContent[]; system?: CanonicalContent; artifacts: OpaqueArtifact[] } {
   const typed = z.object({ type: z.string() }).loose().safeParse(raw);
   if (!typed.success) throw new ResponsesProtocolError("invalid_request_error", "Input item is not an object");
   const parsed = knownItem.safeParse(raw);
@@ -105,8 +108,8 @@ function parseItem(raw: unknown): { role?: "user" | "assistant"; content: Canoni
   switch (parsed.data.type) {
     case "message": {
       const content = parseMessageContent(parsed.data.content);
-      if (parsed.data.role === "system") return content[0] === undefined ? { content: [] } : { system: content[0], content: [] };
-      return { role: parsed.data.role, content };
+      if (parsed.data.role === "system") return content[0] === undefined ? { content: [], artifacts: [] } : { system: content[0], content: [], artifacts: [] };
+      return { role: parsed.data.role, content, artifacts: [] };
     }
     case "function_call":
       return {
@@ -117,13 +120,26 @@ function parseItem(raw: unknown): { role?: "user" | "assistant"; content: Canoni
           name: parsed.data.name,
           input: parsed.data.arguments ? parseJsonOrRaw(parsed.data.arguments) : {},
         }],
+        artifacts: [],
       };
     case "function_call_output": {
       const text = typeof parsed.data.output === "string" ? parsed.data.output : JSON.stringify(parsed.data.output);
-      return { role: "user", content: [{ type: "tool-result", toolCallId: parsed.data.call_id, content: [{ type: "text", text }], isError: false }] };
+      return { role: "user", content: [{ type: "tool-result", toolCallId: parsed.data.call_id, content: [{ type: "text", text }], isError: false }], artifacts: [] };
     }
-    case "reasoning":
-      return { role: "assistant", content: [{ type: "reasoning", text: parsed.data.summary?.map((item) => item.text).join("\n") ?? "" }] };
+    case "reasoning": {
+      // #119: item identity stays semantic (non-secret); encrypted content is an
+      // opaque continuation artifact preserved natively, never interpreted.
+      const itemId = parsed.data.id;
+      const association = itemId ?? "reasoning-item";
+      const artifacts: OpaqueArtifact[] = typeof parsed.data.encrypted_content === "string" && parsed.data.encrypted_content.length > 0
+        ? [{ kind: "openai-reasoning-encrypted-content", association, value: parsed.data.encrypted_content }]
+        : [];
+      return {
+        role: "assistant",
+        content: [{ type: "reasoning", text: parsed.data.summary?.map((item) => item.text).join("\n") ?? "", ...(itemId === undefined ? {} : { id: itemId }) }],
+        artifacts,
+      };
+    }
   }
 }
 
@@ -167,10 +183,16 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
   }
   const system: CanonicalContent[] = value.instructions === undefined ? [] : [{ type: "text", text: value.instructions }];
   const messages: CanonicalMessage[] = [];
+  const artifacts: OpaqueArtifact[] = [];
+  let hasEncryptedReasoning = false;
   for (const item of inputItems(value.input)) {
     const decoded = parseItem(item);
     if (decoded.system) system.push(decoded.system);
     if (decoded.role && decoded.content.length > 0) messages.push({ role: decoded.role, content: decoded.content });
+    for (const artifact of decoded.artifacts) {
+      artifacts.push(artifact);
+      if (artifact.kind === "openai-reasoning-encrypted-content") hasEncryptedReasoning = true;
+    }
   }
   const input = messages.flatMap((message) => message.content);
   const required: CapabilityRequirement[] = [];
@@ -187,6 +209,24 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
         ...(value.reasoning.effort === undefined ? { thinking: "enabled" as const } : {}),
         ...(value.reasoning.effort === undefined ? {} : { effort: value.reasoning.effort }),
       });
+  // #119: fidelity envelope carries reasoning item identity (semantic) + opaque
+  // encrypted content (native). Encrypted content is required for continuation
+  // and must fail closed on a path that cannot represent it.
+  const ignored = Object.keys(value).filter((key) => !RECOGNIZED.has(key));
+  const fidelity: FidelityEnvelope | undefined = (() => {
+    if (artifacts.length === 0 && ignored.length === 0) return undefined;
+    let envelope = emptyFidelityEnvelope("openai-responses", typeof headers["openai-version"] === "string" ? headers["openai-version"] : undefined);
+    envelope = withArtifacts(envelope, artifacts);
+    envelope = withNotes(envelope, [
+      ...(input.some((item) => item.type === "reasoning")
+        ? [{ field: "input[].reasoning.summary", disposition: "translated" as const, reason: "summary text projected to semantic reasoning content" }]
+        : []),
+      ...artifacts.map((artifact) => ({ field: "input[].reasoning.encrypted_content", disposition: "preserved-native" as const, reason: `preserved at ${artifact.association}` })),
+      ...ignored.map((key) => ({ field: key, disposition: "ignored" as const, reason: "unknown additive field; not required for continuation" })),
+    ]);
+    if (hasEncryptedReasoning) envelope = withRequired(envelope, ["openai-reasoning-encrypted-content"]);
+    return envelope;
+  })();
   return {
     request: {
       id: randomUUID(),
@@ -209,8 +249,9 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
       },
       metadata: beta.length === 0 ? {} : { beta },
       ...(value.previous_response_id === undefined ? {} : { continuation: { previousResponseId: value.previous_response_id } }),
+      ...(fidelity === undefined ? {} : { fidelity }),
     },
     required,
-    ignoredAdditiveFields: Object.keys(value).filter((key) => !RECOGNIZED.has(key)),
+    ignoredAdditiveFields: ignored,
   };
 }

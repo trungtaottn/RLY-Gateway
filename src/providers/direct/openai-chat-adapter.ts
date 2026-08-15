@@ -1,6 +1,7 @@
 import { resolveEnvironmentCredential, type SecretHandle } from "../../credentials/env-resolver.js";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest } from "../../core/canonical-request.js";
 import type { CanonicalEvent } from "../../core/canonical-event.js";
+import { unsupportedRequiredArtifacts } from "../../core/fidelity.js";
 import type { ResolvedReasoning } from "../../core/reasoning.js";
 import type { RouteDecision } from "../../core/route-decision.js";
 import { ProviderAdapterError, type ProviderAdapter, type ProviderProbe } from "../provider-adapter.js";
@@ -146,6 +147,14 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
   }
 
   async *invoke(request: CanonicalRequest, decision: RouteDecision, signal: AbortSignal): AsyncIterable<CanonicalEvent> {
+    // #119 fail-closed fidelity: Chat Completions transport cannot represent
+    // opaque continuation artifacts (signatures, encrypted reasoning content).
+    // A required artifact on this cross-protocol path is unsupported, never
+    // fabricated and never silently dropped.
+    const unsupported = unsupportedRequiredArtifacts(request.fidelity, []);
+    if (unsupported.length > 0) {
+      throw new ProviderAdapterError("unsupported-fidelity", `Chat Completions cannot preserve required continuation artifact: ${unsupported.join(", ")}`);
+    }
     const response = await this.post(request, decision, signal);
     let sequence = 0;
     if (!request.stream) {

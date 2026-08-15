@@ -1,6 +1,7 @@
 import type { ReasoningRequest } from "./reasoning.js";
 import type { LogicalTier } from "../routing/model-tiers/types.js";
 import type { AgentContext } from "./agent-context.js";
+import type { FidelityEnvelope } from "./fidelity.js";
 
 export type ModelRole = "primary" | "fast" | "reasoning" | LogicalTier | "unknown";
 
@@ -9,7 +10,7 @@ export type CanonicalContent =
   | { type: "image"; mediaType: string; data: string }
   | { type: "tool-call"; id: string; name: string; input: unknown }
   | { type: "tool-result"; toolCallId: string; content: CanonicalContent[]; isError: boolean }
-  | { type: "reasoning"; text: string }
+  | { type: "reasoning"; text: string; id?: string }
   | { type: "redacted-reasoning"; data: string };
 
 export type CanonicalTool = {
@@ -57,4 +58,10 @@ export type CanonicalRequest = Readonly<{
   continuation?: Readonly<{ previousResponseId: string }>;
   /** Claude Code agent attribution context (#71). Runtime data; never authorization. */
   agent?: AgentContext;
+  /**
+   * Versioned fidelity/continuation envelope (#119): opaque continuation
+   * artifacts (signatures, encrypted content) and translation provenance.
+   * Never diagnostics; never serialized into route traces.
+   */
+  fidelity?: FidelityEnvelope;
 }>;

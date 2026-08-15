@@ -1,4 +1,4 @@
-const sensitiveKey = /(?:authorization|api[-_]?key|token|secret|password|credential|prompt|response|email|account|system|input|content|body|payload|text|data|partial[-_]?json|message)/i;
+const sensitiveKey = /(?:authorization|api[-_]?key|token|secret|password|credential|prompt|response|email|account|system|input|content|body|payload|text|data|partial[-_]?json|message|signature|value)/i;
 
 export function redact(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
   if (Array.isArray(value)) {
