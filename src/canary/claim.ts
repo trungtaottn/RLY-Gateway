@@ -95,6 +95,11 @@ export type EvidenceArtifactV2 = Readonly<{
   environment?: Readonly<{ platform: string; nodeVersion: string }>;
   /** Safe reference to raw machine-readable results (path, never content). */
   ref?: string;
+  /**
+   * Wall-clock duration of the observation in milliseconds (#123). Optional:
+   * Layer A records from #122 carry no timing; Layer B/C runner records do.
+   */
+  timingMs?: number;
 }>;
 
 /** Versioned, append/audit-friendly document for ONE (identity, feature) claim. */
@@ -248,6 +253,7 @@ function sameObservation(left: EvidenceArtifactV2, right: EvidenceArtifactV2): b
     && left.checkedAt === right.checkedAt
     && left.fixtureRevision === right.fixtureRevision
     && left.ref === right.ref
+    && left.timingMs === right.timingMs
     && JSON.stringify(left.environment) === JSON.stringify(right.environment);
 }
 
@@ -306,6 +312,7 @@ export const evidenceArtifactV2Schema = z.object({
   failureReason: z.string().optional(),
   environment: z.object({ platform: z.string(), nodeVersion: z.string() }).optional(),
   ref: z.string().optional(),
+  timingMs: z.number().optional(),
 });
 
 export const compatibilityClaimDocumentSchema = z.object({

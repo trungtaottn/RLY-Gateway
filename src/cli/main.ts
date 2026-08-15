@@ -36,7 +36,7 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
 }
 
 export type ParsedCliCommand =
@@ -161,8 +161,8 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
   if (command === "canary") {
     const rest = args.slice(1);
     const action = rest[0];
-    if (action !== "run" && action !== "status") {
-      throw new Error("canary requires run or status");
+    if (action !== "run" && action !== "status" && action !== "run-b" && action !== "run-c") {
+      throw new Error("canary requires run, status, run-b (installed-client black-box), or run-c (live access path)");
     }
     const options = rest.slice(1);
     if (options.length > 0 && options[0] !== "--config") throw new Error(`unknown option ${String(options[0])}`);
