@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants, type Stats } from "node:fs";
-import { chmod, lstat, mkdir, open, readdir, rename, unlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readlink, rename, symlink, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 export const PRIVATE_DIRECTORY_MODE = 0o700;
@@ -129,6 +129,102 @@ export async function fsyncPrivateDirectory(directory: string): Promise<void> {
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+/**
+ * Reads the target of a private reference symlink (refs under the durable
+ * state root). Missing ⇒ undefined; a present entry that is not a current-user
+ * symlink fails closed. Symlinks are the only link type the runtime store
+ * intentionally owns (deployment references); every file write elsewhere
+ * still refuses links.
+ */
+export async function readPrivateSymlinkTarget(path: string): Promise<string | undefined> {
+  let details: Stats;
+  try {
+    details = await lstat(path);
+  } catch (error: unknown) {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  }
+  if (!details.isSymbolicLink()) {
+    throw new UnsafePrivatePathError(`refusing a non-symlink reference: ${path}`);
+  }
+  if (details.uid !== currentUid()) {
+    throw new UnsafePrivatePathError(`reference is not owned by the current user: ${path}`);
+  }
+  return readlink(path);
+}
+
+/**
+ * Removes a private reference symlink when present. A present entry that is
+ * not a current-user symlink fails closed (never unlink a non-symlink).
+ */
+export async function removePrivateSymlinkIfPresent(path: string): Promise<void> {
+  let details: Stats;
+  try {
+    details = await lstat(path);
+  } catch (error: unknown) {
+    if (isNotFound(error)) return;
+    throw error;
+  }
+  if (!details.isSymbolicLink()) {
+    throw new UnsafePrivatePathError(`refusing to remove a non-symlink reference: ${path}`);
+  }
+  if (details.uid !== currentUid()) {
+    throw new UnsafePrivatePathError(`reference is not owned by the current user: ${path}`);
+  }
+  await unlink(path);
+}
+
+/**
+ * Atomically replaces (or creates) a reference symlink. The replacement is a
+ * temp-reference create + atomic rename (+ parent-directory fsync), never a
+ * `rm + symlink` pair, so a concurrent reader observes either the previous
+ * valid reference or the new valid reference, never an intentional missing
+ * intermediate state. Stale temp references left by an interrupted replace
+ * (crash between temp creation and rename) are cleaned on the next replace.
+ */
+export async function replacePrivateSymlinkAtomically(path: string, target: string): Promise<void> {
+  const directory = dirname(path);
+  await ensurePrivateDirectory(directory);
+  await removeStalePrivateSymlinkTemps(directory, basename(path));
+  const temporaryPath = join(directory, `.${basename(path)}.${randomUUID()}.tmp`);
+  await symlink(target, temporaryPath);
+  try {
+    const details = await lstat(temporaryPath);
+    if (!details.isSymbolicLink() || details.uid !== currentUid()) {
+      throw new UnsafePrivatePathError(`refused unsafe reference symlink: ${temporaryPath}`);
+    }
+    await rename(temporaryPath, path);
+    await fsyncPrivateDirectory(directory);
+  } catch (error: unknown) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function removeStalePrivateSymlinkTemps(directory: string, base: string): Promise<void> {
+  const names = await readdir(directory).catch((error: unknown) => {
+    if (isNotFound(error)) return [];
+    throw error;
+  });
+  const prefix = `.${base}.`;
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
+    const temporaryPath = join(directory, name);
+    const details = await lstat(temporaryPath).catch((error: unknown) => {
+      if (isNotFound(error)) return undefined;
+      throw error;
+    });
+    if (details === undefined) continue;
+    if (!details.isSymbolicLink()) {
+      throw new UnsafePrivatePathError(`refusing an unsafe stale reference temp: ${temporaryPath}`);
+    }
+    if (details.uid !== currentUid()) {
+      throw new UnsafePrivatePathError(`stale reference temp is not owned by the current user: ${temporaryPath}`);
+    }
+    await unlink(temporaryPath);
   }
 }
 

@@ -21,6 +21,35 @@ export const updateStateSchema = z.enum(UPDATE_STATE_VALUES);
 export const UPDATE_STATE_FILE_NAME = "update-state.json";
 export const UPDATE_LOCK_FILE_NAME = "update.lock";
 
+/**
+ * Immutable deployment artifact identity (#92): a full SHA-256 over the
+ * candidate's exact artifact bytes/build tree, so byte-distinct candidates
+ * always receive distinct identities and semantic version is metadata only.
+ */
+export const artifactIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const DEPLOYMENT_METADATA_FILE_NAME = ".rly-deployment.json";
+
+export const deploymentMetadataSchema = z.object({
+  schemaVersion: z.literal(1),
+  /** Content-addressed identity: sha256 over the deployed tree bytes. */
+  artifactId: artifactIdSchema,
+  product: z.string().min(1),
+  /** Semantic version is metadata, never the storage key. */
+  version: z.string().min(1),
+  stateVersion: z.number().int().positive().optional(),
+  migrationForwardOnly: z.boolean().optional(),
+  installedAt: z.iso.datetime(),
+});
+
+/**
+ * Secret-free per-deployment metadata written into an immutable deployment.
+ * Identifiers only (product/version/stateVersion/digest/path); never
+ * credentials, auth headers, account identity, prompts, responses, or
+ * reasoning text.
+ */
+export type DeploymentMetadata = z.infer<typeof deploymentMetadataSchema>;
+
 /** Secret-free result of the last activation attempt. */
 export type ActivationResult = Readonly<{
   ok: boolean;
@@ -46,6 +75,10 @@ export const updateStateRecordSchema = z.object({
   currentVersion: z.string().min(1),
   pendingVersion: z.string().min(1).optional(),
   previousVersion: z.string().min(1).optional(),
+  /** Immutable deployment identities (#92): semver remains metadata only. */
+  currentArtifactId: artifactIdSchema.optional(),
+  pendingArtifactId: artifactIdSchema.optional(),
+  previousArtifactId: artifactIdSchema.optional(),
   updatedAt: z.iso.datetime(),
   lastActivationResult: activationResultSchema.optional(),
   lastRollbackResult: activationResultSchema.optional(),
@@ -89,8 +122,12 @@ export type CandidateManifest = Readonly<{
 
 export type CandidateInstallResult = Readonly<{
   version: string;
+  /** Content-addressed immutable deployment identity (#92). */
+  artifactId: string;
   /** Previous known-good version preserved for rollback, when present. */
   previousVersion?: string;
+  /** Immutable identity of the previous known-good deployment, when present. */
+  previousArtifactId?: string;
 }>;
 
 export type CandidateVerification = Readonly<{
@@ -106,17 +143,27 @@ export type InstallCandidateInput = Readonly<{
 }>;
 
 /**
- * Injectable candidate installer. The default local implementation swaps a
- * `current` → version symlink under the durable RLY state root and preserves a
- * `previous` reference; a future #35 channel plugs in here without changing the
- * drain/restart/verify/rollback state machine.
+ * Injectable candidate installer. The default local implementation stores
+ * immutable content-addressed deployments under `<control-plane>/runtime/
+ * versions/<artifactId>` and maintains explicit `staged`/`active`/`previous`
+ * references under `runtime/refs/` replaced atomically (temp-create + rename +
+ * parent fsync). Installing a candidate may update only `staged`; switching
+ * `active` is an explicit activation transition (`activateStaged`) that #93
+ * will gate transactionally. A future #35 channel plugs in here without
+ * changing the drain/restart/verify/rollback state machine.
  */
 export interface CandidateInstaller {
   installCandidate(input: InstallCandidateInput): Promise<CandidateInstallResult>;
-  /** Verifies the currently selected candidate artifact is present/valid. */
+  /**
+   * Atomically switches the `active` reference to the staged deployment and
+   * preserves the displaced deployment as `previous` (INSTALL != ACTIVATE;
+   * #93 owns the transactional gate around this primitive).
+   */
+  activateStaged(): Promise<CandidateInstallResult>;
+  /** Verifies the currently staged candidate artifact is present/valid. */
   verifyCandidate(): Promise<CandidateVerification>;
   /** Restores the previous known-good version; fails when no reference exists. */
   restorePrevious(): Promise<CandidateInstallResult>;
-  /** Reads the candidate's declared migration/schema manifest. */
+  /** Reads the staged candidate's declared migration/schema manifest. */
   readManifest(): Promise<CandidateManifest | undefined>;
 }

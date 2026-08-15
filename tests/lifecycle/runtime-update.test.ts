@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -85,17 +86,24 @@ function serverFor(version: string) {
   return (options: Parameters<typeof createGatewayServer>[0]) => createGatewayServer({ ...options, runtimeVersion: version });
 }
 
+function fakeArtifactId(version: string): string {
+  return createHash("sha256").update(version).digest("hex");
+}
+
 class FakeInstaller implements CandidateInstaller {
   installs: string[] = [];
+  activations: string[] = [];
   restored = 0;
   verifyOk = true;
   manifest: CandidateManifest | undefined;
 
-  installCandidate(input: { version: string; sourceDirectory: string }): Promise<{ version: string; previousVersion?: string }> {
+  installCandidate(input: { version: string; sourceDirectory: string }): Promise<{ version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string }> {
     this.installs.push(input.version);
+    const previousVersion = this.installs.length > 1 ? this.installs[this.installs.length - 2] : undefined;
     return Promise.resolve({
       version: input.version,
-      ...(this.installs.length > 1 ? { previousVersion: this.installs[this.installs.length - 2] } : {}),
+      artifactId: fakeArtifactId(input.version),
+      ...(previousVersion === undefined ? {} : { previousVersion, previousArtifactId: fakeArtifactId(previousVersion) }),
     });
   }
 
@@ -103,12 +111,24 @@ class FakeInstaller implements CandidateInstaller {
     return Promise.resolve({ ok: this.verifyOk, version: this.installs.at(-1) ?? "0.1.0", ...(this.verifyOk ? {} : { reason: "fake verification failure" }) });
   }
 
-  restorePrevious(): Promise<{ version: string; previousVersion?: string }> {
+  activateStaged(): Promise<{ version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string }> {
+    const candidate = this.installs.at(-1) ?? "0.1.0";
+    this.activations.push(candidate);
+    const previousVersion = this.activations.length > 1 ? this.activations[this.activations.length - 2] : undefined;
+    return Promise.resolve({
+      version: candidate,
+      artifactId: fakeArtifactId(candidate),
+      ...(previousVersion === undefined ? {} : { previousVersion, previousArtifactId: fakeArtifactId(previousVersion) }),
+    });
+  }
+
+  restorePrevious(): Promise<{ version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string }> {
     this.restored += 1;
     const candidate = this.installs.at(-1);
     return Promise.resolve({
       version: "0.1.0",
-      ...(candidate === undefined ? {} : { previousVersion: candidate }),
+      artifactId: fakeArtifactId("0.1.0"),
+      ...(candidate === undefined ? {} : { previousVersion: candidate, previousArtifactId: fakeArtifactId(candidate) }),
     });
   }
 
@@ -226,7 +246,7 @@ describe("safe zero-downtime runtime update lifecycle (#73)", () => {
       serviceDefinition: {
         serviceName: "rly-gateway",
         executable: "/usr/local/bin/node",
-        entrypoint: join(controlPlaneDir, "runtime", "current", "dist", "cli", "main.js"),
+        entrypoint: join(controlPlaneDir, "runtime", "refs", "active", "dist", "cli", "main.js"),
         configPath: "/work/gateway.config.toml",
       },
       candidate: { version: "2.0.0", sourceDirectory: "/fake/candidate" },
@@ -274,7 +294,7 @@ describe("safe zero-downtime runtime update lifecycle (#73)", () => {
       serviceDefinition: {
         serviceName: "rly-gateway",
         executable: "/usr/local/bin/node",
-        entrypoint: join(controlPlaneDir, "runtime", "current", "dist", "cli", "main.js"),
+        entrypoint: join(controlPlaneDir, "runtime", "refs", "active", "dist", "cli", "main.js"),
         configPath: "/work/gateway.config.toml",
       },
       candidate: { version: "2.0.0", sourceDirectory: "/fake/candidate" },
@@ -304,7 +324,7 @@ describe("safe zero-downtime runtime update lifecycle (#73)", () => {
       serviceDefinition: {
         serviceName: "rly-gateway",
         executable: "/usr/local/bin/node",
-        entrypoint: join(controlPlaneDir, "runtime", "current", "dist", "cli", "main.js"),
+        entrypoint: join(controlPlaneDir, "runtime", "refs", "active", "dist", "cli", "main.js"),
         configPath: "/work/gateway.config.toml",
       },
       updateStore: store,
@@ -573,7 +593,9 @@ describe("safe zero-downtime runtime update lifecycle (#73)", () => {
     expect(result.outcome).toBe("failed");
     expect(result.message).toContain("forward-only");
     expect(manager.restarts).toBe(0);
-    expect(installer.restored).toBe(1);
+    // Staging never switched the `active` reference (#92), so a blocked
+    // forward-only candidate has no install-time reference to restore.
+    expect(installer.restored).toBe(0);
     // The previous version keeps serving.
     expect(await harness.versionOf()).toBe(RUNTIME_VERSION);
     await harness.current.shutdown();

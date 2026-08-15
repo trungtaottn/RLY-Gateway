@@ -126,7 +126,9 @@ export async function runUpdateCommand(
     serviceDefinition: {
       serviceName: installation.serviceName,
       executable: process.execPath,
-      entrypoint: join(controlPlaneDirectory, "runtime", "current", "dist", "cli", "main.js"),
+      // Stable entrypoint through the immutable `active` reference (#92): the
+      // path always resolves to the currently serving immutable deployment.
+      entrypoint: join(controlPlaneDirectory, "runtime", "refs", "active", "dist", "cli", "main.js"),
       configPath: installation.configPath,
     },
     ...(candidate === undefined ? {} : { candidate }),

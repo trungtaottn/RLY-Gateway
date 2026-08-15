@@ -140,7 +140,7 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
       ...(current?.lastRollbackResult === undefined ? {} : { lastRollbackResult: current.lastRollbackResult }),
     }));
 
-    let installed: { version: string; previousVersion?: string };
+    let installed: { version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string };
     try {
       installed = await dependencies.installer.installCandidate(dependencies.candidate);
     } catch (error) {
@@ -155,17 +155,21 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
       currentVersion: installing.currentVersion,
       pendingVersion: candidateVersion,
       ...(installed.previousVersion === undefined ? {} : { previousVersion: installed.previousVersion }),
+      pendingArtifactId: installed.artifactId,
+      ...(installed.previousArtifactId === undefined ? {} : { previousArtifactId: installed.previousArtifactId }),
       updatedAt: new Date().toISOString(),
     };
     await store.write(pending);
 
     // Preflight migration BEFORE destructive activation: a forward-only
     // candidate must not be activated; the previous version keeps serving.
+    // Staging never changed the `active` reference (#92), so there is no
+    // install-time reference to restore; the staged deployment remains on
+    // disk for diagnosis until a later install replaces it.
     const manifest = await dependencies.installer.readManifest().catch(() => undefined);
     if (manifest !== undefined) {
       const blocker = migrationPreflight(pending, manifest.migrationForwardOnly);
       if (blocker !== undefined) {
-        await dependencies.installer.restorePrevious().catch(() => undefined);
         const failed: UpdateStateRecord = { ...pending, state: "failed", failureReason: blocker, updatedAt: new Date().toISOString() };
         await store.write(failed);
         return { outcome: "failed", state: "failed", currentVersion: pending.currentVersion, pendingVersion: candidateVersion, message: blocker };
@@ -228,6 +232,16 @@ async function activate(
   await beginDrain(dependencies, context.request);
 
   try {
+    // INSTALL != ACTIVATE (#92): the atomic `active` ref switch happens here,
+    // immediately before the restart that boots the staged deployment. #93
+    // will gate this transition transactionally (drain/fence/probation); this
+    // track supplies the atomic reference primitive.
+    try {
+      await dependencies.installer.activateStaged();
+    } catch (error) {
+      return await rollback(dependencies, store, activating, { restarted: false, reason: `activation reference switch failed: ${errorMessage(error)}`, request: context.request });
+    }
+
     const restarted = await controlledRestart(dependencies, context.request);
     if (!restarted.ok) {
       return await rollback(dependencies, store, activating, { restarted: restarted.restarted, reason: restarted.reason, request: context.request });
@@ -243,6 +257,8 @@ async function activate(
       state: "active" as const,
       currentVersion: activating.pendingVersion ?? (current?.currentVersion ?? activating.currentVersion),
       pendingVersion: undefined,
+      ...(activating.pendingArtifactId === undefined ? {} : { currentArtifactId: activating.pendingArtifactId }),
+      pendingArtifactId: undefined,
       updatedAt: new Date().toISOString(),
       lastActivationResult: { ok: true, attemptedAt: new Date().toISOString() },
       failureReason: undefined,
@@ -434,6 +450,8 @@ async function rollback(
       state: "active" as const,
       currentVersion: restored.version,
       pendingVersion: undefined,
+      currentArtifactId: restored.artifactId,
+      ...(restored.previousArtifactId === undefined ? {} : { previousArtifactId: restored.previousArtifactId }),
       updatedAt: new Date().toISOString(),
       lastActivationResult: { ok: false, attemptedAt: new Date().toISOString(), reason: input.reason },
       lastRollbackResult: { ok: true, attemptedAt: new Date().toISOString() },
