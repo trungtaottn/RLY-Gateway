@@ -2,6 +2,7 @@ import { assertSecretFree } from "../control-plane/secret-free.js";
 import type { ResolvedReasoning } from "../core/reasoning.js";
 import type { ModelSelectionTrace } from "../routing/model-selection/types.js";
 import type { ModelProjectionTrace } from "../routing/model-projection/types.js";
+import type { ModelIntentTrace } from "../routing/model-intent/types.js";
 import type { TierResolutionTrace } from "../routing/model-tiers/types.js";
 import type { DecisionTrace } from "../routing/eligibility/trace.js";
 
@@ -23,9 +24,9 @@ export type AgentTraceLinkage = Readonly<{
 /**
  * Secret-free account decision trace, optionally carrying the #68 model
  * selection trace, the #69 tier resolution trace, the #70 reasoning
- * translation result, the #71 agent linkage, and the #72 projection decision
- * (control metadata only — never reasoning text, prompts, responses,
- * credentials, or account identity).
+ * translation result, the #71 agent linkage, the #72 projection decision, and
+ * the #125 model-intent classification (control metadata only — never
+ * reasoning text, prompts, responses, credentials, or account identity).
  */
 export type ProfileDecisionTrace = DecisionTrace & Readonly<{
   profileName: string;
@@ -34,6 +35,7 @@ export type ProfileDecisionTrace = DecisionTrace & Readonly<{
   reasoning?: ResolvedReasoning;
   agentLinkage?: AgentTraceLinkage;
   projection?: ModelProjectionTrace;
+  intent?: ModelIntentTrace;
 }>;
 
 /** Last-N secret-free traces for the running gateway instance. */
@@ -50,6 +52,7 @@ export class RouteTraceRing {
     tierResolution?: TierResolutionTrace,
     agentLinkage?: AgentTraceLinkage,
     projection?: ModelProjectionTrace,
+    intent?: ModelIntentTrace,
   ): void {
     const stored: ProfileDecisionTrace = Object.freeze({
       ...trace,
@@ -59,6 +62,7 @@ export class RouteTraceRing {
       ...(tierResolution === undefined ? {} : { tierResolution }),
       ...(agentLinkage === undefined ? {} : { agentLinkage }),
       ...(projection === undefined ? {} : { projection }),
+      ...(intent === undefined ? {} : { intent }),
     });
     assertSecretFree(stored);
     this.items.push(stored);

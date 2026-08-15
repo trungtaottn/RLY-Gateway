@@ -24,8 +24,11 @@ import { streamPoolRequest } from "../routing/pools/execute.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 import { isTierResolutionError } from "../routing/model-tiers/errors.js";
 import { resolveTier } from "../routing/model-tiers/resolver.js";
-import { LOGICAL_TIERS, parseLogicalTier, type LogicalTier, type TierResolutionTrace } from "../routing/model-tiers/types.js";
-import { activateProfile, findProfileById, inspectLaunchableProfile } from "./activate.js";
+import { LOGICAL_TIERS, type LogicalTier, type TierResolutionTrace } from "../routing/model-tiers/types.js";
+import { isModelIntentError } from "../routing/model-intent/errors.js";
+import { classifyModelIntent } from "../routing/model-intent/classify.js";
+import type { ClientNativeAlias, ModelIntent, ModelIntentTrace } from "../routing/model-intent/types.js";
+import { activateProfile, findProfileById, inspectLaunchableProfile, type ActivatedRole } from "./activate.js";
 import type { AgentExecutionContextRegistry, ExecutionContext, ParentExecutionReference } from "./agent-contexts.js";
 import { ProfileActivationError } from "./errors.js";
 import { resolveProfileRole } from "./helper-map.js";
@@ -59,7 +62,6 @@ export async function resolveProfileRoute(
   if (!policy) throw new ProfileActivationError("profile-not-found");
   const named = findProfileById(policy.snapshot.profiles, session.profileId)?.name ?? session.profileName;
   const inspected = inspectLaunchableProfile(policy.snapshot.profiles, named);
-  const mapped = resolveProfileRole(canonical.requestedModel, inspected.profile.modelRoles);
   const pool = policy.snapshot.pools.find((item) => item.id === inspected.poolId);
   if (!pool) throw new ProfileActivationError("profile-has-no-pool");
   const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
@@ -69,17 +71,24 @@ export async function resolveProfileRoute(
   // mutates the parent's own context: each request resolves independently and
   // only records its own context after success (see below).
   const parentReference = resolveParentExecutionReference(canonical.agent, session, dependencies.agentContexts);
-  // #69: a logical tier request (`model: fable`) resolves contextually inside
-  // the profile's access provider and parent model family BEFORE #68 exact
-  // selection. Non-tier requests keep the existing role/helper mapping.
-  const tierResolution = mapped === undefined
-    ? resolveTierForRequest(canonical, provider.name, inspected.profile, dependencies.required ?? [], parentReference?.context)
-    : undefined;
-  const resolvedModelId = mapped?.modelId ?? tierResolution?.modelId;
-  const resolvedRole = mapped?.role ?? tierResolution?.role;
-  if (resolvedModelId === undefined || resolvedRole === undefined) {
-    throw new ProfileActivationError("role-unmapped");
-  }
+  // #125: classify the incoming selector into a typed model intent BEFORE any
+  // routing. The #69 tier resolver is only ever invoked for an explicitly
+  // typed tier intent (`rly-tier:*` or a client-native alias mapped through
+  // the explicit client-alias contract) — never by bare string equality with
+  // a tier name.
+  const intent = classifyIntentForRequest(canonical.requestedModel);
+  const intentResolution = resolveModelIntent(
+    intent,
+    canonical,
+    provider.name,
+    inspected.profile,
+    dependencies.required ?? [],
+    parentReference?.context,
+  );
+  const resolvedModelId = intentResolution.modelId;
+  const resolvedRole = intentResolution.role;
+  const tierResolution = intentResolution.tierResolution;
+  const intentTrace = intentResolution.intentTrace;
   // Stage 1: deterministic model capability selection (#68) against the trusted
   // registry, BEFORE any account/pool selection. The selected physical model is
   // frozen into the effective request/route; account failover can never change it.
@@ -104,13 +113,19 @@ export async function resolveProfileRoute(
     }
     throw error;
   }
+  // The classifier-computed role/modelId is authoritative for every intent
+  // kind (#125): tiers, client-native aliases, exact models, and the
+  // inherit/default paths all arrive here pre-resolved, so activateProfile
+  // never re-derives a role from the raw selector string (a bare `default` or
+  // `inherit` is not a profile role). Capability policy and required
+  // capabilities are still validated below, unchanged.
   const activated = activateProfile(policy.snapshot.profiles, {
     profileId: session.profileId,
     name: session.profileName,
     requestedModel: canonical.requestedModel,
     required: dependencies.required ?? [],
     baseCapabilities: modelEvidence.capabilities,
-    ...(tierResolution === undefined ? {} : { resolved: { role: tierResolution.role, modelId: tierResolution.modelId } }),
+    resolved: { role: resolvedRole, modelId: resolvedModelId },
   });
   const capabilities = activated.capabilities;
   const adapterId = adapterIdFor(provider);
@@ -191,7 +206,7 @@ export async function resolveProfileRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace, agentLinkage),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace, agentLinkage, undefined, intentTrace),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -290,6 +305,13 @@ export async function resolveProjectedModelRoute(
     modelRole: "unknown",
   });
   const projectionTrace: ModelProjectionTrace = createModelProjectionTrace(resolved.projection, universe);
+  const intentTrace: ModelIntentTrace = Object.freeze({
+    kind: "EXACT_PROJECTION",
+    sourceSelector: canonical.requestedModel,
+    source: "projection-namespace",
+    modelId: modelEvidence.identity.upstreamModelId,
+    role: "unknown",
+  });
   return {
     route,
     upstream: {
@@ -320,7 +342,7 @@ export async function resolveProjectedModelRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, undefined, undefined, projectionTrace),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, undefined, undefined, projectionTrace, intentTrace),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -410,6 +432,99 @@ function agentTraceLinkage(
   });
 }
 
+/** Classifies a selector into a typed model intent, mapping classification failures onto the profile error contract. */
+function classifyIntentForRequest(selector: string): ModelIntent {
+  try {
+    return classifyModelIntent(selector);
+  } catch (error) {
+    if (isModelIntentError(error)) {
+      throw new ProfileActivationError(
+        "role-unmapped",
+        `Model intent classification failed (${error.code}: ${selector})`,
+        undefined,
+        undefined,
+        undefined,
+        error.code,
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Resolves a typed model intent to one exact physical model target + role.
+ *
+ * Deterministic precedence (#125):
+ * - `RLY_LOGICAL_TIER` → the #69 provider/family tier resolver.
+ * - `CLIENT_NATIVE_ALIAS` → the explicit client-alias contract maps the alias
+ *   to the equivalent RLY tier, then the #69 resolver runs (deliberate and
+ *   traceable, never string equality alone).
+ * - `EXACT_CLIENT_MODEL` / `DEFAULT` / `INHERIT` → the existing profile
+ *   role/helper/exact-model mapping (#68 path); `INHERIT` prefers the parent's
+ *   frozen physical model before the profile default.
+ * - `EXACT_PROJECTION` → fail closed: projection selectors are dispatched by
+ *   `resolveProjectedModelRoute` before this point.
+ */
+function resolveModelIntent(
+  intent: ModelIntent,
+  canonical: CanonicalRequest,
+  providerName: string,
+  profile: ProfileRecord,
+  required: readonly CapabilityRequirement[],
+  parent?: ExecutionContext,
+): Readonly<{
+  role: ActivatedRole;
+  modelId: string;
+  tierResolution?: Readonly<{ role: LogicalTier; modelId: string; trace: TierResolutionTrace }>;
+  intentTrace: ModelIntentTrace;
+}> {
+  switch (intent.kind) {
+    case "RLY_LOGICAL_TIER": {
+      const resolution = resolveTierForRequest(intent.tier, canonical, providerName, profile, required, parent);
+      return { role: resolution.role, modelId: resolution.modelId, tierResolution: resolution, intentTrace: intentTraceFor(intent, { tier: intent.tier }) };
+    }
+    case "CLIENT_NATIVE_ALIAS": {
+      const resolution = resolveTierForRequest(intent.mappedTier, canonical, providerName, profile, required, parent);
+      return { role: resolution.role, modelId: resolution.modelId, tierResolution: resolution, intentTrace: intentTraceFor(intent, { tier: intent.mappedTier, alias: intent.alias }) };
+    }
+    case "EXACT_PROJECTION": {
+      throw new ProfileActivationError("model-unavailable", `Projection selector reached profile resolution (${intent.projectionId})`);
+    }
+    case "EXACT_CLIENT_MODEL": {
+      const mapped = resolveProfileRole(intent.modelId, profile.modelRoles);
+      if (mapped === undefined) throw new ProfileActivationError("role-unmapped");
+      return { role: mapped.role, modelId: mapped.modelId, intentTrace: intentTraceFor(intent, { modelId: mapped.modelId, role: mapped.role }) };
+    }
+    case "DEFAULT": {
+      const mapped = resolveProfileRole("primary", profile.modelRoles);
+      if (mapped === undefined) throw new ProfileActivationError("role-unmapped");
+      return { role: mapped.role, modelId: mapped.modelId, intentTrace: intentTraceFor(intent, { modelId: mapped.modelId, role: mapped.role }) };
+    }
+    case "INHERIT": {
+      const modelId = parent?.resolvedModelId ?? profile.modelRoles.primary;
+      if (modelId === undefined) throw new ProfileActivationError("role-unmapped");
+      const role = parent?.effectiveTier ?? "primary";
+      return { role, modelId, intentTrace: intentTraceFor(intent, { modelId, role }) };
+    }
+  }
+}
+
+/** Secret-free allowlisted intent metadata for the route trace (#125). */
+function intentTraceFor(
+  intent: ModelIntent,
+  resolved: Readonly<{ tier?: LogicalTier; alias?: ClientNativeAlias; modelId?: string; role?: string }>,
+): ModelIntentTrace {
+  return Object.freeze({
+    kind: intent.kind,
+    sourceSelector: intent.sourceSelector,
+    source: intent.source,
+    ...(resolved.tier === undefined ? {} : { tier: resolved.tier }),
+    ...(resolved.alias === undefined ? {} : { alias: resolved.alias }),
+    ...(resolved.modelId === undefined ? {} : { modelId: resolved.modelId }),
+    ...(resolved.role === undefined ? {} : { role: resolved.role }),
+  });
+}
+
 /**
  * Resolves a logical tier request (#69) inside the current execution context:
  * access provider first, then the parent model's family, then trusted tier
@@ -421,16 +536,19 @@ function agentTraceLinkage(
  * #71: a subagent request passes the parent agent's frozen physical
  * model/family (from the execution-context registry) instead of the profile
  * default; the main request keeps the profile default parent (#69).
+ *
+ * The `tier` parameter is always typed (already classified as RLY_LOGICAL_TIER
+ * or a client-native alias mapped through the explicit client-alias contract);
+ * this function never re-derives a tier from a bare selector string.
  */
 function resolveTierForRequest(
+  tier: LogicalTier,
   canonical: CanonicalRequest,
   providerName: string,
   profile: ProfileRecord,
   required: readonly CapabilityRequirement[],
   parent?: ExecutionContext,
 ): Readonly<{ role: LogicalTier; modelId: string; trace: TierResolutionTrace }> {
-  const tier = parseLogicalTier(canonical.requestedModel);
-  if (tier === undefined) throw new ProfileActivationError("role-unmapped");
   const parentModelId = parent?.resolvedModelId ?? parentModelForProfile(profile.modelRoles);
   const parentFamily = parent?.modelFamily;
   const reasoning = reasoningRequirementFrom(canonical, required);
