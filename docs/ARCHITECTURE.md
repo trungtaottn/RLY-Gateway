@@ -161,6 +161,63 @@ Before any routing, the incoming model selector string is classified into one ty
 - **Diagnostics**: `/v1/route-traces` carries the classified intent as `ProfileDecisionTrace.intent` — selector kind/source and the resolved logical target only. Never prompts, credentials, account identity, or settings contents.
 - **Migration/compatibility**: bare-tier selectors and `profile.modelRoles` tier keys keep their pre-#125 meaning through the explicit classification contract; persisted exact model ids are never reinterpreted as tiers (exact ids keep the exact path via #68).
 
+### Native protocol rails and fidelity envelope (#119)
+
+RLY keeps three separate authorities for protocol fidelity — the **native
+protocol rail**, the **semantic projection**, and the **fidelity/continuation
+envelope** — so the semantic IR never becomes the only source of truth when the
+client/provider contract requires exact opaque state on later turns.
+
+- **Native protocol rail**: the Anthropic Messages and OpenAI Responses
+  encoder/decoder wire shapes remain the source of wire truth for same-protocol
+  traffic. Same-protocol forwarding patches only RLY-owned controls (selected
+  model/auth/endpoint); native state is never flattened into the semantic core.
+- **Semantic projection**: `CanonicalRequest` / `CanonicalEvent` stay focused on
+  routing, capability, tool, reasoning intent, diagnostics, and cross-protocol
+  translation. Provider-specific opaque fields are deliberately not forced into
+  semantic core types.
+- **Fidelity envelope** (`src/core/fidelity.ts`, version 1): versioned metadata
+  with source protocol/revision, typed opaque continuation artifacts
+  (`OpaqueArtifact`: kind, stable association, value), translation provenance
+  notes (`preserved-native` / `translated` / `ignored` / `unsupported`), and
+  the required artifact kinds for a compatibility claim. Adapters/protocol
+  codecs may preserve opaque artifacts; routing policy inspects only explicitly
+  modeled safe metadata (kind, association, disposition) — never artifact
+  values. `emptyFidelityEnvelope` / `withArtifacts` / `withNotes` /
+  `withRequired` / `mergeFidelity` build the envelope; `artifactValue` is the
+  explicit association lookup; `unsupportedRequiredArtifacts` implements the
+  fail-closed gate; `describeFidelity()` is the only diagnostic surface and
+  returns provenance metadata only.
+- **Anthropic fidelity**: the decoder preserves `thinking.signature` into the
+  envelope (required when present) and records the thinking-text projection as
+  `translated`; the canonical stream gains `signature-delta` events; the
+  encoder emits `signature_delta` in valid order (after `thinking_delta`,
+  before `content_block_stop`) and fails closed (`invalid_event_order`) on a
+  non-thinking block or an out-of-order delta; the aggregator attaches the
+  signature to the aggregate thinking block. Byte-level SSE is pinned by a
+  golden fixture.
+- **OpenAI Responses fidelity**: the decoder preserves reasoning item identity
+  (semantic, non-secret) and opaque `encrypted_content` (envelope, required
+  when present); `ResponseContinuationStore` persists the fidelity envelope
+  with the stored output and merges prior artifacts into a subsequent
+  `previous_response_id` request; re-encode attaches each reasoning item's
+  exact encrypted content. Opaque content is never reconstructed from summary
+  text.
+- **Fail-closed policy**: a compatibility claim requiring an artifact cannot
+  pass when the selected translation path cannot preserve it. The Chat
+  Completions transport (OpenRouter/DeepSeek adapters) cannot represent
+  signatures or encrypted content, so `OpenAiChatAdapter.invoke` raises
+  `unsupported-fidelity` before any upstream call.
+- **Extension points**: `OpaqueArtifactKind` is a typed union, so future
+  Gemini thought signatures, OpenRouter reasoning details, DeepSeek reasoning
+  continuation, and other provider-owned opaque artifacts extend the envelope
+  without redesigning canonical routing.
+- **Privacy**: opaque artifact values are runtime/protocol state, never
+  diagnostics — never logged, never in route traces, never in diagnostic
+  bundles; the observability redactor treats artifact-bearing keys as
+  sensitive. Continuation persistence applies the existing private-file/storage
+  rules.
+
 ### Claude Code subagent execution context (#71)
 
 Claude Code orchestrates agents; RLY resolves their requested execution target
