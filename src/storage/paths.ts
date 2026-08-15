@@ -18,6 +18,13 @@ export const LOG_DIRECTORY = "logs";
 export const SERVICE_LOG_NAME = "service.log";
 export const RETENTION_MARKER_NAME = "retention.marker";
 export const INSTALLATION_NAME = "installation.json";
+export const RUNTIME_DIRECTORY = "runtime";
+export const RUNTIME_VERSIONS_DIRECTORY = "versions";
+export const RUNTIME_REFS_DIRECTORY = "refs";
+export const RUNTIME_DEPLOYMENT_METADATA_NAME = ".rly-deployment.json";
+export const RUNTIME_LEGACY_MIGRATION_MARKER_NAME = "legacy-migration.json";
+export const RUNTIME_REF_NAMES = ["staged", "active", "previous"] as const;
+export type RuntimeRefName = (typeof RUNTIME_REF_NAMES)[number];
 export const RLY_STATE_DIRECTORY_NAME = ".rly";
 export const LEGACY_STATE_DIRECTORY_NAME = ".agent-gateway";
 
@@ -200,5 +207,36 @@ export function controlPlanePaths(directory: string): Readonly<{
     logs: join(directory, LOG_DIRECTORY),
     retentionMarker: join(directory, RETENTION_MARKER_NAME),
     installation: join(directory, INSTALLATION_NAME),
+  };
+}
+
+/**
+ * Immutable runtime store paths (#92). Deployments live content-addressed
+ * under `<directory>/runtime/versions/<artifactId>` and explicit references
+ * (`staged`/`active`/`previous`) live under `<directory>/runtime/refs/` as
+ * relative symlinks replaced atomically (temp-create + rename + parent fsync),
+ * never `rm + symlink`. Artifact/ref metadata carries version/build/digest/
+ * path identifiers only — never credentials or account identity.
+ */
+export function runtimePaths(directory: string): Readonly<{
+  runtime: string;
+  versions: string;
+  refs: string;
+  staged: string;
+  active: string;
+  previous: string;
+  migrationMarker: string;
+}> {
+  const runtime = join(directory, RUNTIME_DIRECTORY);
+  const versions = join(runtime, RUNTIME_VERSIONS_DIRECTORY);
+  const refs = join(runtime, RUNTIME_REFS_DIRECTORY);
+  return {
+    runtime,
+    versions,
+    refs,
+    staged: join(refs, "staged"),
+    active: join(refs, "active"),
+    previous: join(refs, "previous"),
+    migrationMarker: join(runtime, RUNTIME_LEGACY_MIGRATION_MARKER_NAME),
   };
 }
