@@ -512,14 +512,15 @@ function claudeGateArgs(gate: ClaimFeature): readonly string[] {
 
 function codexGateArgs(gate: ClaimFeature): readonly string[] {
   const prompt = `Reply with the exact text: ${BLACKBOX_MARKER}.`;
+  const base = ["exec", "--skip-git-repo-check", "--ephemeral", "--dangerously-bypass-approvals-and-sandbox"];
   switch (gate) {
     case "tools-single":
     case "tools-multi":
     case "tools-parallel":
     case "reasoning-tools":
-      return ["exec", "--skip-git-repo-check", "Use the Bash tool and report the output."];
+      return [...base, "Use the Bash tool and report the output."];
     default:
-      return ["exec", "--skip-git-repo-check", prompt];
+      return [...base, prompt];
   }
 }
 
@@ -815,7 +816,7 @@ async function runSingleGate(
         await fixture.waitForFirstEvent(timeoutMs);
       } catch {
         spawned.kill();
-        return observation(gate, "failed", "timeout-cancel-failure", "client did not reach streaming first event", undefined);
+        return observation(gate, "failed", "timeout-cancel-failure", "client did not reach streaming first event", Date.now() - started);
       }
       spawned.kill();
       const outcome = await spawned.outcome;
@@ -831,6 +832,8 @@ async function runSingleGate(
     // Never leak the underlying error message: failures stay typed/redacted.
     return observation(gate, "failed", "environment-inability", "gate execution error", undefined);
   } finally {
-    await rm(configDirectory, { recursive: true, force: true });
+    // The client may still be writing to its isolated config directory when
+    // the gate finishes; retry the bounded removal before giving up.
+    await rm(configDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
   }
 }

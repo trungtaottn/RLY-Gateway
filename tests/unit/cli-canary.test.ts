@@ -36,7 +36,7 @@ async function configPathWithControlPlane(directory: string): Promise<string> {
 }
 
 describe("canary CLI (#24)", () => {
-  it("parses canary run|status and rejects unknown actions", () => {
+  it("parses canary run|status|run-b|run-c and rejects unknown actions", () => {
     expect(parseCliArgs(["canary", "run", "--config", "gateway.toml"], "/work")).toEqual({
       command: "canary",
       action: "run",
@@ -47,7 +47,17 @@ describe("canary CLI (#24)", () => {
       action: "status",
       configPath: "/work/gateway.config.toml",
     });
-    expect(() => parseCliArgs(["canary", "fly"], "/work")).toThrow("canary requires run or status");
+    expect(parseCliArgs(["canary", "run-b"], "/work")).toEqual({
+      command: "canary",
+      action: "run-b",
+      configPath: "/work/gateway.config.toml",
+    });
+    expect(parseCliArgs(["canary", "run-c", "--config", "gateway.toml"], "/work")).toEqual({
+      command: "canary",
+      action: "run-c",
+      configPath: "/work/gateway.toml",
+    });
+    expect(() => parseCliArgs(["canary", "fly"], "/work")).toThrow("canary requires run, status, run-b");
     expect(() => parseCliArgs(["canary", "run", "--live"], "/work")).toThrow("unknown option");
   });
 
@@ -145,6 +155,94 @@ describe("canary CLI (#24)", () => {
       expect(String(log.mock.calls.at(-1)?.[0])).toContain('"clientBaseline"');
     } finally {
       log.mockRestore();
+    }
+  });
+
+  it("run-b skips when no installed client binaries exist (skipped ≠ pass, no claims written)", async () => {
+    const directory = await temporaryDirectory();
+    const configPath = await configPathWithControlPlane(directory);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const installed = await import("../../src/canary/installed.js");
+    const spy = vi.spyOn(installed, "detectInstalledClients").mockResolvedValue({
+      claude: { kind: "claude-code" as const, found: false, executable: "claude", versionSource: "unknown" as const },
+      codex: { kind: "codex-cli" as const, found: false, executable: "codex", versionSource: "unknown" as const },
+    });
+    try {
+      const code = await runCanaryCommand("run-b", configPath);
+      expect(code).toBe(1);
+      const printed = String(log.mock.calls.at(-1)?.[0]);
+      expect(printed).toContain('"layer":"B"');
+      expect(printed).toContain('"executed":[]');
+      expect(printed).toContain("client-not-installed");
+      // No evidence is ever fabricated for an unrun gate.
+      expect(printed).not.toContain('"result":"passed"');
+      const claimsDirectory = join(directory, "control-plane", "claims");
+      await expect(import("node:fs/promises").then((fs) => fs.readdir(claimsDirectory))).rejects.toThrow();
+    } finally {
+      spy.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it("run-c refuses without explicit opt-in and never spends quota or emits evidence", async () => {
+    const directory = await temporaryDirectory();
+    const configPath = await configPathWithControlPlane(directory);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = await runCanaryCommand("run-c", configPath);
+      expect(code).toBe(1);
+      const printed = String(log.mock.calls.at(-1)?.[0]);
+      expect(printed).toContain("live-runner-not-opted-in");
+      expect(printed).toContain(RLY_LIVE_CANARY_ENV);
+      const claimsDirectory = join(directory, "control-plane", "claims");
+      await expect(import("node:fs/promises").then((fs) => fs.readdir(claimsDirectory))).rejects.toThrow();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("run-c with opt-in emits not-run evidence for a configured route whose credential is missing (never PASS)", async () => {
+    const directory = await temporaryDirectory();
+    const controlPlane = join(directory, "control-plane");
+    const path = join(directory, "gateway.toml");
+    await writeFile(path, [
+      "schemaVersion = 1",
+      "[gateway]",
+      "port = 17871",
+      "logLevel = \"silent\"",
+      "[controlPlane]",
+      `dataDirectory = ${JSON.stringify(controlPlane)}`,
+      "[routes.primary]",
+      'provider = "openrouter"',
+      'model = "nvidia/nemotron-3.5-lightning:free"',
+      'credential = "env:OPENROUTER_API_KEY"',
+    ].join("\n"), "utf8");
+    const previousLive = process.env[RLY_LIVE_CANARY_ENV];
+    process.env[RLY_LIVE_CANARY_ENV] = "1";
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = await runCanaryCommand("run-c", path);
+      expect(code).toBe(0);
+      const printed = String(log.mock.calls.at(-1)?.[0]);
+      expect(printed).toContain('"layer":"C"');
+      expect(printed).toContain("authentication-credentials-unavailable");
+      expect(printed).toContain('"notRun"');
+      expect(printed).not.toContain('"result":"passed"');
+      // not-run claim records persist with a typed reason; never PASS.
+      const claimStoreNames = await import("node:fs/promises").then((fs) => fs.readdir(join(controlPlane, "claims")));
+      expect(claimStoreNames.length).toBeGreaterThan(0);
+      const rawNames = await import("node:fs/promises").then((fs) => fs.readdir(join(controlPlane, "canary-runners")));
+      expect(rawNames.length).toBeGreaterThan(0);
+      const raw = JSON.parse(await readFile(join(controlPlane, "canary-runners", rawNames[0] ?? ""), "utf8")) as { gates: { result: string }[] };
+      expect(raw.gates.every((gate) => gate.result === "not-run")).toBe(true);
+    } finally {
+      log.mockRestore();
+      if (previousLive === undefined) {
+        const envWithoutLive = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== RLY_LIVE_CANARY_ENV));
+        process.env = envWithoutLive as NodeJS.ProcessEnv;
+      } else {
+        process.env[RLY_LIVE_CANARY_ENV] = previousLive;
+      }
     }
   });
 });
