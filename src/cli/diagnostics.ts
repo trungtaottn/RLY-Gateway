@@ -20,6 +20,7 @@ import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 import { probeClientVersion } from "../targets/versions.js";
 import { RLY_LIVE_CANARY_ENV } from "../canary/run.js";
 import { CLAUDE_CODE_FIXTURE_BASELINE } from "../canary/client-fixtures.js";
+import { EVIDENCE_SCHEMA_VERSION, LEGACY_V1_POLICY } from "../canary/claim.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
 
@@ -217,6 +218,8 @@ export async function runDoctor(path: string): Promise<number> {
       canary: {
         testedBaseline: CLAUDE_CODE_FIXTURE_BASELINE,
         liveGateEnv: RLY_LIVE_CANARY_ENV,
+        evidenceSchemaVersion: EVIDENCE_SCHEMA_VERSION,
+        legacyPolicy: LEGACY_V1_POLICY,
       },
       update: await updateSummary(config),
       profiles: await profileInventory(config),

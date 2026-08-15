@@ -39,6 +39,14 @@ export type CompatibilityEvidence = Readonly<{
   evidenceRef: string;
   /** When the state was last checked. */
   checkedAt: string;
+  /**
+   * #122: exact Compatibility Claim key (identity + feature) that backs this
+   * reviewed state when it exists. Pre-revision-5 rows have no claim reference:
+   * their evidence is legacy/untrusted for v2 authority decisions and can
+   * never silently satisfy a stronger v2 claim. Promotion of a claim to
+   * trusted registry state is owned by #124.
+   */
+  claimRef?: string;
 }>;
 
 export type ModelEvidence = Readonly<{
@@ -61,8 +69,11 @@ export type RegistryDocument = Readonly<{ registryRevision: number; models: read
 /**
  * Current registry document schema revision. Bump whenever the trusted document
  * shape changes; older documents migrate through `migrateRegistryDocument`.
+ * Revision 5 (#122) adds the optional `claimRef` (exact Compatibility Claim
+ * identity) to `CompatibilityEvidence`; pre-revision-5 rows carry no claim
+ * reference and are treated as legacy/untrusted for v2 authority decisions.
  */
-export const MODEL_REGISTRY_REVISION = 4;
+export const MODEL_REGISTRY_REVISION = 5;
 
 /**
  * Provider-level capability evidence stored on control-plane provider records.
@@ -166,6 +177,8 @@ export function reviewedModel(input: Readonly<{
     baseline?: string;
     evidenceRef: string;
     checkedAt?: string;
+    /** #122: exact Compatibility Claim key backing this reviewed state. */
+    claimRef?: string;
   }>;
   limits?: ModelLimits;
   reasoning?: ReasoningCapabilityEvidence;
@@ -190,6 +203,7 @@ export function reviewedModel(input: Readonly<{
       baseline: compatibility.baseline ?? "claude-code-fake-upstream",
       evidenceRef: compatibility.evidenceRef,
       checkedAt: compatibility.checkedAt ?? input.verifiedAt,
+      ...(compatibility.claimRef === undefined ? {} : { claimRef: compatibility.claimRef }),
     }),
   });
 }
@@ -428,8 +442,10 @@ export type LegacyRegistryDocument = Readonly<{ registryRevision: number; models
  * is preserved as `identity.accessProviderId`; `modelFamily` is unknown for
  * legacy entries and stays undefined rather than guessed. Compatibility state
  * is conservatively `EXPERIMENTAL` because no #24 canary evidence existed in
- * the legacy shape. A migrated document is not a replacement for a reviewed
- * re-validation; it only carries the evidence the legacy entry already had.
+ * the legacy shape; pre-revision-5 legacy rows carry no `claimRef` and are
+ * untrusted for v2 claim authority. A migrated document is not a replacement
+ * for a reviewed re-validation; it only carries the evidence the legacy entry
+ * already had.
  */
 export function migrateRegistryDocument(
   document: LegacyRegistryDocument,
