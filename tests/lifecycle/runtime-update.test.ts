@@ -602,10 +602,16 @@ describe("safe zero-downtime runtime update lifecycle (#73)", () => {
       cliStateVersion: SCHEMA_V2_VERSION,
     };
     const [first, second] = await Promise.allSettled([runUpdate(deps), runUpdate(deps)]);
-    expect(first.status === "fulfilled" ? (first.value.outcome === "activated" || first.value.outcome === "failed") : false).toBe(true);
-    expect(second.status).toBe("rejected");
-    if (second.status === "rejected") {
-      expect((second.reason as Error).message).toContain("already in progress");
+    const results = [first, second];
+    const completed = results.find((result) => result.status === "fulfilled");
+    const blocked = results.find((result) => result.status === "rejected");
+    expect(completed?.status).toBe("fulfilled");
+    if (completed?.status === "fulfilled") {
+      expect(completed.value.outcome === "activated" || completed.value.outcome === "failed").toBe(true);
+    }
+    expect(blocked?.status).toBe("rejected");
+    if (blocked?.status === "rejected") {
+      expect((blocked.reason as Error).message).toContain("already in progress");
     }
     expect(manager.restarts).toBeLessThanOrEqual(1);
     await harness.current.shutdown();
