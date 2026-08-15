@@ -107,8 +107,9 @@ class FakeInstaller implements CandidateInstaller {
     });
   }
 
-  verifyCandidate(): Promise<{ ok: boolean; version: string; reason?: string }> {
-    return Promise.resolve({ ok: this.verifyOk, version: this.installs.at(-1) ?? "0.1.0", ...(this.verifyOk ? {} : { reason: "fake verification failure" }) });
+  verifyCandidate(): Promise<{ ok: boolean; version: string; artifactId?: string; reason?: string }> {
+    const version = this.installs.at(-1) ?? "0.1.0";
+    return Promise.resolve({ ok: this.verifyOk, version, artifactId: fakeArtifactId(version), ...(this.verifyOk ? {} : { reason: "fake verification failure" }) });
   }
 
   activateStaged(): Promise<{ version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string }> {
@@ -131,6 +132,17 @@ class FakeInstaller implements CandidateInstaller {
       ...(candidate === undefined ? {} : { previousVersion: candidate, previousArtifactId: fakeArtifactId(candidate) }),
     });
   }
+
+  /** #93 recovery-grade restore; counts as one bounded rollback attempt. */
+  setActiveReferences(input: { activeArtifactId: string; previousArtifactId?: string }): Promise<void> {
+    this.restored += 1;
+    this.lastActiveRef = input.activeArtifactId;
+    this.lastPreviousRef = input.previousArtifactId;
+    return Promise.resolve();
+  }
+
+  lastActiveRef: string | undefined;
+  lastPreviousRef: string | undefined;
 
   readManifest(): Promise<CandidateManifest | undefined> {
     return Promise.resolve(this.manifest);
@@ -556,9 +568,11 @@ describe("safe zero-downtime runtime update lifecycle (#73)", () => {
       cliStateVersion: SCHEMA_V2_VERSION,
     });
     expect(result.outcome).toBe("failed");
-    expect(result.state).toBe("failed");
+    // #93: rollback failure terminates in the explicit recovery-required state.
+    expect(result.state).toBe("recovery-required");
     // Deterministic doctor action, no loop.
     expect(result.message).toContain("doctor");
+    expect(result.message).toContain("both failed");
     expect(manager.restarts).toBeLessThanOrEqual(2);
     // The foreign listener is never killed or signaled (the first bind
     // survives; a later restart attempt merely fails to rebind it).

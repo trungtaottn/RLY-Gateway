@@ -19,6 +19,7 @@ import {
   artifactIdSchema,
   DEPLOYMENT_METADATA_FILE_NAME,
   deploymentMetadataSchema,
+  migrationClassSchema,
   type CandidateInstallResult,
   type CandidateInstaller,
   type CandidateManifest,
@@ -65,7 +66,8 @@ const candidateManifestSchema = z.object({
   product: z.literal("rly-gateway"),
   version: z.string().min(1),
   stateVersion: z.number().int().positive(),
-  migrationForwardOnly: z.boolean(),
+  migrationForwardOnly: z.boolean().optional(),
+  migrationClass: migrationClassSchema.optional(),
 });
 
 const legacyMigrationMarkerSchema = z.object({
@@ -92,7 +94,8 @@ export async function readCandidateManifestFromDirectory(directory: string): Pro
         product: manifest.product,
         version: manifest.version,
         stateVersion: manifest.stateVersion,
-        migrationForwardOnly: manifest.migrationForwardOnly,
+        ...(manifest.migrationClass === undefined ? {} : { migrationClass: manifest.migrationClass }),
+        ...(manifest.migrationForwardOnly === undefined ? {} : { migrationForwardOnly: manifest.migrationForwardOnly }),
       };
 }
 
@@ -168,6 +171,7 @@ export class LocalCandidateInstaller implements CandidateInstaller {
           version: manifest?.version ?? input.version,
           ...(manifest === undefined ? {} : { stateVersion: manifest.stateVersion }),
           ...(manifest === undefined ? {} : { migrationForwardOnly: manifest.migrationForwardOnly }),
+          ...(manifest === undefined ? {} : { migrationClass: manifest.migrationClass }),
           installedAt: new Date().toISOString(),
         };
         await writePrivateTextAtomically(join(staging, DEPLOYMENT_METADATA_FILE_NAME), `${JSON.stringify(metadata)}\n`);
@@ -210,14 +214,16 @@ export class LocalCandidateInstaller implements CandidateInstaller {
     if (metadata.product !== this.#product) {
       return { ok: false, version: staged.version, reason: `candidate product is ${metadata.product}, not ${this.#product}` };
     }
-    return { ok: true, version: staged.version };
+    return { ok: true, version: staged.version, artifactId: staged.artifactId };
   }
 
   /**
    * Activation transition primitive: atomically switches `refs/active` to the
    * staged deployment and preserves the displaced deployment as
    * `refs/previous`. #93 owns the transactional drain/fence/probation gate
-   * around this primitive; here it is the atomic ref switch itself.
+   * around this primitive; here it is the atomic ref switch itself. The
+   * `previous` reference is established BEFORE the `active` switch so a crash
+   * between the two atomic renames never loses the known-good reference.
    */
   public async activateStaged(): Promise<CandidateInstallResult> {
     await this.#ensureRuntimeLayout();
@@ -229,17 +235,40 @@ export class LocalCandidateInstaller implements CandidateInstaller {
     if (active !== undefined && active.artifactId === staged.artifactId) {
       return { version: staged.version, artifactId: staged.artifactId, previousVersion: active.version, previousArtifactId: active.artifactId };
     }
-    await replacePrivateSymlinkAtomically(this.activePath, refTarget(staged.artifactId));
     if (active === undefined) {
+      // Nothing serving: record no previous, then switch active to staged.
       await removePrivateSymlinkIfPresent(this.previousPath);
     } else {
+      // Crash-safe order (#93): the displaced known-good becomes `previous`
+      // BEFORE `active` switches, so a crash between the two renames leaves
+      // active still serving the known-good and previous pointing at it.
       await replacePrivateSymlinkAtomically(this.previousPath, refTarget(active.artifactId));
     }
+    await replacePrivateSymlinkAtomically(this.activePath, refTarget(staged.artifactId));
     return {
       version: staged.version,
       artifactId: staged.artifactId,
       ...(active === undefined ? {} : { previousVersion: active.version, previousArtifactId: active.artifactId }),
     };
+  }
+
+  /**
+   * #93 crash recovery: re-establishes `refs/active` (and `refs/previous`)
+   * deterministically from durable transaction-journal evidence. Both targets
+   * must be validated immutable deployments; previous is written before active
+   * so the known-good reference is never lost mid-recovery. Idempotent: a
+   * crash during recovery re-applies the same refs.
+   */
+  public async setActiveReferences(input: Readonly<{ activeArtifactId: string; previousArtifactId?: string }>): Promise<void> {
+    await this.#ensureRuntimeLayout();
+    await this.#validateDeployment(join(this.versionsDirectory, input.activeArtifactId), input.activeArtifactId);
+    if (input.previousArtifactId !== undefined) {
+      await this.#validateDeployment(join(this.versionsDirectory, input.previousArtifactId), input.previousArtifactId);
+      await replacePrivateSymlinkAtomically(this.previousPath, refTarget(input.previousArtifactId));
+    } else {
+      await removePrivateSymlinkIfPresent(this.previousPath);
+    }
+    await replacePrivateSymlinkAtomically(this.activePath, refTarget(input.activeArtifactId));
   }
 
   public async restorePrevious(): Promise<CandidateInstallResult> {
@@ -409,6 +438,7 @@ export class LocalCandidateInstaller implements CandidateInstaller {
       version: manifest?.version ?? fallbackVersion,
       ...(manifest === undefined ? {} : { stateVersion: manifest.stateVersion }),
       ...(manifest === undefined ? {} : { migrationForwardOnly: manifest.migrationForwardOnly }),
+      ...(manifest === undefined ? {} : { migrationClass: manifest.migrationClass }),
       installedAt: new Date().toISOString(),
     };
     await writePrivateTextAtomically(join(directory, DEPLOYMENT_METADATA_FILE_NAME), `${JSON.stringify(metadata)}\n`);

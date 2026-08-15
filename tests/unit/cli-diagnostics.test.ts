@@ -87,7 +87,7 @@ describe("CLI diagnostics", () => {
     }
   });
 
-  it("exposes allowlisted update metadata in status without secrets (#73)", async () => {
+  it("exposes allowlisted update metadata in status without secrets (#73/#93)", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rly-gateway-status-update-"));
     directories.push(directory);
     const configPath = join(directory, "gateway.toml");
@@ -106,14 +106,36 @@ describe("CLI diagnostics", () => {
       pendingVersion: "2.0.0",
       previousVersion: "0.1.0",
       updatedAt: new Date().toISOString(),
+      transaction: {
+        schemaVersion: 1,
+        phase: "draining",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        candidateVersion: "2.0.0",
+        candidateArtifactId: "a".repeat(64),
+        previousVersion: "0.1.0",
+        previousArtifactId: "b".repeat(64),
+        rollbackAttempts: 0,
+      },
     });
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       await expect(runStatus(configPath)).resolves.toBe(1); // runtime not running
       const printed = String(log.mock.calls.at(-1)?.[0]);
-      const payload = JSON.parse(printed) as { update: { state: string; pendingVersion?: string; compatibility: { cli: string; compatible: boolean } } };
+      const payload = JSON.parse(printed) as {
+        update: {
+          state: string;
+          pendingVersion?: string;
+          phase?: string;
+          lock?: { held: boolean; ownerPid?: number; stale?: boolean };
+          compatibility: { cli: string; compatible: boolean };
+        };
+      };
       expect(payload.update.state).toBe("pending-activation");
       expect(payload.update.pendingVersion).toBe("2.0.0");
+      // #93: the durable transaction phase is surfaced for diagnostics.
+      expect(payload.update.phase).toBe("draining");
+      expect(payload.update.lock).toEqual({ held: false });
       expect(payload.update.compatibility.cli).toBe(RUNTIME_VERSION);
       expect(typeof payload.update.compatibility.compatible).toBe("boolean");
       expect(printed).not.toMatch(/Bearer|accessToken|authorization|api[_-]?key|prompt|@/i);

@@ -6,15 +6,19 @@ import { createIdentityProof } from "../gateway-server.js";
 import type { ServiceManagerAdapter, ServiceDefinitionInput } from "../../service-manager/types.js";
 import type { GatewayConfig } from "../../config/schema.js";
 import {
+  migrationClassOf,
   migrationPreflight,
+  RUNTIME_PROTOCOL_VERSION,
   stateVersionsCompatible,
 } from "./policy.js";
 import { recoverUpdateState, UpdateStateStore } from "./store.js";
-import type { CandidateInstaller, UpdateStateRecord } from "./types.js";
+import type { CandidateInstaller, UpdateStateRecord, UpdateTransaction } from "./types.js";
 
 export type UpdateRunResult = Readonly<{
   outcome: "installed" | "activated" | "pending" | "rolled-back" | "failed" | "no-candidate";
   state: UpdateStateRecord["state"];
+  /** Durable activation-transaction phase (#93), when one is in progress. */
+  phase?: UpdateTransaction["phase"];
   currentVersion: string;
   pendingVersion?: string;
   message?: string;
@@ -60,13 +64,17 @@ export class UpdateRuntimeError extends Error {
 }
 
 /**
- * Safe zero-downtime update coordinator (#73). Separates candidate
- * installation from activation, drains launch sessions (not TCP counts),
- * restarts through the per-user service manager, verifies the new runtime via
- * the attested identity/readiness handshake, and rolls back to the previous
- * known-good version on activation failure. Fails closed everywhere: a foreign
- * or unattested listener is never signaled, launcher-owned instances are never
- * restarted, and the state machine never loops.
+ * Safe zero-downtime update coordinator (#73/#93). Separates candidate
+ * installation from activation, runs activation as a DURABLE TRANSACTION
+ * (staged → draining → switching → probation → committing → committed, with
+ * bounded rollback and an explicit recovery-required terminal), drains launch
+ * sessions behind a strong new-launch fence, restarts through the per-user
+ * service manager, verifies the new runtime via the attested identity/
+ * readiness/state-open handshake, and rolls back to the previous known-good
+ * deployment on failure. Fails closed everywhere: a foreign or unattested
+ * listener is never signaled, launcher-owned instances are never restarted,
+ * crash recovery never guesses that a candidate committed, and the state
+ * machine never loops.
  */
 export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promise<UpdateRunResult> {
   const request = dependencies.fetch ?? fetch;
@@ -75,14 +83,43 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
 
   const lock = await store.acquireLock();
   try {
-    const recovered = recoverUpdateState(await store.read());
-    if (recovered !== undefined && recovered.state !== (await store.read())?.state) {
+    const current = await store.read();
+    const recovered = recoverUpdateState(current);
+    if (recovered !== undefined && JSON.stringify(recovered) !== JSON.stringify(current)) {
       await store.write(recovered);
     }
 
     const runtime = await inspectRuntimeGateway(dependencies.config, dependencies.runtimeDirectory, request);
     const runtimeVersion = runtime.state === "attested-compatible" ? runtime.runtimeVersion ?? RUNTIME_VERSION : undefined;
     const record = recovered;
+
+    // Terminal gate (#93): recovery-required is never retried automatically —
+    // an actionable `rly doctor` path only, never an infinite restart loop.
+    if (record?.state === "recovery-required") {
+      return {
+        outcome: "failed",
+        state: "recovery-required",
+        ...(record.transaction === undefined ? {} : { phase: record.transaction.phase }),
+        currentVersion: runtimeVersion ?? record.currentVersion,
+        ...(record.pendingVersion === undefined ? {} : { pendingVersion: record.pendingVersion }),
+        message: record.failureReason ?? "the update transaction requires manual recovery; run rly doctor",
+      };
+    }
+
+    // A crashed/aborted transaction that recovery mapped to rollback-required
+    // completes its single bounded rollback before any new work (deterministic
+    // post-crash choice — never guess the candidate committed).
+    if (record?.state === "rollback-required") {
+      const targetVersion = record.currentVersion;
+      const restartNeeded = runtime.state === "attested-compatible"
+        && runtime.resident
+        && (runtime.runtimeVersion ?? RUNTIME_VERSION) !== targetVersion;
+      return await rollback(dependencies, store, record, {
+        restarted: restartNeeded,
+        reason: record.failureReason ?? "activation transaction was interrupted; rolling back to the previous known-good version",
+        request,
+      });
+    }
 
     // No candidate and nothing pending: report the current state.
     if (dependencies.candidate === undefined && (record === undefined || record.state === "idle" || record.state === "active")) {
@@ -117,7 +154,7 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
     if (dependencies.candidate === undefined) {
       const message = `update state is ${record?.state ?? "idle"}; a candidate artifact is required for activation (see rly update --help; distribution is #35)`;
       return {
-        outcome: record?.state === "rollback-required" ? "failed" : "no-candidate",
+        outcome: "no-candidate",
         state: record?.state ?? "idle",
         currentVersion: runtimeVersion ?? record?.currentVersion ?? RUNTIME_VERSION,
         ...(record?.pendingVersion === undefined ? {} : { pendingVersion: record.pendingVersion }),
@@ -129,7 +166,7 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
     assertUpdateableRuntime(runtime);
     const candidateVersion = dependencies.candidate.version;
     const previousVersion = runtimeVersion ?? record?.currentVersion ?? RUNTIME_VERSION;
-    const installing = await store.transitionUnderLock(["none", "idle", "active", "failed", "rollback-required", "pending-activation"], (current) => ({
+    const installing = await store.transitionUnderLock(["none", "idle", "active", "failed", "pending-activation"], (current) => ({
       schemaVersion: 1 as const,
       state: "installing" as const,
       currentVersion: current?.currentVersion ?? previousVersion,
@@ -149,6 +186,20 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
       return { outcome: "failed", state: "failed", currentVersion: installing.currentVersion, pendingVersion: candidateVersion, message };
     }
 
+    // The durable transaction journal opens at STAGED (#93) with the immutable
+    // deployment evidence needed for deterministic crash recovery. Staging
+    // never changed the serving `active` reference (#92).
+    const transaction: UpdateTransaction = {
+      schemaVersion: 1,
+      phase: "staged",
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      candidateVersion,
+      candidateArtifactId: installed.artifactId,
+      ...(installed.previousVersion === undefined ? {} : { previousVersion: installed.previousVersion }),
+      ...(installed.previousArtifactId === undefined ? {} : { previousArtifactId: installed.previousArtifactId }),
+      rollbackAttempts: 0,
+    };
     const pending: UpdateStateRecord = {
       ...installing,
       state: "pending-activation",
@@ -157,18 +208,18 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
       ...(installed.previousVersion === undefined ? {} : { previousVersion: installed.previousVersion }),
       pendingArtifactId: installed.artifactId,
       ...(installed.previousArtifactId === undefined ? {} : { previousArtifactId: installed.previousArtifactId }),
+      transaction,
       updatedAt: new Date().toISOString(),
     };
     await store.write(pending);
 
-    // Preflight migration BEFORE destructive activation: a forward-only
-    // candidate must not be activated; the previous version keeps serving.
-    // Staging never changed the `active` reference (#92), so there is no
-    // install-time reference to restore; the staged deployment remains on
-    // disk for diagnosis until a later install replaces it.
+    // Migration preflight BEFORE destructive activation (#93): a forward-only
+    // candidate must not be activated; the previous version keeps serving. The
+    // staged deployment remains on disk for diagnosis until a later install.
     const manifest = await dependencies.installer.readManifest().catch(() => undefined);
+    const migrationClass = migrationClassOf(manifest);
     if (manifest !== undefined) {
-      const blocker = migrationPreflight(pending, manifest.migrationForwardOnly);
+      const blocker = migrationPreflight(pending, migrationClass);
       if (blocker !== undefined) {
         const failed: UpdateStateRecord = { ...pending, state: "failed", failureReason: blocker, updatedAt: new Date().toISOString() };
         await store.write(failed);
@@ -187,6 +238,15 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
   }
 }
 
+/**
+ * Runs the activation half of the transaction (#93):
+ *
+ *   STAGED → DRAINING (fence) → SWITCHING (ref) → restart → PROBATION
+ *   → COMMITTING → COMMITTED | ROLLING_BACK → COMMITTED | RECOVERY_REQUIRED
+ *
+ * The journal phase is written durably BEFORE the action it fences, so a crash
+ * at any boundary leaves the evidence needed to make one deterministic choice.
+ */
 async function activate(
   dependencies: UpdateRuntimeDependencies,
   store: UpdateStateStore,
@@ -196,29 +256,40 @@ async function activate(
     request: typeof fetch;
   }>,
 ): Promise<UpdateRunResult> {
-  const activating = await store.transitionUnderLock(["pending-activation"], (current) => ({
+  const request = context.request;
+  const tx = await transactionFor(dependencies, record);
+  const activating = await store.transitionUnderLock(["pending-activation", "activating"], (current) => ({
     ...(current ?? record),
     state: "activating" as const,
+    transaction: { ...tx, phase: "draining" as const, updatedAt: new Date().toISOString() },
     updatedAt: new Date().toISOString(),
   }));
 
+  // Strong new-launch fence FIRST (#93): before the serving ref switch, the
+  // old generation refuses new launch-session issuance. Existing sessions
+  // complete naturally on the old process; in-flight streams/tool loops are
+  // never replayed or moved. Best-effort on an attested resident runtime; the
+  // bounded service-manager restart closes the window.
+  await beginDrain(dependencies, request);
+
   // Drain: wait for launch sessions (not TCP counts) to reach zero unless the
-  // user explicitly requested the destructive/force path. Existing sessions
-  // always keep running on the old process while the update waits.
+  // user explicitly requested the destructive/force path.
   const alreadyDown = context.runtime.state === "not-running" || context.runtime.state === "stale-record";
   if (!alreadyDown && !dependencies.force) {
-    const drained = await waitForSessionDrain(dependencies, context.request);
+    const drained = await waitForSessionDrain(dependencies, request);
     if (!drained.drained) {
       // Activation stays pending; sessions keep running. Re-run `rly update`
       // (or `--force`) once the user is ready.
       const pending = await store.transitionUnderLock(["activating"], (current) => ({
         ...(current ?? activating),
         state: "pending-activation" as const,
+        transaction: { ...tx, phase: "draining" as const, updatedAt: new Date().toISOString() },
         updatedAt: new Date().toISOString(),
       }));
       return {
         outcome: "pending",
         state: "pending-activation",
+        ...(pending.transaction === undefined ? {} : { phase: pending.transaction.phase }),
         currentVersion: pending.currentVersion,
         ...(pending.pendingVersion === undefined ? {} : { pendingVersion: pending.pendingVersion }),
         message: `update installed; activation pending drain (${String(drained.activeSessions)} session(s) active). Existing sessions keep running; re-run rly update when they end, or use --force`,
@@ -226,39 +297,62 @@ async function activate(
     }
   }
 
-  // Once activation begins, the old runtime must refuse new launch-session
-  // issuance before the service-manager restart (best-effort on an attested
-  // resident runtime; the restart itself is the bounded close).
-  await beginDrain(dependencies, context.request);
+  // Durable SWITCHING boundary immediately before the atomic active-ref switch.
+  const switching = await store.transitionUnderLock(["activating"], (current) => ({
+    ...(current ?? activating),
+    transaction: { ...tx, phase: "switching" as const, updatedAt: new Date().toISOString() },
+    updatedAt: new Date().toISOString(),
+  }));
 
   try {
     // INSTALL != ACTIVATE (#92): the atomic `active` ref switch happens here,
-    // immediately before the restart that boots the staged deployment. #93
-    // will gate this transition transactionally (drain/fence/probation); this
-    // track supplies the atomic reference primitive.
+    // immediately before the restart that boots the staged deployment, and the
+    // displaced known-good is recorded as `previous` first (#93 crash safety).
     try {
       await dependencies.installer.activateStaged();
     } catch (error) {
-      return await rollback(dependencies, store, activating, { restarted: false, reason: `activation reference switch failed: ${errorMessage(error)}`, request: context.request });
+      return await rollback(dependencies, store, switching, { restarted: false, reason: `activation reference switch failed: ${errorMessage(error)}`, request });
     }
 
-    const restarted = await controlledRestart(dependencies, context.request);
+    const restarted = await controlledRestart(dependencies, request);
     if (!restarted.ok) {
-      return await rollback(dependencies, store, activating, { restarted: restarted.restarted, reason: restarted.reason, request: context.request });
+      return await rollback(dependencies, store, switching, { restarted: restarted.restarted, reason: restarted.reason, request });
     }
 
-    const verified = await verifyCandidateRuntime(dependencies, context.request, activating.pendingVersion);
+    // Durable PROBATION boundary: candidate activation is provisional until
+    // exact runtime identity + management/data protocol + authenticated
+    // readiness/state-open verification.
+    const probation = await store.transitionUnderLock(["activating"], (current) => ({
+      ...(current ?? switching),
+      transaction: { ...tx, phase: "probation" as const, updatedAt: new Date().toISOString() },
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const verified = await verifyCandidateRuntime(dependencies, request, probation.transaction?.candidateVersion ?? probation.pendingVersion);
     if (!verified.ok) {
-      return await rollback(dependencies, store, activating, { restarted: true, reason: verified.reason, request: context.request });
+      return await rollback(dependencies, store, probation, { restarted: true, reason: verified.reason, request });
     }
 
+    // Durable COMMITTING boundary: probation passed; the next write IS the
+    // commit. A crash before COMMITTED always rolls back — never silently
+    // commits a candidate that was never durably accepted.
+    const committing = await store.transitionUnderLock(["activating"], (current) => ({
+      ...(current ?? probation),
+      transaction: { ...tx, phase: "committing" as const, updatedAt: new Date().toISOString() },
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const transaction = committing.transaction ?? tx;
     const active = await store.transitionUnderLock(["activating"], (current) => ({
-      ...(current ?? activating),
+      ...(current ?? committing),
       state: "active" as const,
-      currentVersion: activating.pendingVersion ?? (current?.currentVersion ?? activating.currentVersion),
+      currentVersion: transaction.candidateVersion,
       pendingVersion: undefined,
-      ...(activating.pendingArtifactId === undefined ? {} : { currentArtifactId: activating.pendingArtifactId }),
+      currentArtifactId: transaction.candidateArtifactId,
       pendingArtifactId: undefined,
+      ...(transaction.previousVersion === undefined ? {} : { previousVersion: transaction.previousVersion }),
+      ...(transaction.previousArtifactId === undefined ? {} : { previousArtifactId: transaction.previousArtifactId }),
+      transaction: { ...transaction, phase: "committed" as const, updatedAt: new Date().toISOString() },
       updatedAt: new Date().toISOString(),
       lastActivationResult: { ok: true, attemptedAt: new Date().toISOString() },
       failureReason: undefined,
@@ -266,12 +360,44 @@ async function activate(
     return {
       outcome: "activated",
       state: "active",
+      phase: "committed",
       currentVersion: active.currentVersion,
       message: `runtime activated at version ${active.currentVersion}`,
     };
   } catch (error) {
-    return await rollback(dependencies, store, activating, { restarted: true, reason: errorMessage(error), request: context.request });
+    return await rollback(dependencies, store, activating, { restarted: true, reason: errorMessage(error), request });
   }
+}
+
+/**
+ * Returns the durable transaction journal for an activation, synthesizing one
+ * from a legacy #73 pending record when no journal exists (pre-#93 crash
+ * resume). The candidate's immutable artifact identity is required evidence;
+ * activation fails closed when it cannot be established.
+ */
+async function transactionFor(
+  dependencies: UpdateRuntimeDependencies,
+  record: UpdateStateRecord,
+): Promise<UpdateTransaction> {
+  if (record.transaction !== undefined) return record.transaction;
+  const verified = await dependencies.installer.verifyCandidate();
+  if (!verified.ok) {
+    throw new UpdateRuntimeError(`cannot resume activation: staged candidate failed verification: ${verified.reason ?? "unknown"}; run rly doctor`);
+  }
+  if (verified.artifactId === undefined) {
+    throw new UpdateRuntimeError("cannot resume activation: the staged candidate's immutable artifact identity is unavailable; re-run rly update");
+  }
+  return {
+    schemaVersion: 1,
+    phase: "draining",
+    startedAt: record.updatedAt,
+    updatedAt: new Date().toISOString(),
+    candidateVersion: record.pendingVersion ?? verified.version,
+    candidateArtifactId: verified.artifactId,
+    ...(record.previousVersion === undefined ? {} : { previousVersion: record.previousVersion }),
+    ...(record.previousArtifactId === undefined ? {} : { previousArtifactId: record.previousArtifactId }),
+    rollbackAttempts: 0,
+  };
 }
 
 async function waitForSessionDrain(
@@ -335,9 +461,10 @@ async function controlledRestart(
 }
 
 /**
- * Verifies the activated candidate: attested identity + authenticated
- * readiness + state/schema compatibility + the serving runtime version equals
- * the pending candidate version (never the package version on disk alone).
+ * Verifies the activated candidate (#93 probation): attested identity + exact
+ * serving runtime version equals the pending candidate (never the package
+ * version on disk alone) + management/data protocol compatibility + durable
+ * state/schema compatibility + authenticated readiness (management/state open).
  */
 async function verifyCandidateRuntime(
   dependencies: UpdateRuntimeDependencies,
@@ -358,6 +485,9 @@ async function verifyCandidateRuntime(
       const identity = await readRuntimeIdentity(dependencies, request);
       if (identity === undefined) {
         return { ok: false, reason: "restarted runtime identity could not be attested" };
+      }
+      if (identity.protocolVersion !== undefined && identity.protocolVersion !== RUNTIME_PROTOCOL_VERSION) {
+        return { ok: false, reason: `restarted runtime management/data protocol ${String(identity.protocolVersion)} is not compatible with this RLY (${String(RUNTIME_PROTOCOL_VERSION)})` };
       }
       if (pendingVersion !== undefined && identity.runtimeVersion !== pendingVersion) {
         return { ok: false, reason: `serving runtime version ${identity.runtimeVersion ?? "unknown"} does not match the pending candidate ${pendingVersion}` };
@@ -395,7 +525,7 @@ async function authenticatedReadiness(dependencies: UpdateRuntimeDependencies, r
 async function readRuntimeIdentity(
   dependencies: UpdateRuntimeDependencies,
   request: typeof fetch,
-): Promise<{ runtimeVersion?: string; stateVersion?: number; activeSessions?: number } | undefined> {
+): Promise<{ runtimeVersion?: string; stateVersion?: number; activeSessions?: number; protocolVersion?: number } | undefined> {
   const store = new RuntimeStore(dependencies.runtimeDirectory ?? runtimeDirectoryFor(dependencies));
   const secret = await store.readInstanceSecret();
   if (secret === undefined) return undefined;
@@ -410,6 +540,7 @@ async function readRuntimeIdentity(
       runtimeVersion?: string;
       stateVersion?: number;
       activeSessions?: number;
+      protocolVersion?: number;
       proof?: string;
     };
     if (payload.proof === undefined || payload.instanceId === undefined || payload.configFingerprint === undefined) return undefined;
@@ -419,27 +550,73 @@ async function readRuntimeIdentity(
       ...(payload.runtimeVersion === undefined ? {} : { runtimeVersion: payload.runtimeVersion }),
       ...(payload.stateVersion === undefined ? {} : { stateVersion: payload.stateVersion }),
       ...(payload.activeSessions === undefined ? {} : { activeSessions: payload.activeSessions }),
+      ...(payload.protocolVersion === undefined ? {} : { protocolVersion: payload.protocolVersion }),
     };
   } catch {
     return undefined;
   }
 }
 
+/**
+ * Bounded rollback (#93): at most ONE rollback attempt ever. The refs are
+ * re-established from the durable transaction journal (recovery-grade, safe
+ * even when an interrupted switch left refs mid-transition) or through the
+ * installer's previous ref for legacy records; the service restarts once when
+ * the displaced runtime is serving; rollback verification uses the same
+ * attested probation checks. Failure terminates in RECOVERY_REQUIRED.
+ */
 async function rollback(
   dependencies: UpdateRuntimeDependencies,
   store: UpdateStateStore,
   record: UpdateStateRecord,
   input: Readonly<{ restarted: boolean; reason: string; request: typeof fetch }>,
 ): Promise<UpdateRunResult> {
+  const tx = record.transaction;
+  const attempts = tx?.rollbackAttempts ?? 0;
+  if (attempts >= 1) {
+    return await enterRecoveryRequired(
+      store,
+      record,
+      `rollback already attempted; activation failure is not automatically recoverable (${input.reason}); run rly doctor`,
+    );
+  }
   const rolledBack: UpdateStateRecord = {
     ...record,
     state: "rollback-required",
+    ...(tx === undefined
+      ? {}
+      : {
+          transaction: {
+            ...tx,
+            phase: "rolling-back" as const,
+            rollbackAttempts: 1,
+            lastRollbackOutcome: { ok: false, attemptedAt: new Date().toISOString(), reason: input.reason },
+            updatedAt: new Date().toISOString(),
+          },
+        }),
     updatedAt: new Date().toISOString(),
     failureReason: `activation failed: ${input.reason}`,
   };
   await store.write(rolledBack);
   try {
-    const restored = await dependencies.installer.restorePrevious();
+    let restored: { version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string };
+    if (tx?.previousArtifactId !== undefined) {
+      // Recovery-grade restore from durable journal evidence: re-establish the
+      // known-good active ref and record the aborted candidate as previous.
+      await dependencies.installer.setActiveReferences({
+        activeArtifactId: tx.previousArtifactId,
+        previousArtifactId: tx.candidateArtifactId,
+      });
+      restored = {
+        version: tx.previousVersion ?? record.currentVersion,
+        artifactId: tx.previousArtifactId,
+        previousVersion: tx.candidateVersion,
+        previousArtifactId: tx.candidateArtifactId,
+      };
+    } else {
+      // Legacy #73 rollback through the installer's preserved previous ref.
+      restored = await dependencies.installer.restorePrevious();
+    }
     if (input.restarted) {
       await dependencies.serviceManager.restart();
       const verified = await verifyCandidateRuntime(dependencies, input.request, restored.version);
@@ -455,30 +632,51 @@ async function rollback(
       updatedAt: new Date().toISOString(),
       lastActivationResult: { ok: false, attemptedAt: new Date().toISOString(), reason: input.reason },
       lastRollbackResult: { ok: true, attemptedAt: new Date().toISOString() },
+      ...(tx === undefined
+        ? {}
+        : { transaction: { ...tx, phase: "committed" as const, lastRollbackOutcome: { ok: true, attemptedAt: new Date().toISOString() }, updatedAt: new Date().toISOString() } }),
       failureReason: undefined,
     }));
     return {
       outcome: "rolled-back",
       state: "active",
+      ...(active.transaction === undefined ? {} : { phase: active.transaction.phase }),
       currentVersion: active.currentVersion,
       message: `activation failed (${input.reason}); rolled back to previous known-good version ${active.currentVersion}`,
     };
   } catch (error) {
-    const failed: UpdateStateRecord = {
-      ...rolledBack,
-      state: "failed",
-      updatedAt: new Date().toISOString(),
-      failureReason: `activation and rollback both failed: ${input.reason}; ${errorMessage(error)}; run rly doctor`,
-    };
-    await store.write(failed);
-    return {
-      outcome: "failed",
-      state: "failed",
-      currentVersion: rolledBack.currentVersion,
-      ...(rolledBack.pendingVersion === undefined ? {} : { pendingVersion: rolledBack.pendingVersion }),
-      message: failed.failureReason ?? "activation and rollback both failed; run rly doctor",
-    };
+    return await enterRecoveryRequired(
+      store,
+      rolledBack,
+      `activation and rollback both failed: ${input.reason}; ${errorMessage(error)}; run rly doctor`,
+    );
   }
+}
+
+/** Terminal #93 state: actionable `rly doctor` path, never an auto-retry loop. */
+async function enterRecoveryRequired(
+  store: UpdateStateStore,
+  record: UpdateStateRecord,
+  reason: string,
+): Promise<UpdateRunResult> {
+  const failed: UpdateStateRecord = {
+    ...record,
+    state: "recovery-required",
+    ...(record.transaction === undefined
+      ? {}
+      : { transaction: { ...record.transaction, phase: "recovery-required" as const, recoveryReason: reason, updatedAt: new Date().toISOString() } }),
+    updatedAt: new Date().toISOString(),
+    failureReason: reason,
+  };
+  await store.write(failed);
+  return {
+    outcome: "failed",
+    state: "recovery-required",
+    ...(failed.transaction === undefined ? {} : { phase: failed.transaction.phase }),
+    currentVersion: record.currentVersion,
+    ...(record.pendingVersion === undefined ? {} : { pendingVersion: record.pendingVersion }),
+    message: reason,
+  };
 }
 
 /** Only attested resident runtimes may be updated/restarted. */

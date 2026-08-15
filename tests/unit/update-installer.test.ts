@@ -272,6 +272,43 @@ describe("immutable deployment store (#92)", () => {
     expect(await readlink(installer.activePath)).toBe(`../versions/${activated1.artifactId}`);
     expect(await readlink(installer.previousPath)).toBe(`../versions/${activated2.artifactId}`);
   });
+
+  it("activateStaged records the displaced known-good as previous BEFORE switching active (#93 crash safety)", async () => {
+    const root = await directory();
+    const stateRoot = join(root, "state");
+    const installer = new LocalCandidateInstaller({ directory: stateRoot });
+    const sourceV1 = await candidateDirectory(root, "1.0.0", "// v1\n");
+    await installer.installCandidate({ version: "1.0.0", sourceDirectory: sourceV1 });
+    await installer.activateStaged();
+    const id1 = await computeArtifactId(sourceV1);
+    const sourceV2 = await candidateDirectory(root, "2.0.0", "// v2\n");
+    await installer.installCandidate({ version: "2.0.0", sourceDirectory: sourceV2 });
+    const id2 = await computeArtifactId(sourceV2);
+
+    // Simulate the crash window BETWEEN the previous write and the active
+    // switch (the installer writes previous first): active still serves the
+    // known-good and previous points at the same known-good — never lost.
+    const { replacePrivateSymlinkAtomically, removePrivateSymlinkIfPresent } = await import("../../src/storage/private-files.js");
+    const refTarget = (id: string): string => `../versions/${id}`;
+    await removePrivateSymlinkIfPresent(installer.previousPath).catch(() => undefined);
+    await replacePrivateSymlinkAtomically(installer.previousPath, refTarget(id1));
+    expect(await readlink(installer.activePath)).toBe(refTarget(id1));
+    expect(await readlink(installer.previousPath)).toBe(refTarget(id1));
+
+    // The journal-driven recovery primitive re-establishes refs from durable
+    // evidence: active ← known-good, previous ← aborted candidate (idempotent).
+    await installer.setActiveReferences({ activeArtifactId: id1, previousArtifactId: id2 });
+    expect(await readlink(installer.activePath)).toBe(refTarget(id1));
+    expect(await readlink(installer.previousPath)).toBe(refTarget(id2));
+
+    // Re-applying the same recovery refs is idempotent (crash during recovery).
+    await installer.setActiveReferences({ activeArtifactId: id1, previousArtifactId: id2 });
+    expect(await readlink(installer.activePath)).toBe(refTarget(id1));
+    expect(await readlink(installer.previousPath)).toBe(refTarget(id2));
+
+    // Recovery refuses unknown/missing deployments (fail closed).
+    await expect(installer.setActiveReferences({ activeArtifactId: "f".repeat(64) })).rejects.toThrow(/deployment is missing/);
+  });
 });
 
 describe("legacy semver/current/previous migration (#92)", () => {
