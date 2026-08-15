@@ -9,7 +9,7 @@ import { createIdentityProof } from "../runtime/gateway-server.js";
 import { RUNTIME_VERSION } from "../runtime/gateway-attestation.js";
 import { inspectRuntimeGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
-import { readClaudeOverlayStatus } from "../runtime/claude-overlay.js";
+import { readClaudeOverlayStatus, readClaudeViewStatuses } from "../runtime/claude-overlay.js";
 import { runtimeProtocolCompatible } from "../runtime/update/policy.js";
 import { UpdateStateStore } from "../runtime/update/store.js";
 import { createServiceManager } from "../service-manager/index.js";
@@ -183,6 +183,8 @@ export async function runDoctor(path: string): Promise<number> {
     // never silently treated as the tested baseline.
     const claudeProbe = target.found ? await probeClientVersion(target.executable) : undefined;
     const codexProbe = codex.found ? await probeClientVersion(codex.executable) : undefined;
+    const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
+    const claudeViews = await readClaudeViewStatuses(controlPlaneDirectory);
     console.log(JSON.stringify({
       ok: true,
       syntaxValid: true,
@@ -211,6 +213,7 @@ export async function runDoctor(path: string): Promise<number> {
       },
       update: await updateSummary(config),
       profiles: await profileInventory(config),
+      claudeViews,
     }));
     return 0;
   } catch {
@@ -232,6 +235,7 @@ export async function runStatus(path: string): Promise<number> {
   const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
   const installation = await readInstallation(controlPlaneDirectory);
   const claudeOverlay = await readClaudeOverlayStatus(controlPlaneDirectory);
+  const claudeViews = await readClaudeViewStatuses(controlPlaneDirectory);
   // Report service registration/load state separately from runtime readiness
   // on platforms with a per-user service manager (macOS LaunchAgent, Linux
   // systemd --user) and only when an installation record exists (never runs
@@ -269,6 +273,7 @@ export async function runStatus(path: string): Promise<number> {
     port: config.gateway.port,
     managementPort: config.gateway.managementPort,
     ...(claudeOverlay === undefined ? {} : { claudeOverlay }),
+    claudeViews,
     update: await updateSummary(config),
     ...extras,
   }));

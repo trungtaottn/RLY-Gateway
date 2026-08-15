@@ -46,7 +46,7 @@ direct / OAuth / interoperability / bridge adapter
 ## Safety invariants
 
 - No persistent mutation of global Claude or Codex configuration by default.
-- RLY-launched Claude sessions use a durable RLY-owned Claude configuration overlay under `~/.rly/claude` (native `~/.claude` stays read/compose-only input; RLY session/model state persists; a plain `claude` launch is never affected).
+- RLY-launched Claude sessions use durable RLY-owned, profile-scoped Claude configuration views under `~/.rly/claude/views/<view-id>` (native `~/.claude` stays read/compose-only input; RLY session/model state persists per profile; a plain `claude` launch is never affected).
 - No credential scraping from another client.
 - Credential import is explicit and read-only by default; project-owned records become canonical.
 - No account rotation after the first response byte or tool event.

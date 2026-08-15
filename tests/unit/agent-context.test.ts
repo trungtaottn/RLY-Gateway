@@ -7,6 +7,7 @@ function session(leaseId = "lease-1") {
     profileId: "profile-1",
     profileName: "clinepass",
     leaseId,
+    viewId: "a1b2c3d4e5f60718",
     modelUniverse: { policyRevision: 1, policyHash: "h", registryRevision: 4, bindings: [], experimentalModels: false } as const,
   };
 }

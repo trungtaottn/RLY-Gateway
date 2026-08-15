@@ -10,8 +10,15 @@ import { runGatewayCommand, type GatewayAction } from "./gateway.js";
 import { runInit } from "./init.js";
 import { parseUpdateArgs, runUpdateCommand, assertUpdateLaunchAllowed } from "./update.js";import { loadConfig } from "../config/load-config.js";
 import { ProfileActivationError } from "../profiles/errors.js";
+import { parseLaunchPolicy, type LaunchPolicy } from "../profiles/schema.js";
 import { launchClaude, launchCodex, type ChildExit, type LaunchClaudeOptions } from "../runtime/child-launcher.js";
-import { prepareClaudeOverlay, type ClaudeOverlayResolution } from "../runtime/claude-overlay.js";
+import {
+  DEFAULT_CLAUDE_VIEW_ID,
+  deriveClaudeViewId,
+  prepareClaudeOverlay,
+  type ClaudeOverlayResolution,
+  type ExplicitClaudeSettings,
+} from "../runtime/claude-overlay.js";
 import { acquireGateway, type GatewayLeaseHandle } from "../runtime/gateway-lifecycle.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 import { RLY_STATE_DIRECTORY_NAME } from "../storage/paths.js";
@@ -191,7 +198,7 @@ async function issueProfileLaunch(
   args: readonly string[],
   environment: Readonly<NodeJS.ProcessEnv>,
   harness: "claude" | "codex" = "claude",
-): Promise<{ token: string; args: readonly string[]; executable: string | undefined }> {
+): Promise<ProfileLaunchResolution> {
   const detect = detectForHarness(harness);
   const target = detect(environment);
   const response = await fetch(`${lease.baseUrl}/v1/launch-sessions`, {
@@ -205,7 +212,8 @@ async function issueProfileLaunch(
   const payload = await response.json() as {
     token?: unknown;
     harness?: unknown;
-    launchPolicy?: { executable?: unknown };
+    profileId?: unknown;
+    launchPolicy?: unknown;
     error?: unknown;
   };
   if (!response.ok || typeof payload.token !== "string") {
@@ -214,15 +222,30 @@ async function issueProfileLaunch(
   if (typeof payload.harness === "string" && payload.harness !== harness) {
     throw new Error(`Profile harness is ${payload.harness}, not ${harness}`);
   }
-  const configured = payload.launchPolicy?.executable;
+  if (typeof payload.profileId !== "string" || payload.profileId === "") {
+    throw new Error("Profile launch did not resolve a profile identity");
+  }
+  let policy: LaunchPolicy;
+  try {
+    policy = parseLaunchPolicy(payload.launchPolicy);
+  } catch {
+    throw new ProfileActivationError("invalid-launch-policy", "Profile launch policy is invalid");
+  }
+  const configured = policy.executable;
   const resolved = detect(
     environment,
     typeof configured === "string" ? { executable: configured } : {},
   );
+  const explicit: ExplicitClaudeSettings | undefined =
+    policy.model === undefined && policy.env === undefined
+      ? undefined
+      : { ...(policy.model === undefined ? {} : { model: policy.model }), ...(policy.env === undefined ? {} : { env: policy.env }) };
   return {
     token: payload.token,
     args,
     executable: resolved.found ? resolved.executable : target.executable,
+    profileId: payload.profileId,
+    explicit,
   };
 }
 
@@ -231,6 +254,16 @@ export function childExitCode(exit: ChildExit): number {
   if (exit.signal !== null) return 128 + osConstants.signals[exit.signal];
   return 1;
 }
+
+export type ProfileLaunchResolution = Readonly<{
+  token: string;
+  args: readonly string[];
+  executable: string | undefined;
+  /** Immutable control-plane profile id used to derive the profile-scoped Claude view (#126). */
+  profileId: string;
+  /** Explicit RLY/profile settings tier (launch policy model/env). */
+  explicit: ExplicitClaudeSettings | undefined;
+}>;
 
 export type CliDependencies = Readonly<{
   environment: Readonly<NodeJS.ProcessEnv>;
@@ -243,8 +276,8 @@ export type CliDependencies = Readonly<{
     args: readonly string[],
     environment: Readonly<NodeJS.ProcessEnv>,
     harness?: "claude" | "codex",
-  ) => Promise<{ token: string; args: readonly string[]; executable: string | undefined }>;
-  prepareClaudeOverlay?: (controlPlaneDirectory: string) => Promise<ClaudeOverlayResolution>;
+  ) => Promise<ProfileLaunchResolution>;
+  prepareClaudeOverlay?: (controlPlaneDirectory: string, options?: { environment?: Readonly<NodeJS.ProcessEnv>; viewId?: string; explicit?: ExplicitClaudeSettings }) => Promise<ClaudeOverlayResolution>;
   runInit?: (configPath: string) => Promise<number>;
   runGateway?: (action: GatewayAction, configPath: string) => Promise<number>;
 }>;
@@ -260,17 +293,12 @@ async function runHarnessCommand(
     : harness === "claude"
       ? routeScopedClaudeArgs(parsed.claudeArgs, configuredRoleForRoute(config, parsed.route))
       : (configuredRoleForRoute(config, parsed.route), parsed.claudeArgs);
-  // Claude launches point CLAUDE_CONFIG_DIR at the durable RLY overlay
-  // (composed from native user config) instead of a throwaway temp directory.
-  // Codex keeps its historical throwaway CODEX_HOME isolation. The default
-  // RLY home resolves from the launch environment so tests and other callers
-  // with an overridden HOME never touch the real user home.
-  const configDirectory = harness === "codex"
-    ? undefined
-    : (await (dependencies.prepareClaudeOverlay ?? prepareClaudeOverlay)(
-        config.controlPlane.dataDirectory ?? join(dependencies.environment["HOME"] ?? homedir(), RLY_STATE_DIRECTORY_NAME),
-        { environment: dependencies.environment },
-      )).directory;
+  // Claude launches point CLAUDE_CONFIG_DIR at the durable profile-scoped RLY
+  // view (composed from native user config) instead of a throwaway temp
+  // directory. Codex keeps its historical throwaway CODEX_HOME isolation. The
+  // default RLY home resolves from the launch environment so tests and other
+  // callers with an overridden HOME never touch the real user home.
+  const controlPlaneDirectory = config.controlPlane.dataDirectory ?? join(dependencies.environment["HOME"] ?? homedir(), RLY_STATE_DIRECTORY_NAME);
   const lease = await (dependencies.acquireGateway ?? acquireGateway)({ config });
   try {
     // #73: while an update is pending/activating on a resident runtime, new
@@ -280,9 +308,29 @@ async function runHarnessCommand(
     if (parsed.profile !== undefined) {
       await assertUpdateLaunchAllowed(lease, config);
     }
-    const launched = parsed.profile === undefined
-      ? { token: lease.authToken, args: claudeArgs, executable: undefined as string | undefined }
-      : await (dependencies.issueProfileLaunch ?? issueProfileLaunch)(lease, parsed.profile, claudeArgs, dependencies.environment, harness);
+    let launched: ProfileLaunchResolution | Readonly<{ token: string; args: readonly string[]; executable: string | undefined }>;
+    if (parsed.profile !== undefined) {
+      launched = await (dependencies.issueProfileLaunch ?? issueProfileLaunch)(lease, parsed.profile, claudeArgs, dependencies.environment, harness);
+    } else {
+      launched = { token: lease.authToken, args: claudeArgs, executable: undefined };
+    }
+    // #126: the Claude view identity is deterministic per profile (immutable
+    // profile id) or the reserved `default` view for profile-less launches;
+    // explicit launch-policy model/env form the explicit settings tier.
+    let configDirectory: string | undefined;
+    let environmentOverrides: Readonly<Record<string, string>> | undefined;
+    if (harness === "claude") {
+      const viewId = "profileId" in launched
+        ? deriveClaudeViewId(launched.profileId)
+        : DEFAULT_CLAUDE_VIEW_ID;
+      const explicit = "explicit" in launched ? launched.explicit : undefined;
+      const resolution = await (dependencies.prepareClaudeOverlay ?? prepareClaudeOverlay)(
+        controlPlaneDirectory,
+        { environment: dependencies.environment, viewId, ...(explicit === undefined ? {} : { explicit }) },
+      );
+      configDirectory = resolution.directory;
+      environmentOverrides = explicit?.env;
+    }
     const launch = harness === "codex" ? (dependencies.launchCodex ?? launchCodex) : (dependencies.launchClaude ?? launchClaude);
     const exit = await launch({
       gatewayBaseUrl: lease.baseUrl,
@@ -291,6 +339,7 @@ async function runHarnessCommand(
       environment: dependencies.environment,
       ...(launched.executable === undefined ? {} : { executable: launched.executable }),
       ...(configDirectory === undefined ? {} : { configDirectory }),
+      ...(environmentOverrides === undefined ? {} : { environmentOverrides }),
     });
     return childExitCode(exit);
   } finally {

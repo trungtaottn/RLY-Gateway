@@ -48,6 +48,13 @@ export type LaunchClaudeOptions = Readonly<{
    * child exit (historical isolation behavior).
    */
   configDirectory?: string;
+  /**
+   * Explicit RLY/profile settings env (#126, launch policy `env` tier): merged
+   * above the parent environment but below the child-only RLY gateway
+   * contract, so an explicit profile setting can never fight the gateway
+   * contract and is never persisted anywhere.
+   */
+  environmentOverrides?: Readonly<Record<string, string>>;
   cwd?: string;
   spawner?: ChildSpawner;
   signalSource?: SignalSource;
@@ -100,16 +107,21 @@ function overlayChildEnvironment(
  * `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` is child-only (#72): the
  * gateway exposes `GET /v1/models`, so RLY-launched Claude sessions query the
  * RLY gateway for their model universe instead of the Anthropic API.
+ *
+ * Merge order (high → low): child-only gateway contract, explicit profile
+ * settings env (`explicitEnv`), parent environment.
  */
 export function createClaudeChildEnvironment(
   environment: Readonly<NodeJS.ProcessEnv>,
   gatewayBaseUrl: string,
   authToken: string,
   configDirectory?: string,
+  explicitEnv?: Readonly<Record<string, string>>,
 ): NodeJS.ProcessEnv {
   return overlayChildEnvironment(
     environment,
     {
+      ...(explicitEnv ?? {}),
       [CLAUDE_BASE_URL_VARIABLE]: gatewayBaseUrl,
       [CLAUDE_AUTH_TOKEN_VARIABLE]: authToken,
       [CLAUDE_GATEWAY_MODEL_DISCOVERY_VARIABLE]: "1",
@@ -125,10 +137,12 @@ export function createCodexChildEnvironment(
   gatewayBaseUrl: string,
   authToken: string,
   homeDirectory?: string,
+  explicitEnv?: Readonly<Record<string, string>>,
 ): NodeJS.ProcessEnv {
   return overlayChildEnvironment(
     environment,
     {
+      ...(explicitEnv ?? {}),
       [CODEX_BASE_URL_VARIABLE]: gatewayBaseUrl,
       [CODEX_API_KEY_VARIABLE]: authToken,
       ...(homeDirectory === undefined ? {} : { [CODEX_HOME_VARIABLE]: homeDirectory }),
@@ -209,6 +223,7 @@ async function launchWithTempDirectory(
     gatewayBaseUrl: string,
     authToken: string,
     configDirectory: string,
+    explicitEnv?: Readonly<Record<string, string>>,
   ) => NodeJS.ProcessEnv,
   args: readonly string[],
 ): Promise<ChildExit> {
@@ -216,7 +231,13 @@ async function launchWithTempDirectory(
   return launchChild(
     options,
     options.executable ?? defaultExecutable,
-    createEnvironment(options.environment ?? process["env"], options.gatewayBaseUrl, options.authToken, configDirectory),
+    createEnvironment(
+      options.environment ?? process["env"],
+      options.gatewayBaseUrl,
+      options.authToken,
+      configDirectory,
+      options.environmentOverrides,
+    ),
     args,
     () => rm(configDirectory, { recursive: true, force: true }),
   );
@@ -238,6 +259,7 @@ export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildE
         options.gatewayBaseUrl,
         options.authToken,
         options.configDirectory,
+        options.environmentOverrides,
       ),
       sessionIsolatedArgs(options.args),
       () => Promise.resolve(),

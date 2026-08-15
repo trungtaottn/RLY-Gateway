@@ -1,10 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { ModelUniverseSnapshot } from "../routing/model-projection/types.js";
+import { deriveClaudeViewId } from "../runtime/claude-overlay.js";
 
 export type LaunchSession = Readonly<{
   profileId: string;
   profileName: string;
   leaseId: string;
+  /**
+   * Deterministic profile-scoped Claude view identity (#126): the durable
+   * `CLAUDE_CONFIG_DIR` view this session's RLY-only model/default/cache/
+   * history state belongs to. Derived from the immutable profile id.
+   */
+  viewId: string;
   /**
    * Session-pinned model universe (#72): compiled at issue time from the
    * control-plane policy so an active session never sees a silently remapped
@@ -30,6 +37,7 @@ export class LaunchSessionRegistry {
       profileId: input.profileId,
       profileName: input.profileName,
       leaseId: input.leaseId,
+      viewId: deriveClaudeViewId(input.profileId),
       modelUniverse: input.modelUniverse,
     });
     return token;

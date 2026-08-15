@@ -1,19 +1,25 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { launchClaude, type ChildProcessLike, type ChildSpawner, type SignalSource } from "../../src/runtime/child-launcher.js";
 import {
   CLAUDE_OVERLAY_ALLOWLIST_VERSION,
+  DEFAULT_CLAUDE_VIEW_ID,
+  classifySettingsEnvKey,
+  classifySettingsKey,
   claudeOverlayPaths,
   composeOverlayPluginConfig,
   composeOverlaySettings,
+  deriveClaudeViewId,
   nativeClaudeConfigDirectory,
   prepareClaudeOverlay,
   readClaudeOverlayStatus,
+  readClaudeViewStatuses,
   RLY_MODEL_PREFIX,
   rlyOwnedModel,
+  settingsOwnershipSummary,
 } from "../../src/runtime/claude-overlay.js";
 
 const directories: string[] = [];
@@ -63,7 +69,7 @@ describe("RLY Claude configuration overlay", () => {
 
     const resolution = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
 
-    expect(resolution.directory).toBe(join(controlPlane, "claude"));
+    expect(resolution.directory).toBe(join(controlPlane, "claude", "views", DEFAULT_CLAUDE_VIEW_ID));
     expect(resolution.source).toBe(native);
     expect(resolution.composed).toBe(true);
     const overlay = JSON.parse(await readFile(resolution.directory + "/settings.json", "utf8")) as Record<string, unknown>;
@@ -249,7 +255,7 @@ describe("RLY Claude configuration overlay", () => {
     expect(resolution.refreshed).toEqual([]);
     expect(await readFile(join(home, ".claude.json"), "utf8")).toBe("sentinel\n");
     expect(await readClaudeOverlayStatus(controlPlane)).toMatchObject({
-      directory: join(controlPlane, "claude"),
+      directory: join(controlPlane, "claude", "views", DEFAULT_CLAUDE_VIEW_ID),
       source: join(home, ".claude"),
       allowlistVersion: CLAUDE_OVERLAY_ALLOWLIST_VERSION,
     });
@@ -289,7 +295,7 @@ describe("RLY Claude configuration overlay", () => {
     expect(status).toBeDefined();
     expect(status?.source).toBe(join(home, ".claude"));
     expect(status?.allowlistVersion).toBe(CLAUDE_OVERLAY_ALLOWLIST_VERSION);
-    expect(status?.directory).toBe(join(controlPlane, "claude"));
+    expect(status?.directory).toBe(join(controlPlane, "claude", "views", DEFAULT_CLAUDE_VIEW_ID));
   });
 
   it("launches Claude with the durable overlay and leaves native config byte-identical after /model activity", async () => {
@@ -351,6 +357,265 @@ describe("RLY Claude configuration overlay", () => {
     expect(composeOverlayPluginConfig({ oauthAccounts: { x: { token: "t" } } })).toBeUndefined();
     expect(nativeClaudeConfigDirectory({ HOME: "/tmp/u", CLAUDE_CONFIG_DIR: "/custom" })).toBe("/custom");
     expect(nativeClaudeConfigDirectory({ HOME: "/tmp/u" })).toBe("/tmp/u/.claude");
+    // Unsupported credential-bearing settings shapes are never composed (#126).
+    expect(composeOverlaySettings({ model: "a", oauthAccounts: { x: { token: "t" } } })).toEqual({ model: "a" });
+  });
+
+  it("classifies settings ownership with a deterministic typed contract", () => {
+    expect(classifySettingsKey("model", `${RLY_MODEL_PREFIX}x`)).toBe("rly-owned");
+    expect(classifySettingsKey("model", "claude-sonnet-4-5")).toBe("conflicting");
+    expect(classifySettingsKey("theme", "dark")).toBe("safe-pass-through");
+    expect(classifySettingsKey("oauthAccounts", {})).toBe("unsupported");
+    expect(classifySettingsEnvKey("ANTHROPIC_AUTH_TOKEN")).toBe("rly-owned");
+    expect(classifySettingsEnvKey("ANTHROPIC_BASE_URL")).toBe("rly-owned");
+    expect(classifySettingsEnvKey("KEEP")).toBe("safe-pass-through");
+    const summary = settingsOwnershipSummary({ model: `${RLY_MODEL_PREFIX}x`, theme: "dark", oauthAccounts: {}, env: { ANTHROPIC_AUTH_TOKEN: "s", KEEP: "1" } }, { model: "claude-opus-4-8" });
+    expect(summary.rlyOwned).toBe(1);
+    expect(summary.safePassThrough).toBeGreaterThanOrEqual(2);
+    expect(summary.unsupported).toEqual(["oauthAccounts"]);
+    expect(summary.gatewayEnvKeys).toEqual(["ANTHROPIC_AUTH_TOKEN"]);
+    expect(summary.userOverride).toBe(1);
+  });
+
+  it("derives deterministic, collision-safe view ids from immutable profile ids", () => {
+    expect(deriveClaudeViewId("profile-a")).toBe(deriveClaudeViewId("profile-a"));
+    expect(deriveClaudeViewId("profile-a")).not.toBe(deriveClaudeViewId("profile-b"));
+    expect(deriveClaudeViewId("a")).toMatch(/^[0-9a-f]{16}$/);
+    expect(deriveClaudeViewId("")).toBe(DEFAULT_CLAUDE_VIEW_ID);
+    expect(deriveClaudeViewId(DEFAULT_CLAUDE_VIEW_ID)).toBe(DEFAULT_CLAUDE_VIEW_ID);
+  });
+
+  it("gives each profile a distinct durable view and isolates RLY-only model state", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(native);
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: "claude-sonnet-4-5" }), "utf8");
+    const nativeDigest = await digest(join(native, "settings.json"));
+    const viewA = deriveClaudeViewId("profile-a");
+    const viewB = deriveClaudeViewId("profile-b");
+
+    const firstA = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewA });
+    const firstB = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewB });
+    expect(firstA.directory).not.toBe(firstB.directory);
+    expect(firstA.directory.endsWith(join("views", viewA))).toBe(true);
+    expect(firstB.directory.endsWith(join("views", viewB))).toBe(true);
+
+    // Claude persists an RLY-only projection model into profile A's view.
+    await writeFile(join(firstA.directory, "settings.json"), JSON.stringify({ model: `${RLY_MODEL_PREFIX}primary-0` }), "utf8");
+
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewA });
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewB });
+    const settingsA = JSON.parse(await readFile(join(firstA.directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    const settingsB = JSON.parse(await readFile(join(firstB.directory, "settings.json"), "utf8")) as Record<string, unknown>;
+    // A's RLY-only model never becomes B's default; B keeps the native model.
+    expect(settingsA["model"]).toBe(`${RLY_MODEL_PREFIX}primary-0`);
+    expect(settingsB["model"]).toBe("claude-sonnet-4-5");
+    expect(await digest(join(native, "settings.json"))).toBe(nativeDigest);
+  });
+
+  it("records an ownership manifest and reconciles imported deletions", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(join(native, "agents"), { recursive: true });
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: "claude-sonnet-4-5" }), "utf8");
+    await writeFile(join(native, "agents", "reviewer.md"), "# reviewer\n", "utf8");
+    await writeFile(join(native, "agents", "gone-soon.md"), "# gone\n", "utf8");
+
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    const paths = claudeOverlayPaths(controlPlane);
+    const manifest = JSON.parse(await readFile(paths.manifest, "utf8")) as { entries: Record<string, { category?: string }> };
+    expect(manifest["entries"]["agents/reviewer.md"]?.["category"]).toBe("native-imported");
+    expect(manifest["entries"]["settings.json"]?.["category"]).toBe("native-imported");
+    await expect(stat(join(paths.agents, "gone-soon.md"))).resolves.toBeDefined();
+
+    // Native agent deleted → its owned import is removed on the next prepare.
+    await unlink(join(native, "agents", "gone-soon.md"));
+    const second = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    expect(second.reconciledDeletions).toContain("agents/gone-soon.md");
+    await expect(stat(join(paths.agents, "gone-soon.md"))).rejects.toThrow();
+    // Unrelated imports and RLY/view state survive.
+    expect(await readFile(join(paths.agents, "reviewer.md"), "utf8")).toBe("# reviewer\n");
+    const after = JSON.parse(await readFile(paths.manifest, "utf8")) as { entries: Record<string, { category?: string }> };
+    expect(after["entries"]["agents/gone-soon.md"]).toBeUndefined();
+    expect(after["entries"]["agents/reviewer.md"]?.["category"]).toBe("native-imported");
+  });
+
+  it("reclassifies a divergent imported copy as view-owned instead of deleting it", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(join(native, "agents"), { recursive: true });
+    await writeFile(join(native, "agents", "reviewer.md"), "# reviewer\n", "utf8");
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    const paths = claudeOverlayPaths(controlPlane);
+
+    // Claude edits the view copy (diverges from the import); native source disappears.
+    await writeFile(join(paths.agents, "reviewer.md"), "# edited by Claude\n", "utf8");
+    await unlink(join(native, "agents", "reviewer.md"));
+
+    const second = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    expect(second.reclassified).toContain("agents/reviewer.md");
+    expect(second.reconciledDeletions).not.toContain("agents/reviewer.md");
+    expect(await readFile(join(paths.agents, "reviewer.md"), "utf8")).toBe("# edited by Claude\n");
+    const after = JSON.parse(await readFile(paths.manifest, "utf8")) as { entries: Record<string, { category?: string }> };
+    expect(after["entries"]["agents/reviewer.md"]?.["category"]).toBe("view-owned");
+  });
+
+  it("applies explicit RLY/profile settings above native input but below persisted RLY state", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(native);
+    const nativeSettings = join(native, "settings.json");
+    await writeFile(nativeSettings, JSON.stringify({ model: "claude-sonnet-4-5", theme: "dark" }), "utf8");
+    const explicit = { model: "claude-opus-4-8", env: { RLY_PROFILE_ENV: "1" } };
+
+    const first = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), explicit });
+    const paths = claudeOverlayPaths(controlPlane, first.viewId);
+    expect(JSON.parse(await readFile(paths.settings, "utf8")) as Record<string, unknown>).toMatchObject({
+      model: "claude-opus-4-8",
+      theme: "dark",
+    });
+
+    // Persisted RLY-owned projection (Claude /model write) beats the explicit policy on re-compose.
+    await writeFile(paths.settings, JSON.stringify({ model: `${RLY_MODEL_PREFIX}fast-0` }), "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await writeFile(nativeSettings, JSON.stringify({ model: "claude-sonnet-4-5", theme: "light" }), "utf8");
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), explicit });
+    expect(JSON.parse(await readFile(paths.settings, "utf8")) as Record<string, unknown>).toMatchObject({
+      model: `${RLY_MODEL_PREFIX}fast-0`,
+      theme: "light",
+    });
+  });
+
+  it("recomposes settings as rly-generated when native settings are removed", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(native);
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: "claude-sonnet-4-5", theme: "dark", env: { KEEP: "1" } }), "utf8");
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    const paths = claudeOverlayPaths(controlPlane);
+    await writeFile(paths.settings, JSON.stringify({ model: `${RLY_MODEL_PREFIX}fast-0`, theme: "dark", env: { KEEP: "1" } }), "utf8");
+
+    await unlink(join(native, "settings.json"));
+    const second = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    expect(second.composed).toBe(true);
+    const after = JSON.parse(await readFile(paths.settings, "utf8")) as Record<string, unknown>;
+    // RLY-owned model survives; keys imported from native are dropped.
+    expect(after["model"]).toBe(`${RLY_MODEL_PREFIX}fast-0`);
+    expect(after["theme"]).toBeUndefined();
+    const manifest = JSON.parse(await readFile(paths.manifest, "utf8")) as { entries: Record<string, { category?: string }> };
+    expect(manifest["entries"]["settings.json"]?.["category"]).toBe("rly-generated");
+  });
+
+  it("migrates the legacy shared overlay into the default view without touching native config", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(native);
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: "claude-sonnet-4-5" }), "utf8");
+    const nativeBefore = await digest(join(native, "settings.json"));
+
+    // Simulate the #74 shared overlay at <cp>/claude with a v2 marker.
+    const legacy = join(controlPlane, "claude");
+    await mkdir(join(legacy, "agents"), { recursive: true });
+    await writeFile(join(legacy, "settings.json"), JSON.stringify({ model: `${RLY_MODEL_PREFIX}old-0`, theme: "dark" }), "utf8");
+    await writeFile(join(legacy, ".rly-overlay.json"), JSON.stringify({ allowlistVersion: 2, source: native }), "utf8");
+
+    const resolution = await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    expect(resolution.migratedFromShared).toBe(true);
+    expect(resolution.directory).toBe(join(controlPlane, "claude", "views", DEFAULT_CLAUDE_VIEW_ID));
+    // Ambiguous shared RLY state stays in the unprofiled default view; the
+    // legacy marker/settings moved out of the container root and the staging
+    // directory is gone.
+    const migrated = JSON.parse(await readFile(join(controlPlane, "claude", "views", "default", "settings.json"), "utf8")) as Record<string, unknown>;
+    expect(migrated["model"]).toBe(`${RLY_MODEL_PREFIX}old-0`);
+    await expect(stat(join(legacy, ".rly-overlay.json"))).rejects.toThrow();
+    await expect(stat(join(controlPlane, "claude.legacy"))).rejects.toThrow();
+    expect(await digest(join(native, "settings.json"))).toBe(nativeBefore);
+  });
+
+  it("converges under concurrent prepares across distinct profile views", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(join(native, "agents"), { recursive: true });
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: "claude-sonnet-4-5" }), "utf8");
+    await writeFile(join(native, "agents", "reviewer.md"), "# reviewer\n", "utf8");
+    const before = await digest(join(native, "settings.json"));
+    const viewA = deriveClaudeViewId("profile-a");
+    const viewB = deriveClaudeViewId("profile-b");
+
+    const results = await Promise.all([
+      prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewA }),
+      prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewB }),
+      prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewA }),
+    ]);
+    expect(new Set(results.map((result) => result.directory)).size).toBe(2);
+    const pathsA = claudeOverlayPaths(controlPlane, viewA);
+    const pathsB = claudeOverlayPaths(controlPlane, viewB);
+    expect(JSON.parse(await readFile(pathsA.settings, "utf8")) as Record<string, unknown>).toMatchObject({ model: "claude-sonnet-4-5" });
+    expect(JSON.parse(await readFile(pathsB.settings, "utf8")) as Record<string, unknown>).toMatchObject({ model: "claude-sonnet-4-5" });
+    expect(await readFile(join(pathsA.agents, "reviewer.md"), "utf8")).toBe("# reviewer\n");
+    expect(await readFile(join(pathsB.agents, "reviewer.md"), "utf8")).toBe("# reviewer\n");
+    expect(await digest(join(native, "settings.json"))).toBe(before);
+  });
+
+  it("never persists credentials or settings content into the view or manifest", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(join(native, "agents"), { recursive: true });
+    await writeFile(join(native, "settings.json"), JSON.stringify({
+      model: "claude-sonnet-4-5",
+      env: { ANTHROPIC_AUTH_TOKEN: "native-secret", ANTHROPIC_BASE_URL: "http://native.example", KEEP: "1" },
+      oauthAccounts: { x: { oauthToken: "native-token" } },
+    }), "utf8");
+    await writeFile(join(native, "agents", "reviewer.md"), "# reviewer fixture\n", "utf8");
+    const before = await digest(join(native, "settings.json"));
+
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home) });
+    const paths = claudeOverlayPaths(controlPlane);
+    const viewContents = [
+      await readFile(paths.settings, "utf8"),
+      await readFile(paths.marker, "utf8"),
+      await readFile(paths.manifest, "utf8"),
+      await readFile(join(paths.agents, "reviewer.md"), "utf8"),
+    ];
+    for (const contents of viewContents) {
+      expect(contents).not.toMatch(/native-secret|native-token|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL/);
+    }
+    // Manifest records only composed-visible key names as reconciliation metadata.
+    const manifest = JSON.parse(await readFile(paths.manifest, "utf8")) as { entries: Record<string, { settingsSourceKeys?: readonly string[] }> };
+    expect(manifest["entries"]["settings.json"]?.["settingsSourceKeys"]).toEqual(["model", "env", "env.KEEP"]);
+    // View settings keep only safe env; native input is byte-identical.
+    expect(JSON.parse(await readFile(paths.settings, "utf8")) as Record<string, unknown>).toMatchObject({ env: { KEEP: "1" } });
+    expect(await digest(join(native, "settings.json"))).toBe(before);
+  });
+
+  it("reports secret-free per-view statuses with ownership summaries", async () => {
+    const home = await temporaryHome();
+    const controlPlane = join(home, ".rly");
+    const native = join(home, ".claude");
+    await mkdir(join(native, "agents"), { recursive: true });
+    await writeFile(join(native, "settings.json"), JSON.stringify({ model: `${RLY_MODEL_PREFIX}primary-0`, theme: "dark" }), "utf8");
+    await writeFile(join(native, "agents", "reviewer.md"), "# reviewer\n", "utf8");
+    const viewA = deriveClaudeViewId("profile-a");
+    await prepareClaudeOverlay(controlPlane, { environment: nativeEnvironment(home), viewId: viewA });
+
+    const statuses = await readClaudeViewStatuses(controlPlane);
+    const status = statuses.find((item) => item.viewId === viewA);
+    expect(status).toBeDefined();
+    expect(status?.directory).toContain(join("views", viewA));
+    expect(status?.allowlistVersion).toBe(CLAUDE_OVERLAY_ALLOWLIST_VERSION);
+    expect(status?.ownership.nativeImported).toBeGreaterThanOrEqual(2);
+    expect(status?.settings.rlyOwned).toBeGreaterThanOrEqual(1);
+    expect(status?.settings.conflicting).toEqual([]);
+    // Metadata only: never settings content, prompts, or credentials.
+    expect(JSON.stringify(status)).not.toMatch(/reviewer fixture|# reviewer/);
   });
 });
 

@@ -17,8 +17,17 @@ const capabilityFlags = z.object({
 });
 
 export const capabilityPolicySchema = capabilityFlags.strict();
+/**
+ * Launch policy for a profile. `executable` pins the harness binary; `env` and
+ * `model` are the explicit RLY/profile settings tier (#126): they sit above
+ * user native settings/env but below the child-only RLY gateway contract, so
+ * a profile can deliberately pin a model id or child environment without
+ * mutating native Claude configuration.
+ */
 export const launchPolicySchema = z.object({
   executable: z.string().min(1).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  model: z.string().min(1).optional(),
 }).strict();
 
 export type CapabilityPolicy = z.infer<typeof capabilityPolicySchema>;
