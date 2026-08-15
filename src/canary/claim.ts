@@ -333,18 +333,16 @@ export const compatibilityClaimDocumentSchema = z.object({
 
 /** True when a parsed canary summary is a v2 evidence run (schema version 2). */
 export function isV2EvidenceSummary(parsed: unknown): boolean {
+  if (parsed === null || typeof parsed !== "object") return false;
   const candidate = parsed as Readonly<{ evidenceSchemaVersion?: unknown }>;
-  return candidate !== null
-    && typeof candidate === "object"
-    && candidate.evidenceSchemaVersion === EVIDENCE_SCHEMA_VERSION;
+  return candidate.evidenceSchemaVersion === EVIDENCE_SCHEMA_VERSION;
 }
 
 /** True when a parsed document is a v2 claim document (fail-closed read). */
 export function isV2ClaimDocument(parsed: unknown): boolean {
+  if (parsed === null || typeof parsed !== "object") return false;
   const candidate = parsed as Readonly<{ schemaVersion?: unknown; claimKey?: unknown; records?: unknown }>;
-  return candidate !== null
-    && typeof candidate === "object"
-    && candidate.schemaVersion === CLAIM_SCHEMA_VERSION
+  return candidate.schemaVersion === CLAIM_SCHEMA_VERSION
     && typeof candidate.claimKey === "string"
     && Array.isArray(candidate.records);
 }

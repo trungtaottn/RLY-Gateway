@@ -139,7 +139,7 @@ export class ClaimEvidenceStore {
 
   /** Appends one run's claim observations (idempotent per identical record). */
   public async appendRun(summary: CanaryRunSummary, options?: Readonly<{ ref?: string }>): Promise<void> {
-    for (const claim of summary.claims ?? []) {
+    for (const claim of summary.claims) {
       let doc = await this.loadClaim(claim.claimKey) ?? emptyClaimDocument(claim.claimIdentity, claim.feature);
       for (const record of claim.records) {
         const withRef: EvidenceArtifactV2 = options?.ref === undefined
