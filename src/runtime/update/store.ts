@@ -34,6 +34,13 @@ const updateLockSchema = z.object({
   owner: z.object({
     pid: z.number().int().positive(),
     processStartedAt: z.iso.datetime(),
+    /**
+     * #93: true when `processStartedAt` is the real OS process-start identity
+     * (from the process-attestation subsystem), false for the conservative
+     * wall-clock fallback. A lock whose identity is unverifiable is never
+     * reclaimed from owner-identity evidence alone.
+     */
+    identityVerified: z.boolean().optional(),
   }),
 });
 
@@ -146,14 +153,32 @@ export class UpdateStateStore {
 
   /**
    * Acquires the update lock with stale-owner attestation. A lock whose owner
-   * pid no longer matches its recorded start identity (process died) is
-   * reclaimed; a live holder serializes the caller out with an actionable
-   * error after a bounded retry.
+   * pid no longer matches its recorded OS process-start identity (process
+   * died) is reclaimed; a live holder serializes the caller out with an
+   * actionable error after a bounded retry. #93: the recorded identity is the
+   * REAL OS process-start identity from the process-attestation subsystem
+   * (never acquisition wall-clock time), so a live lock owned by another RLY
+   * process is never misclassified as stale. When identity cannot be
+   * verified the lock is conservatively treated as held.
    */
   public async acquireLock(): Promise<UpdateLock> {
     await this.initialize();
-    const owner = { pid: process.pid, processStartedAt: new Date().toISOString() };
+    const owner = await this.#currentOwnerIdentity();
     return this.#acquireLock(owner);
+  }
+
+  async #currentOwnerIdentity(): Promise<UpdateLockRecord["owner"]> {
+    if (this.processIdentityLookup === undefined) {
+      // No attestation subsystem available: conservative unverifiable fallback.
+      return { pid: process.pid, processStartedAt: new Date().toISOString(), identityVerified: false };
+    }
+    const observed = await this.processIdentityLookup(process.pid);
+    if (observed === undefined) {
+      // Own identity unreadable: record the fallback but mark it unverifiable
+      // so a later stale-check never reclaims on a mismatched wall clock.
+      return { pid: process.pid, processStartedAt: new Date().toISOString(), identityVerified: false };
+    }
+    return { pid: process.pid, processStartedAt: observed.processStartedAt, identityVerified: true };
   }
 
   async #acquireLock(owner: UpdateLockRecord["owner"]): Promise<UpdateLock> {
@@ -175,21 +200,57 @@ export class UpdateStateStore {
 
   async #ownerAlive(lock: UpdateLockRecord): Promise<boolean> {
     if (lock.owner.pid === process.pid) return true;
+    // #93: an identity that was never verified (wall-clock fallback) cannot be
+    // compared to a process lookup, so it is conservatively treated as held —
+    // never reclaimed from a mismatched timestamp alone.
+    if (lock.owner.identityVerified === false) return true;
     if (this.processIdentityLookup === undefined) return true; // conservative: unknown ⇒ held
     const observed = await this.processIdentityLookup(lock.owner.pid);
-    return observed?.processStartedAt === lock.owner.processStartedAt;
+    if (observed === undefined) return false; // proven dead: pid no longer in the process table
+    return observed.processStartedAt === lock.owner.processStartedAt;
+  }
+
+  /**
+   * #93: secret-free lock-owner status for `rly status`/`rly doctor` — held,
+   * owning pid, and whether the owner identity is proven stale/dead (reclaim
+   * would be safe). Never PID-only evidence.
+   */
+  public async lockStatus(): Promise<Readonly<{ held: boolean; ownerPid?: number; stale?: boolean }>> {
+    await this.initialize();
+    const existing = await readJsonIfPresent(this.lockPath, updateLockSchema).catch(() => undefined);
+    if (existing === undefined) return { held: false };
+    const alive = await this.#ownerAlive(existing.value);
+    return {
+      held: true,
+      ownerPid: existing.value.owner.pid,
+      ...(alive ? {} : { stale: true }),
+    };
   }
 }
 
 /**
- * Crash/reboot recovery mapping. Deterministic, secret-free, and conservative:
- * a stale `installing` is a failed install (re-run update); `pending-activation`
- * resumes once the candidate verifies; `activating` rolls back to the previous
- * known-good version (the rollback reference must survive the crash); any
- * state without the required references becomes `failed` with a doctor action.
+ * Crash/reboot recovery mapping (#73/#93). Deterministic, secret-free, and
+ * conservative. When a durable activation-transaction journal is present the
+ * phase is the only authority and the lifecycle NEVER guesses that a candidate
+ * committed before the `committed` phase was durable:
+ *
+ * - `staged`/`draining`: nothing was switched yet ⇒ resume activation.
+ * - `switching`/`probation`/`committing`: the candidate is NOT committed ⇒
+ *   roll back to the durable previous known-good reference.
+ * - `rolling-back`: one bounded rollback attempt may resume; a second
+ *   interruption is terminal (`recovery-required`).
+ * - `committed`: the transaction is durable ⇒ promote to `active`.
+ * - `recovery-required`: terminal; `rly doctor` only.
+ *
+ * Without a journal the legacy #73 mapping is preserved: stale `installing` is
+ * a failed install (re-run update); `pending-activation` resumes once the
+ * candidate verifies; interrupted `activating` rolls back to the previous
+ * known-good version; any state without the required references becomes
+ * `failed` with a doctor action.
  */
 export function recoverUpdateState(record: UpdateStateRecord | undefined): UpdateStateRecord | undefined {
   if (record === undefined) return undefined;
+  if (record.transaction !== undefined) return recoverTransaction(record);
   switch (record.state) {
     case "installing":
       return { ...record, state: "failed", failureReason: "update installation was interrupted; re-run rly update to retry" };
@@ -203,6 +264,59 @@ export function recoverUpdateState(record: UpdateStateRecord | undefined): Updat
         return { ...record, state: "failed", failureReason: "activation interrupted without a rollback reference; run rly doctor" };
       }
       return { ...record, state: "rollback-required", failureReason: "activation was interrupted; rollback to the previous version is required" };
+    default:
+      return record;
+  }
+}
+
+function recoverTransaction(record: UpdateStateRecord): UpdateStateRecord {
+  const transaction = record.transaction;
+  if (transaction === undefined) return record;
+  switch (transaction.phase) {
+    case "committed": {
+      // Durable commit evidence: the transaction finished; promote to active.
+      return {
+        ...record,
+        state: "active" as const,
+        currentVersion: transaction.candidateVersion,
+        pendingVersion: undefined,
+        currentArtifactId: transaction.candidateArtifactId,
+        pendingArtifactId: undefined,
+        ...(transaction.previousArtifactId === undefined
+          ? { previousArtifactId: undefined }
+          : { previousArtifactId: transaction.previousArtifactId }),
+        lastActivationResult: { ok: true, attemptedAt: transaction.updatedAt },
+        failureReason: undefined,
+      };
+    }
+    case "staged":
+    case "draining":
+      // Pre-switch: the serving reference was never changed; resume activation.
+      return { ...record, state: "pending-activation" as const, failureReason: undefined };
+    case "switching":
+    case "probation":
+    case "committing":
+      // Never guess the candidate committed: roll back to the known-good.
+      return {
+        ...record,
+        state: "rollback-required" as const,
+        failureReason: `activation transaction was interrupted during ${transaction.phase}; rollback to the previous known-good version is required`,
+      };
+    case "rolling-back":
+      if (transaction.rollbackAttempts >= 1) {
+        return {
+          ...record,
+          state: "recovery-required" as const,
+          failureReason: "rollback was interrupted after the bounded attempt; run rly doctor",
+        };
+      }
+      return {
+        ...record,
+        state: "rollback-required" as const,
+        failureReason: "rollback was interrupted; one bounded rollback attempt will resume",
+      };
+    case "recovery-required":
+      return { ...record, state: "recovery-required" as const };
     default:
       return record;
   }

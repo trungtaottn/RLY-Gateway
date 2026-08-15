@@ -1,7 +1,7 @@
-import type { UpdateStateRecord } from "./types.js";
+import type { CandidateManifest, MigrationClass, UpdateStateRecord } from "./types.js";
 
 /**
- * Deterministic CLI/runtime compatibility policy (#73). The package/CLI
+ * Deterministic CLI/runtime compatibility policy (#73/#93). The package/CLI
  * version on disk is never proof of what the resident process is serving; the
  * attestation handshake (`/identity`) carries the serving runtime version and
  * the durable state/schema version, and this module decides whether an updated
@@ -10,6 +10,34 @@ import type { UpdateStateRecord } from "./types.js";
 
 /** Management/data wire protocol version shared by CLI and runtime. */
 export const RUNTIME_PROTOCOL_VERSION = 1;
+
+/**
+ * Resolves the effective migration compatibility class (#93) from a candidate
+ * manifest. `migrationClass` is authoritative; legacy manifests that only
+ * declare `migrationForwardOnly` map true ⇒ `forward-only`, false ⇒
+ * `backward-compatible-expand` (the historical default rollback-safe class).
+ */
+export function migrationClassOf(manifest: Pick<CandidateManifest, "migrationClass" | "migrationForwardOnly"> | undefined): MigrationClass {
+  if (manifest?.migrationClass !== undefined) return manifest.migrationClass;
+  return manifest?.migrationForwardOnly === true ? "forward-only" : "backward-compatible-expand";
+}
+
+/**
+ * Blocks activation before any destructive state migration (#93). A candidate
+ * whose migration class makes rollback unsafe (`forward-only`) is refused
+ * before changing durable state, with an actionable message; #35 owns artifact
+ * authenticity, this is the lifecycle-side safety gate. `none`,
+ * `backward-compatible-expand`, and `transactional-replace` are rollback-safe
+ * by contract and pass preflight.
+ */
+export function migrationPreflight(update: UpdateStateRecord, migrationClass: MigrationClass): string | undefined {
+  if (migrationClass !== "forward-only") return undefined;
+  return [
+    "candidate migration is forward-only and rollback-unsafe",
+    `(candidate ${update.pendingVersion ?? "unknown"} -> state would not be restorable)`,
+    "update refused before activating; the previous version remains serving",
+  ].join(" ");
+}
 
 /**
  * Runtime version compatibility for the pending-activation window. Same major
@@ -61,19 +89,4 @@ export function launchPolicy(
     allowed: false,
     reason: majorVersion(cliRuntimeVersion) === -1 ? "runtime-version-mismatch" : "update-pending",
   };
-}
-
-/**
- * Blocks activation before any destructive state migration. A candidate that
- * declares a forward-only/unrollbackable migration must be refused before
- * changing durable state, with an actionable message; #35 owns artifact
- * authenticity, this is the lifecycle-side safety gate.
- */
-export function migrationPreflight(update: UpdateStateRecord, migrationForwardOnly: boolean): string | undefined {
-  if (!migrationForwardOnly) return undefined;
-  return [
-    "candidate migration is forward-only and rollback-unsafe",
-    `(candidate ${update.pendingVersion ?? "unknown"} -> state would not be restorable)`,
-    "update refused before activating; the previous version remains serving",
-  ].join(" ");
 }

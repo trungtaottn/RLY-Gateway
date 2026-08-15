@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   launchPolicy,
   majorVersion,
+  migrationClassOf,
   migrationPreflight,
   runtimeProtocolCompatible,
   RUNTIME_PROTOCOL_VERSION,
@@ -74,11 +75,28 @@ describe("update compatibility policy (#73)", () => {
     expect(decision.reason).toBe("runtime-version-mismatch");
   });
 
-  it("blocks forward-only/unrollbackable migrations before activation", () => {
-    const blocker = migrationPreflight(record("pending-activation", "2.0.0"), true);
+  it("resolves the effective migration class from a manifest (#93)", () => {
+    expect(migrationClassOf({ migrationClass: "none" })).toBe("none");
+    expect(migrationClassOf({ migrationClass: "backward-compatible-expand" })).toBe("backward-compatible-expand");
+    expect(migrationClassOf({ migrationClass: "transactional-replace" })).toBe("transactional-replace");
+    expect(migrationClassOf({ migrationClass: "forward-only" })).toBe("forward-only");
+    // Legacy binary signal maps to a class: true ⇒ forward-only, false ⇒ backward-compatible-expand.
+    expect(migrationClassOf({ migrationForwardOnly: true })).toBe("forward-only");
+    expect(migrationClassOf({ migrationForwardOnly: false })).toBe("backward-compatible-expand");
+    // Explicit class wins over the legacy signal.
+    expect(migrationClassOf({ migrationClass: "none", migrationForwardOnly: true })).toBe("none");
+    // Absent signal defaults to the historical rollback-safe class.
+    expect(migrationClassOf(undefined)).toBe("backward-compatible-expand");
+  });
+
+  it("blocks only forward-only migrations before activation (#93)", () => {
+    const blocker = migrationPreflight(record("pending-activation", "2.0.0"), "forward-only");
     expect(blocker).toBeDefined();
     expect(blocker).toContain("forward-only");
     expect(blocker).toContain("2.0.0");
-    expect(migrationPreflight(record("pending-activation", "2.0.0"), false)).toBeUndefined();
+    // Rollback-safe classes pass preflight.
+    expect(migrationPreflight(record("pending-activation", "2.0.0"), "none")).toBeUndefined();
+    expect(migrationPreflight(record("pending-activation", "2.0.0"), "backward-compatible-expand")).toBeUndefined();
+    expect(migrationPreflight(record("pending-activation", "2.0.0"), "transactional-replace")).toBeUndefined();
   });
 });

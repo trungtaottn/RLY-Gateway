@@ -12,6 +12,7 @@ export const UPDATE_STATE_VALUES = [
   "activating",
   "active",
   "rollback-required",
+  "recovery-required",
   "failed",
 ] as const;
 
@@ -28,6 +29,52 @@ export const UPDATE_LOCK_FILE_NAME = "update.lock";
  */
 export const artifactIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
+/**
+ * Migration compatibility classes (#93) replacing the binary
+ * `migrationForwardOnly` signal. A candidate declares how activating it
+ * interacts with durable state so the lifecycle can prove rollback safety
+ * BEFORE any destructive state change:
+ *
+ * - `none`: no durable state change; always rollback-safe.
+ * - `backward-compatible-expand`: additive/expand-only state changes the
+ *   previous known-good runtime can safely reopen; rollback-safe.
+ * - `transactional-replace`: state is replaced transactionally with a durable
+ *   rollback backup; rollback-safe by contract.
+ * - `forward-only`: state changes make rollback unsafe; activation is blocked
+ *   before destructive state mutation.
+ */
+export const MIGRATION_CLASSES = [
+  "none",
+  "backward-compatible-expand",
+  "transactional-replace",
+  "forward-only",
+] as const;
+
+export type MigrationClass = (typeof MIGRATION_CLASSES)[number];
+
+export const migrationClassSchema = z.enum(MIGRATION_CLASSES);
+
+/**
+ * Durable activation-transaction journal phases (#93). The lifecycle moves
+ * through these boundaries transactionally; a crash/reboot recovery makes one
+ * deterministic choice from the durable phase and never guesses that a
+ * candidate committed before COMMITTED is durable.
+ */
+export const TRANSACTION_PHASES = [
+  "staged",
+  "draining",
+  "switching",
+  "probation",
+  "committing",
+  "committed",
+  "rolling-back",
+  "recovery-required",
+] as const;
+
+export type TransactionPhase = (typeof TRANSACTION_PHASES)[number];
+
+export const transactionPhaseSchema = z.enum(TRANSACTION_PHASES);
+
 export const DEPLOYMENT_METADATA_FILE_NAME = ".rly-deployment.json";
 
 export const deploymentMetadataSchema = z.object({
@@ -38,7 +85,10 @@ export const deploymentMetadataSchema = z.object({
   /** Semantic version is metadata, never the storage key. */
   version: z.string().min(1),
   stateVersion: z.number().int().positive().optional(),
+  /** Legacy #73 signal, superseded by `migrationClass` (#93). */
   migrationForwardOnly: z.boolean().optional(),
+  /** Rollback compatibility class (#93); legacy manifests map to a class. */
+  migrationClass: migrationClassSchema.optional(),
   installedAt: z.iso.datetime(),
 });
 
@@ -64,6 +114,35 @@ export const activationResultSchema = z.object({
 });
 
 /**
+ * Durable activation-transaction journal (#93): one record per activation
+ * attempt carrying the immutable deployment evidence needed for deterministic
+ * crash recovery. Versions, digest identifiers, timestamps, and attempt counts
+ * only — never credentials, prompts, responses, or account identity.
+ */
+export const updateTransactionSchema = z.object({
+  schemaVersion: z.literal(1),
+  phase: transactionPhaseSchema,
+  startedAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  /** The staged candidate this transaction activates (or rolled back). */
+  candidateVersion: z.string().min(1),
+  candidateArtifactId: artifactIdSchema,
+  /**
+   * The known-good deployment displaced by this activation (rollback target).
+   * Absent only when there was no serving deployment at transaction start
+   * (first install), in which case a failure terminates in RECOVERY_REQUIRED.
+   */
+  previousVersion: z.string().min(1).optional(),
+  previousArtifactId: artifactIdSchema.optional(),
+  /** Durable bounded-rollback evidence: at most one attempt ever. */
+  rollbackAttempts: z.number().int().min(0),
+  lastRollbackOutcome: activationResultSchema.optional(),
+  recoveryReason: z.string().optional(),
+});
+
+export type UpdateTransaction = z.infer<typeof updateTransactionSchema>;
+
+/**
  * Durable update state record. Versions and timestamps only: never
  * credentials, tokens, prompts, responses, or account identity.
  */
@@ -83,6 +162,13 @@ export const updateStateRecordSchema = z.object({
   lastActivationResult: activationResultSchema.optional(),
   lastRollbackResult: activationResultSchema.optional(),
   failureReason: z.string().optional(),
+  /**
+   * Durable activation-transaction journal (#93): present while an
+   * activation is (or was) transactional. Recovery reads ONLY this durable
+   * evidence and never guesses that a candidate committed before the
+   * `committed` phase was durable.
+   */
+  transaction: updateTransactionSchema.optional(),
 });
 
 /**
@@ -113,11 +199,14 @@ export type CandidateManifest = Readonly<{
   /** Durable state/schema version the candidate requires (compatibility). */
   stateVersion: number;
   /**
-   * True when activating this candidate permanently migrates durable state
-   * such that rollback to the previous version is unsafe. Such candidates are
-   * blocked before destructive activation with an actionable message.
+   * Rollback compatibility class (#93). Absent ⇒ derived from the legacy
+   * `migrationForwardOnly` signal: true ⇒ `forward-only`, false ⇒
+   * `backward-compatible-expand`. `forward-only` candidates are blocked
+   * before destructive activation with an actionable message.
    */
-  migrationForwardOnly: boolean;
+  migrationClass?: MigrationClass;
+  /** Legacy #73 signal, superseded by `migrationClass` (#93). */
+  migrationForwardOnly?: boolean;
 }>;
 
 export type CandidateInstallResult = Readonly<{
@@ -133,6 +222,11 @@ export type CandidateInstallResult = Readonly<{
 export type CandidateVerification = Readonly<{
   ok: boolean;
   version: string;
+  /**
+   * Immutable deployment identity of the verified staged candidate (#93):
+   * durable evidence for the activation-transaction journal recovery.
+   */
+  artifactId?: string;
   reason?: string;
 }>;
 
@@ -164,6 +258,13 @@ export interface CandidateInstaller {
   verifyCandidate(): Promise<CandidateVerification>;
   /** Restores the previous known-good version; fails when no reference exists. */
   restorePrevious(): Promise<CandidateInstallResult>;
+  /**
+   * #93 crash recovery: atomically re-establishes `active` (and `previous`)
+   * from durable transaction evidence after an interrupted activation.
+   * Previous is written before active so the known-good reference is never
+   * lost mid-recovery.
+   */
+  setActiveReferences(input: Readonly<{ activeArtifactId: string; previousArtifactId?: string }>): Promise<void>;
   /** Reads the staged candidate's declared migration/schema manifest. */
   readManifest(): Promise<CandidateManifest | undefined>;
 }
