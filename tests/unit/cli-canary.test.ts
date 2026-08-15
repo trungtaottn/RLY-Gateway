@@ -51,7 +51,7 @@ describe("canary CLI (#24)", () => {
     expect(() => parseCliArgs(["canary", "run", "--live"], "/work")).toThrow("unknown option");
   });
 
-  it("runs the deterministic matrix, persists a secret-free artifact, and prints a summary", async () => {
+  it("runs the deterministic matrix, persists a secret-free artifact and claim docs, and prints a summary", async () => {
     const directory = await temporaryDirectory();
     const configPath = await configPathWithControlPlane(directory);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -59,41 +59,50 @@ describe("canary CLI (#24)", () => {
       const code = await runCanaryCommand("run", configPath);
       expect(code).toBe(0);
       const printed = String(log.mock.calls.at(-1)?.[0]);
-      const summary = JSON.parse(printed) as { clientBaseline: string; results: unknown[]; artifactPath: string; installed: unknown[] };
+      const summary = JSON.parse(printed) as { clientBaseline: string; results: unknown[]; artifactPath: string; installed: unknown[]; evidenceSchemaVersion: number; claims: unknown[] };
       expect(summary.clientBaseline).toBe(CLAUDE_CODE_FIXTURE_BASELINE);
       expect(summary.results.length).toBeGreaterThan(0);
       expect(summary.artifactPath).toContain(join("control-plane", "canary"));
+      expect(summary.evidenceSchemaVersion).toBe(2);
+      expect(Array.isArray(summary.claims)).toBe(true);
       expect(Array.isArray(summary.installed)).toBe(true);
       // Secret-free surface.
       expect(printed).not.toMatch(/OPENROUTER_API_KEY|accessToken|authorization|Bearer|prompt|response/i);
       const artifact = JSON.parse(await readFile(summary.artifactPath, "utf8")) as { results: { verdict: string }[] };
       expect(artifact.results.length).toBe(summary.results.length);
+      // Claim/evidence v2 documents are persisted under <control-plane>/claims/.
+      const claimsDirectory = join(directory, "control-plane", "claims");
+      const names = (await import("node:fs/promises")).readdir;
+      const files = await names(claimsDirectory);
+      expect(files.length).toBeGreaterThan(0);
+      expect(files.every((name) => name.startsWith("claim-") && name.endsWith(".json"))).toBe(true);
     } finally {
       log.mockRestore();
     }
   });
 
-  it("never reports fake-only evidence as VERIFIED (live evidence is opt-in)", async () => {
+  it("never reports fake-only evidence as VERIFIED (evidence is Layer A only; runner switch is not evidence)", async () => {
     const directory = await temporaryDirectory();
     const configPath = await configPathWithControlPlane(directory);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       await runCanaryCommand("run", configPath);
       const printed = String(log.mock.calls.at(-1)?.[0]);
-      const summary = JSON.parse(printed) as { results: { verdict: string; evidenceKind: string }[] };
+      const summary = JSON.parse(printed) as { results: { verdict: string; evidenceLayer: string }[]; liveRunner: { enabled: boolean; evidenceEmitted: boolean } };
       expect(summary.results.length).toBeGreaterThan(0);
       for (const result of summary.results) {
-        expect(result.evidenceKind).toBe("fake");
+        expect(result.evidenceLayer).toBe("A");
         expect(["EXPERIMENTAL", "unknown"]).toContain(result.verdict);
         expect(result.verdict).not.toBe("VERIFIED");
       }
       expect(RLY_LIVE_CANARY_ENV).toBe("RLY_LIVE_CANARY");
+      expect(summary.liveRunner.evidenceEmitted).toBe(false);
     } finally {
       log.mockRestore();
     }
   });
 
-  it("status reports no artifacts before a run and the tested baselines after", async () => {
+  it("status reports no artifacts before a run and the tested baselines + claim schema after", async () => {
     const directory = await temporaryDirectory();
     const configPath = await configPathWithControlPlane(directory);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -101,6 +110,7 @@ describe("canary CLI (#24)", () => {
       const before = await runCanaryCommand("status", configPath);
       expect(before).toBe(1);
       expect(String(log.mock.calls.at(-1)?.[0])).toContain('"hasArtifacts":false');
+      expect(String(log.mock.calls.at(-1)?.[0])).toContain('"claimEvidence"');
       await runCanaryCommand("run", configPath);
       const after = await runCanaryCommand("status", configPath);
       expect(after).toBe(0);
@@ -108,6 +118,8 @@ describe("canary CLI (#24)", () => {
       expect(printed).toContain('"hasArtifacts":true');
       expect(printed).toContain('"testedBaselines"');
       expect(printed).toContain('"claudeCode"');
+      expect(printed).toContain('"claimEvidence"');
+      expect(printed).toContain('"claimCount"');
     } finally {
       log.mockRestore();
     }

@@ -2,41 +2,28 @@ import type { CanaryGateResult, CanaryVerdict } from "./types.js";
 import { gatesRequiredForEvidence } from "./types.js";
 
 /**
- * Canary classification (#24).
+ * Canary classification (#24, semantics updated by #122).
  *
- * Semantics:
- * - `VERIFIED`: every required gate for the advertised RLY use of that exact
- *   access path passed AND live evidence exists for the provider class where a
- *   fake transport cannot prove the bridge (Codex OAuth / ClinePass / direct
- *   provider subscriptions). A fake-only matrix is never VERIFIED.
- * - `EXPERIMENTAL`: the access path is known/discovered or passes a partial
- *   matrix, but lacks required evidence for normal default exposure.
+ * Semantics (v2 authority):
+ * - `EXPERIMENTAL`: the access path's deterministic Layer A matrix passed (or
+ *   partially passed) but the observation can never by itself establish a
+ *   production Compatibility Claim. Layer B (installed client) and Layer C
+ *   (live access path) evidence plus reviewed promotion (#124) are required
+ *   before a path may be treated as production-trusted. A fake-only matrix is
+ *   never `VERIFIED`.
  * - `BROKEN`: a required contract is known to fail for the exact combination.
  * - `unknown`: required gates were not run (missing evidence). Missing/unrun
  *   evidence is never conflated with `BROKEN` and never reported as VERIFIED.
+ *
+ * #122: `VERIFIED` is UNREACHABLE from any observation path. There is no
+ * `livePassed`/`liveEvidence` boolean input; an opt-in runner switch only
+ * enables execution and can never stand in for an evidence artifact.
  */
-
-export type LiveEvidencePolicy = "required-for-verified";
-
-/**
- * Provider classes where live proof is required before normal exposure: a
- * protocol bridge (Codex OAuth, ClinePass) or a direct subscription (OpenRouter,
- * DeepSeek) may behave differently than a fake transport. Unknown adapters
- * fail closed (`required-for-verified`).
- */
-export const ADAPTER_LIVE_POLICY: Readonly<Record<string, LiveEvidencePolicy>> = Object.freeze({
-  "codex-oauth": "required-for-verified",
-  "cline-interop": "required-for-verified",
-  "openrouter-direct": "required-for-verified",
-  "deepseek-direct": "required-for-verified",
-});
 
 export type ClassifyInput = Readonly<{
   results: readonly CanaryGateResult[];
   requiredGates: readonly string[];
   adapterId: string;
-  /** True only when an opt-in live run actually passed for this exact path. */
-  livePassed: boolean;
   fakeMatrixRan: boolean;
 }>;
 
@@ -54,15 +41,12 @@ export function classifyVerdict(input: ClassifyInput): Readonly<{ verdict: Canar
       return { verdict: "unknown", reason: `${result.gate}-not-run` };
     }
   }
-  // Every shipped provider class (Codex OAuth, ClinePass, direct OpenRouter/
-  // DeepSeek) requires live proof before VERIFIED: a fake transport cannot
-  // prove a subscription/bridge path. `ADAPTER_LIVE_POLICY` documents this per
-  // adapter and is the single place a future optional-for-verified adapter
-  // would be registered; unknown adapters fail closed (live required).
-  if (!input.livePassed) {
-    return { verdict: "EXPERIMENTAL", reason: "live-evidence-required" };
-  }
-  return { verdict: "VERIFIED" };
+  // Every required gate passed for the exact access path — a real deterministic
+  // Layer A observation, but not production trust. The canary has no boolean
+  // that can grant a reviewed Compatibility Claim: installed-client (B) and
+  // live access-path (C) evidence plus explicit reviewed promotion (#124) are
+  // required, and none of them is derivable from this run.
+  return { verdict: "EXPERIMENTAL", reason: "production-claim-not-established" };
 }
 
 /** Gates required for this exact access path based on its reviewed evidence. */

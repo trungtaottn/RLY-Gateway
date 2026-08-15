@@ -260,6 +260,7 @@ describe("provider model intelligence registry", () => {
   it("bumps the registry document revision and pins the canonical shape of shipped entries", () => {
     expect(directProviderRegistry.registryRevision).toBe(MODEL_REGISTRY_REVISION);
     expect(MODEL_REGISTRY_REVISION).toBeGreaterThan(3); // schema change since v3
+    expect(MODEL_REGISTRY_REVISION).toBeGreaterThan(4); // #122: claimRef on compatibility evidence (schema change since v4)
     for (const model of directProviderRegistry.models) {
       expect(model.logicalId).toBe(`${model.identity.accessProviderId}/${model.identity.upstreamModelId}`);
       expect(["VERIFIED", "EXPERIMENTAL", "BROKEN"]).toContain(model.compatibility.state);
@@ -270,6 +271,21 @@ describe("provider model intelligence registry", () => {
       expect(Object.isFrozen(model.identity)).toBe(true);
       expect(Object.isFrozen(model.compatibility)).toBe(true);
     }
+  });
+
+  it("records an optional v2 claim reference on reviewed compatibility evidence (#122)", () => {
+    const claimKey = "v2|claude-code|claude-code-2.1.229|anthropic-messages|claude-code-2.1.229-contract-v1|codex-oauth|codex|oauth|anthropic-messages|gpt-5.4|text";
+    const reviewed = reviewedModel({
+      accessProviderId: "codex",
+      upstreamModelId: "gpt-5.4",
+      verifiedAt: "2026-08-20",
+      fixtureVersion: "codex-oauth-chat-v1",
+      capabilities: conservativeCapabilities(),
+      compatibility: { state: "VERIFIED", baseline: "claude-code-2.1.229", evidenceRef: "canary-layer-a:" + claimKey, claimRef: claimKey },
+    });
+    expect(reviewed.compatibility.claimRef).toBe(claimKey);
+    // Reviewed rows without a claim reference stay claim-less (legacy/untrusted for v2 authority).
+    expect(directProviderRegistry.models[0]?.compatibility.claimRef).toBeUndefined();
   });
 
   it("migrates static legacy documents to the canonical shape without guessing families", () => {

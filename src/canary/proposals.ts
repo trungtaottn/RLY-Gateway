@@ -3,10 +3,11 @@ import type {
   ModelEvidence,
   RegistryDocument,
 } from "../registry/model-registry.js";
+import { claimKeyFor, type CompatibilityClaimIdentity } from "./claim.js";
 import type { CanaryEvidence, CanaryVerdict } from "./types.js";
 
 /**
- * Canary → registry proposal boundary (#24 / #23 / #67).
+ * Canary → registry proposal boundary (#24 / #23 / #67, evidence v2 by #122).
  *
  * The canary REPORTS evidence and drift; it never mutates the trusted registry
  * (`directProviderRegistry`) or the trusted tier mappings. `proposeCanaryState`
@@ -14,6 +15,11 @@ import type { CanaryEvidence, CanaryVerdict } from "./types.js";
  * compatibility states for the #23 review workflow. Promotion of a proposed
  * state to trusted evidence remains an explicit repository/control-plane
  * action.
+ *
+ * #122: canary observations are Layer A evidence and can propose
+ * `EXPERIMENTAL` or `BROKEN` only. `VERIFIED` is unreachable from any
+ * observation; a reviewed Compatibility Claim promotion (#124) is the only
+ * path to a stronger trusted state, and it is out of scope here.
  */
 
 export type CanaryProposal = Readonly<{
@@ -30,7 +36,12 @@ export type CanaryProposal = Readonly<{
   reason?: string;
 }>;
 
-/** Maps a canary verdict onto the trusted registry states (#72 gate). */
+/**
+ * Maps a canary verdict onto the trusted registry states (#72 gate). #122: the
+ * canary itself never produces `VERIFIED` (see `classifyVerdict`); the mapping
+ * is retained for the registry contract and the future #124 reviewed-promotion
+ * handoff, never for observations.
+ */
 export function verdictToCompatibilityState(verdict: CanaryVerdict): CompatibilityState | undefined {
   switch (verdict) {
     case "VERIFIED": return "VERIFIED";
@@ -62,13 +73,32 @@ export function proposeCanaryState(
     ...(evidence.modelFamily === undefined ? {} : { modelFamily: evidence.modelFamily }),
     ...(current === undefined ? {} : { currentState: current.compatibility.state }),
     proposedState,
-    evidenceRef: evidence.evidenceKind === "live"
-      ? `canary-live:${evidence.fixtureRevision}`
-      : `canary-fake:${evidence.fixtureRevision}`,
+    evidenceRef: canaryEvidenceRef(evidence),
     clientVersion: evidence.clientVersion,
     checkedAt: evidence.checkedAt,
     ...(evidence.reason === undefined ? {} : { reason: evidence.reason }),
   });
+}
+
+/**
+ * v2 evidence reference for one canary observation: the Layer A claim key for
+ * the `text` feature plus the fixture revision, so a proposal can be traced
+ * back to the exact claim identity that supports it.
+ */
+export function canaryEvidenceRef(evidence: CanaryEvidence): string {
+  const identity: CompatibilityClaimIdentity = Object.freeze({
+    client: evidence.client,
+    clientVersion: evidence.clientVersion,
+    sourceProtocol: evidence.sourceProtocol,
+    protocolRevision: evidence.protocolRevision,
+    adapterId: evidence.adapterId,
+    accessProviderId: evidence.accessProviderId,
+    authMode: evidence.authMode,
+    endpointContract: evidence.endpointContract,
+    physicalModelId: evidence.physicalModelId,
+    ...(evidence.modelFamily === undefined ? {} : { modelFamily: evidence.modelFamily }),
+  });
+  return `canary-layer-a:${claimKeyFor(identity, "text")}:${evidence.fixtureRevision}`;
 }
 
 /**

@@ -17,10 +17,10 @@ import { assertSecretFree } from "../../src/control-plane/secret-free.js";
 const directories: string[] = [];
 // Real credential/secret material and real content only — prose notes about
 // "never authorization" are allowed. Mirrors scripts/check-privacy.mjs.
-const FORBIDDEN = /Bearer\s+[A-Za-z0-9._~+/=-]{20,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|OPENROUTER_API_KEY|api[_-]?key|password|accessToken|refreshToken|real-prompt|real-response/i;
+const FORBIDDEN = /Bearer\s+[A-Za-z0-9._~+/=-]{20,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|OPENROUTER_API_KEY|api[_-]?key\s*[:=]|password|accessToken|refreshToken|real-prompt|real-response/i;
 const ALLOWED_EVIDENCE_KEYS = new Set([
-  "client", "clientVersion", "accessProviderId", "adapterId", "physicalModelId", "modelFamily",
-  "fixtureRevision", "testedGates", "checkedAt", "evidenceKind", "verdict", "reason",
+  "client", "clientVersion", "sourceProtocol", "protocolRevision", "accessProviderId", "adapterId", "authMode", "endpointContract",
+  "physicalModelId", "modelFamily", "fixtureRevision", "testedGates", "checkedAt", "evidenceLayer", "verdict", "reason",
 ]);
 
 afterEach(async () => {
@@ -60,6 +60,55 @@ describe("canary privacy (#24)", () => {
     expect(content).toBeDefined();
     expect(content).not.toMatch(FORBIDDEN);
     assertSecretFree(JSON.parse(content ?? "") as unknown);
+  });
+
+  it("keeps v2 claim/evidence documents secret-free (no prompts, credentials, or identity material)", async () => {
+    const summary = await runCanary({ environment: {}, now: () => "1970-01-01T00:00:00.000Z" });
+    assertSecretFree(summary.claims);
+    assertSecretFree(summary.evidence);
+    const serialized = JSON.stringify({ claims: summary.claims, evidence: summary.evidence });
+    expect(serialized).not.toMatch(FORBIDDEN);
+    expect(serialized).not.toMatch(/synthetic fixture text|reasoning marker|thinking/);
+    for (const claim of summary.claims) {
+      expect(claim.schemaVersion).toBe(1);
+      for (const record of claim.records) {
+        expect(["passed", "failed", "not-run"]).toContain(record.result);
+        expect(["A", "B", "C"]).toContain(record.layer);
+      }
+    }
+  });
+
+  it("persists v2 claim documents that contain no credentials or account identity", async () => {
+    const directory = await temporaryDirectory();
+    const controlPlane = join(directory, "control-plane");
+    const store = new CanaryStore(controlPlane);
+    const summary = await runCanary({ environment: {}, now: () => "1970-01-01T00:00:00.000Z" });
+    const artifactPath = await store.write(summary);
+    const ClaimEvidenceStore = (await import("../../src/canary/artifact.js")).ClaimEvidenceStore;
+    const claimStore = new ClaimEvidenceStore(controlPlane);
+    await claimStore.appendRun(summary, { ref: artifactPath });
+    const claims = await claimStore.listClaims();
+    expect(claims.length).toBeGreaterThan(0);
+    for (const claim of claims) {
+      expect(JSON.stringify(claim)).not.toMatch(FORBIDDEN);
+      assertSecretFree(claim);
+      for (const record of claim.records) {
+        expect(record.ref).toBe(artifactPath);
+        expect(record.environment).toBeDefined();
+      }
+    }
+  });
+
+  it("creates claim artifacts with restrictive private modes", async () => {
+    const directory = await temporaryDirectory();
+    const controlPlane = join(directory, "control-plane");
+    const summary = await runCanary({ environment: {}, now: () => "1970-01-01T00:00:00.000Z" });
+    const ClaimEvidenceStore = (await import("../../src/canary/artifact.js")).ClaimEvidenceStore;
+    const claimStore = new ClaimEvidenceStore(controlPlane);
+    await claimStore.appendRun(summary);
+    const claims = await claimStore.listClaims();
+    expect(claims.length).toBeGreaterThan(0);
+    expect((await stat(join(controlPlane, "claims"))).mode & 0o777).toBe(0o700);
   });
 
   it("pins synthetic (non-secret) upstream fixtures only", async () => {
