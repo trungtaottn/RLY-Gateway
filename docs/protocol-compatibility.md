@@ -64,31 +64,37 @@ ordering.
 `run codex` launches Codex with `OPENAI_BASE_URL` / `OPENAI_API_KEY` and a
 temporary `CODEX_HOME`. Global `~/.codex` is not mutated.
 
-## Claude configuration overlay (#74)
+## Profile-scoped Claude configuration views (#126, evolving #74)
 
 RLY-launched Claude sessions do not use a throwaway `CLAUDE_CONFIG_DIR` temp
-directory. The launcher (`src/cli/main.ts`) prepares a durable RLY-owned
-overlay (`<control-plane>/claude`, `~/.rly/claude` by default) with
+directory. The launcher (`src/cli/main.ts`) prepares a durable RLY-owned,
+profile-scoped view (`<control-plane>/claude/views/<view-id>`, `~/.rly/claude/views/<view-id>`
+by default; `deriveClaudeViewId(profileId)` for profile launches, reserved
+`default` for profile-less launches) with
 [`src/runtime/claude-overlay.ts`](../src/runtime/claude-overlay.ts) and passes
 it as the child `CLAUDE_CONFIG_DIR`. The native user config root is composed
-as read-only input through a typed allowlist. `CLAUDE_CONFIG_DIR` layout pinned
-for the supported baseline (currently observed `2.1.229`, fixtures owned by
-#24):
+as read-only input through a typed allowlist; each RLY profile gets its own
+view so RLY-only model/default/cache/history state never bleeds between
+profiles. `CLAUDE_CONFIG_DIR` layout pinned for the supported baseline
+(currently observed `2.1.229`, fixtures owned by #24):
 
 | Surface | RLY composition |
 | --- | --- |
-| `settings.json` | One-way merge: unrelated keys and native `model` preserved; `env` keys conflicting with the RLY gateway contract (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `CODEX_HOME`, `CODEX_API_KEY`) stripped; a persisted RLY-only `claude-rly-*` model is RLY-owned and wins on re-compose. Written only in the overlay. |
-| `agents/*.md`, `commands/*.md` | One-way refresh copy when missing or native is newer. |
-| `skills/**` | Allowlisted recursive copy of user-authored skills (`node_modules`, `.git` excluded; symlinks never followed). |
-| `plugins/config.json` | Only `enabledPlugins`/`marketplaces` carried; `oauthAccounts`/token-like keys and plugin cache/repos never copied (plugin runtime state stays native). |
+| `settings.json` | One-way merge: unrelated keys and native `model` preserved; `env` keys conflicting with the RLY gateway contract (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `CODEX_HOME`, `CODEX_API_KEY`) stripped; unsupported credential-bearing shapes (`oauthAccounts`) never composed; a persisted RLY-only `claude-rly-*` model is RLY-owned and wins on re-compose. Written only in the view. |
+| `agents/*.md`, `commands/*.md` | One-way refresh copy when missing or native is newer; imported copies are removed/reconciled when the native source disappears (ownership manifest + hash match; divergent copies reclassified view-owned). |
+| `skills/**` | Allowlisted recursive copy of user-authored skills (`node_modules`, `.git` excluded; symlinks never followed); deletion reconciliation as for agents/commands. |
+| `plugins/config.json` | Only `enabledPlugins`/`marketplaces` carried; `oauthAccounts`/token-like keys and plugin cache/repos never copied (plugin runtime state stays native); the allowlist projection is removed/reconciled when the native file disappears. |
 | `history`, `projects`, `shell-snapshots`, `todos`, `statsig`, `version`, unknown files | Never copied. |
+| `.rly-overlay.json`, `.rly-manifest.json`, `.rly-reconcile.lock` | RLY metadata: allowlist marker, ownership manifest (categories + source paths + sha256 hashes only), and bounded per-view reconcile lock. |
 
 Other pinned behaviors:
 
 - Native `~/.claude/settings.json` (model key included), credentials, plugin metadata, history, and agent files are never rewritten by RLY; there is no post-exit restore of a saved global model (unsafe under concurrent sessions). The home-level `~/.claude.json` and project-local `.claude` are never touched.
-- `/model` Enter/direct persistence writes into the overlay settings only; RLY session/history state under the overlay survives RLY launches; session-only `s` selection behaves normally.
-- Refresh is deterministic and race-safe: unchanged native input is not rewritten (sibling `/model` writes survive); native deletions are not propagated; malformed native JSON surfaces are skipped.
-- RLY gateway URL/token are child-env only and never persisted in overlay settings/history; no RLY credential secret enters the overlay.
+- `/model` Enter/direct persistence writes into the owning profile view settings only; RLY session/history state under the view survives RLY launches; session-only `s` selection behaves normally. Another profile and a plain `claude` launch never inherit a profile's RLY-only model/gateway state.
+- Typed ownership and precedence are deterministic (child-only RLY gateway contract env > RLY-owned persisted projection model > explicit RLY/profile launch-policy settings > user native settings/env > client persistence in the view > defaults); ownership wins over naive newer-mtime copy, and a conflicting native gateway/auth/model setting never overrides RLY's scoped launch contract silently.
+- Refresh is deterministic and race-safe: unchanged native input is not rewritten (sibling `/model` writes survive); malformed native JSON surfaces are skipped; native deletions propagate only for owned imports that still match the imported hash (never unrelated RLY/view state, never additive-only ghosts).
+- RLY gateway URL/token are child-env only and never persisted in view settings/history; no RLY credential secret enters a view or manifest.
+- Migration: the legacy shared `~/.rly/claude` overlay moves into `views/default` exactly once (crash-safe two-phase sibling rename), never modifying native `~/.claude`; ambiguous shared persisted state stays in the unprofiled `default` view and is surfaced by `rly status`/`rly doctor`.
 - If a future Claude Code client changes this layout, RLY must pin the new baseline through #24 before composing; unknown surfaces are never recursively copied.
 
 ## Gateway model discovery and projection (#72)

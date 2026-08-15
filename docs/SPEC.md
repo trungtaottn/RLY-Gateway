@@ -45,7 +45,7 @@ Required behavior:
 - Cancellation, backpressure, structured errors, and safe retry boundaries.
 - Explicit `primary`, `fast`, and `reasoning` model roles.
 - Authenticated `GET /v1/models` gateway model discovery on the gateway listener: RLY-launched Claude sessions (child-only `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`) discover the configured, trusted RLY model universe through the supported Claude Code wire contract; every discoverable id uses the Claude-compatible `claude-rly-...` namespace and maps through an explicit reverse mapping to one exact access-provider/model target and provider pool.
-- Child-only gateway environment over a durable RLY Claude configuration overlay (`~/.rly/claude`): the user's native Claude settings/agents/skills/plugins are composed as read-only input, RLY session/model state persists inside the overlay (an RLY-only `claude-rly-*` model chosen via `/model` never poisons a plain `claude` launch), and global Claude configuration remains unchanged.
+- Child-only gateway environment over durable profile-scoped RLY Claude configuration views (`~/.rly/claude/views/<view-id>`): the user's native Claude settings/agents/skills/plugins are composed as read-only input, RLY session/model state persists inside the owning profile view (an RLY-only `claude-rly-*` model chosen via `/model` never poisons a plain `claude` launch or another RLY profile), and global Claude configuration remains unchanged.
 
 ### 4.2 Codex CLI — `rly run codex` escape hatch
 

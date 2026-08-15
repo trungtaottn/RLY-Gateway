@@ -761,8 +761,10 @@ export async function prepareClaudeOverlay(
   await chmod(paths.directory, 0o700).catch(() => undefined);
 
   // Reconcile (manifest + deletion) and refresh under the bounded per-view
-  // lock; when a sibling holds the lock, refresh still proceeds atomically and
-  // reconciliation is skipped (best-effort, never corrupting).
+  // lock; when a sibling holds the lock, refresh and reconciliation still
+  // proceed atomically (reconciliation is idempotent and the manifest write is
+  // atomic), while `lastReconciledAt` metadata is only recorded by the lock
+  // holder (best-effort, never corrupting).
   const lock = await acquireReconcileLock(paths.reconcileLock);
   const marker = await readMarker(paths.marker);
   let manifest = await readManifest(paths.manifest);
