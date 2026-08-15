@@ -21,6 +21,7 @@ import { probeClientVersion } from "../targets/versions.js";
 import { RLY_LIVE_CANARY_ENV } from "../canary/run.js";
 import { CLAUDE_CODE_FIXTURE_BASELINE } from "../canary/client-fixtures.js";
 import { EVIDENCE_SCHEMA_VERSION, LEGACY_V1_POLICY } from "../canary/claim.js";
+import { INSTALLED_CLIENT_RUNNER_VERSION, LIVE_ACCESS_PATH_RUNNER_VERSION } from "../canary/runner-types.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
 
@@ -220,6 +221,11 @@ export async function runDoctor(path: string): Promise<number> {
         liveGateEnv: RLY_LIVE_CANARY_ENV,
         evidenceSchemaVersion: EVIDENCE_SCHEMA_VERSION,
         legacyPolicy: LEGACY_V1_POLICY,
+        // #123: Layer B/C runner identities (observed-only evidence producers).
+        runners: {
+          layerB: { kind: "installed-client", version: INSTALLED_CLIENT_RUNNER_VERSION, requires: "installed claude/codex binary" },
+          layerC: { kind: "live-access-path", version: LIVE_ACCESS_PATH_RUNNER_VERSION, requires: `opt-in ${RLY_LIVE_CANARY_ENV}=1 and an env credential` },
+        },
       },
       update: await updateSummary(config),
       profiles: await profileInventory(config),
