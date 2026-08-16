@@ -1,5 +1,16 @@
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CompatibilityState, ModelEvidence } from "../../registry/model-registry.js";
+import type { ClaimFeature } from "../../canary/claim.js";
+import type { EffectiveCompatibility } from "../../compatibility/types.js";
+
+/**
+ * #124: Effective Compatibility Registry snapshot consumed by #68 selection.
+ * Keyed by registry logicalId; each entry carries per-feature effective
+ * answers (trust/health/freshness/quarantine/enforcement kept separate). When
+ * supplied, the ECR is the compatibility AUTHORITY — the static
+ * `model.compatibility.state` becomes seed/reference data only.
+ */
+export type EffectiveSelectionSnapshot = ReadonlyMap<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>;
 
 /**
  * Minimal reasoning requirement for #68 eligibility. #70 owns the canonical
@@ -56,6 +67,12 @@ export type ModelCandidateAssessment = Readonly<{
   reasoningFailure?: string;
   compatibilityPass: boolean;
   compatibilityFailure?: string;
+  /** #124: which authority produced the compatibility answer. */
+  authority?: "ecr" | "seed";
+  /** #124: worst required-feature effective label when the ECR is the authority. */
+  effectiveLabel?: string;
+  /** #124: distinct enforcement reason from the ECR (e.g. quarantine). */
+  enforcementReason?: string;
   selected: boolean;
 }>;
 
