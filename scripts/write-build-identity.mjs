@@ -4,6 +4,7 @@
 // metadata, and update probation all read the SAME build identity. Runs as a
 // prebuild step; missing git metadata (release tarballs) falls back to
 // explicit unknown markers rather than failing the build.
+import process from "node:process";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,7 +31,7 @@ class FakeAdapter implements ServiceManagerAdapter {
   }
 
   isSupported(): boolean { return true; }
-  async isRegistered(): Promise<boolean> { return this.#content !== undefined; }
+  isRegistered(): Promise<boolean> { return Promise.resolve(this.#content !== undefined); }
   async register(input: ServiceDefinitionInput): Promise<void> {
     this.registers += 1;
     this.#content = this.renderDefinition(input);
@@ -57,6 +57,12 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function rendered(adapter: FakeAdapter): string {
+  const content = renderExpectedDefinition(adapter, expected);
+  if (content === undefined) throw new Error("expected definition content");
+  return content;
+}
+
 describe("service-definition reconciliation (#94)", () => {
   it("renders the RLY-owned expected definition content", () => {
     const adapter = new FakeAdapter(join("/tmp", "rly-gateway.service"));
@@ -77,8 +83,8 @@ describe("service-definition reconciliation (#94)", () => {
     const repaired = await reconcileDefinition(adapter, expected);
     expect(repaired.status).toBe("repaired");
     expect(adapter.registers).toBe(1);
-    expect(repaired.revision).toBe(hash(renderExpectedDefinition(adapter, expected)!));
-    expect(await readFile(unitPath, "utf8")).toBe(renderExpectedDefinition(adapter, expected));
+    expect(repaired.revision).toBe(hash(rendered(adapter)));
+    expect(await readFile(unitPath, "utf8")).toBe(rendered(adapter));
 
     // Idempotent: an already-correct definition is a no-op (no duplicate).
     const again = await reconcileDefinition(adapter, expected);
@@ -99,7 +105,7 @@ describe("service-definition reconciliation (#94)", () => {
     expect(repaired.status).toBe("repaired");
     expect(repaired.migrated).toBe(true);
     expect(adapter.registers).toBe(1);
-    expect(await readFile(unitPath, "utf8")).toBe(renderExpectedDefinition(adapter, expected)!);
+    expect(await readFile(unitPath, "utf8")).toBe(rendered(adapter));
   });
 
   it("migrates a legacy direct-refs definition (runtime/refs/active path) to the bootstrap", async () => {
@@ -139,7 +145,7 @@ describe("service-definition reconciliation (#94)", () => {
   });
 
   it("definitions never contain credentials, tokens, or account identity", () => {
-    const content = renderExpectedDefinition(new FakeAdapter(join("/tmp", "x.service")), expected)!;
+    const content = rendered(new FakeAdapter(join("/tmp", "x.service")));
     expect(content).not.toMatch(/Bearer/i);
     expect(content).not.toMatch(/api[_-]?key/i);
     expect(content).not.toMatch(/token/i);

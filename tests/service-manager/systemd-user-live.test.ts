@@ -68,10 +68,53 @@ describe.skipIf(!enabled)("Linux systemd user live smoke (opt-in RLY_LIVE_SYSTEM
       await manager.restart();
       await waitFor(async () => (await manager.detail()).running, 15_000, "restart did not return to a running state");
 
+      // #94: the rendered unit is the stable RLY bootstrap contract — no
+      // dist/cli/init.js, no Node binary path, no direct runtime/refs/... path.
+      const rendered = manager.renderDefinition(definition);
+      expect(rendered).toContain(process.execPath);
+      expect(rendered).toContain(entrypoint);
+      expect(rendered).not.toMatch(/dist[/\\]cli[/\\]init\.js/);
+      expect(rendered).not.toMatch(/runtime[/\\]refs[/\\]/);
+
       await manager.stop();
       const stopped = await manager.detail();
       expect(stopped.running).toBe(false);
       expect(await manager.status()).toBe("stopped"); // registered unit, stopped service
+    } finally {
+      await manager.unregister().catch(() => undefined);
+      expect(await manager.isRegistered()).toBe(false);
+    }
+  });
+
+  it("bootstraps the stable RLY bootstrap script as the sole ExecStart (#94)", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "rly-systemd-bootstrap-smoke-"));
+    directories.push(scratch);
+    const marker = join(scratch, "booted.marker");
+    const bootstrap = join(scratch, "rly-gateway");
+    await writeFile(bootstrap, `#!/bin/sh\nprintf '%s\\n' "$*" > "${marker}"\nexec "${process.execPath}" -e "setInterval(() => {}, 1000)"\n`, { mode: 0o755 });
+    const configPath = join(scratch, "gateway.config.toml");
+    await writeFile(configPath, "# smoke fixture\n");
+    const manager = new SystemdUserAdapter({
+      home: homedir(),
+      serviceName: `${SMOKE_SERVICE_NAME}.bootstrap`,
+      workingDirectory: scratch,
+      logPath: join(scratch, "service.log"),
+    });
+    const definition: ServiceDefinitionInput = {
+      serviceName: `${SMOKE_SERVICE_NAME}.bootstrap`,
+      executable: bootstrap,
+      configPath,
+    };
+    try {
+      await manager.unregister().catch(() => undefined);
+      await manager.register(definition);
+      await manager.start();
+      await waitFor(async () => (await manager.detail()).running, 15_000, "bootstrap script did not reach a running state");
+      // The bootstrap received the gateway start contract arguments.
+      await waitFor(async () => {
+        const contents = await import("node:fs/promises").then((m) => m.readFile(marker, "utf8").catch(() => ""));
+        return contents.includes("gateway start --config");
+      }, 5_000, "bootstrap did not receive the gateway start contract");
     } finally {
       await manager.unregister().catch(() => undefined);
       expect(await manager.isRegistered()).toBe(false);

@@ -227,7 +227,7 @@ describe("stable RLY-owned bootstrap (#94)", () => {
       result = await execFileAsync("/bin/sh", [scriptPath, "gateway", "start", "--config", "/work/gateway.config.toml"], {
         env: { ...process.env, PATH: "/usr/bin:/bin", RLY_NODE: process.execPath },
       });
-    } catch (error) {
+    } catch {
       // sh/node unavailable in this environment: skipped, not a pass.
       return;
     }
@@ -251,7 +251,7 @@ describe("stable RLY-owned bootstrap (#94)", () => {
       });
       throw new Error(`bootstrap unexpectedly succeeded: ${result.stdout}`);
     } catch (error) {
-      const cause = error as NodeJS.ErrnoException & { code?: number; stderr?: string };
+      const cause = error as { code?: string | number; stderr?: string };
       if (cause.code === "ENOENT") return; // no sh: skipped, not a pass
       expect(cause.code).toBe(78);
       expect(cause.stderr ?? "").toContain("no committed active deployment");

@@ -262,7 +262,7 @@ function cryptoRandomChallenge(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export async function runDoctor(path: string): Promise<number> {
+export async function runDoctor(path: string, dependencies: { createServiceManager?: typeof createServiceManager } = {}): Promise<number> {
   if (!(await canRead(path))) {
     console.log(JSON.stringify({ ok: false, config: "missing", path }));
     return 1;
@@ -288,7 +288,7 @@ export async function runDoctor(path: string): Promise<number> {
     const installation = await readInstallation(controlPlaneDirectory);
     let serviceDefinition: Record<string, unknown> | undefined;
     if (installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")) {
-      const manager = createServiceManager({ home: homedir() });
+      const manager = (dependencies.createServiceManager ?? createServiceManager)({ home: homedir() });
       const expected = bootstrapServiceDefinition(controlPlaneDirectory, installation.configPath);
       const reconciled = await reconcileDefinition(manager, expected).catch(() => undefined);
       if (reconciled !== undefined) {
@@ -371,7 +371,7 @@ export async function runDoctor(path: string): Promise<number> {
   }
 }
 
-export async function runStatus(path: string): Promise<number> {
+export async function runStatus(path: string, dependencies: { createServiceManager?: typeof createServiceManager } = {}): Promise<number> {
   const config = await requireConfig(path, { configured: false, running: false });
   if (!config) return 1;
   const state = await inspectRuntimeGateway(config);
@@ -386,7 +386,7 @@ export async function runStatus(path: string): Promise<number> {
   const bootstrap = await bootstrapDiagnostics(config, controlPlaneDirectory);
   let definition: Record<string, unknown> | undefined;
   if (installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")) {
-    const manager = createServiceManager({ home: homedir() });
+    const manager = (dependencies.createServiceManager ?? createServiceManager)({ home: homedir() });
     const expected = bootstrapServiceDefinition(controlPlaneDirectory, installation.configPath);
     const detected = await detectDefinition(manager, expected).catch(() => undefined);
     if (detected !== undefined) {
@@ -402,7 +402,7 @@ export async function runStatus(path: string): Promise<number> {
   // systemd --user) and only when an installation record exists (never runs
   // launchctl/systemctl against a fresh home).
   const detail = installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")
-    ? await serviceDetail(createServiceManager({ home: homedir() }))
+    ? await serviceDetail((dependencies.createServiceManager ?? createServiceManager)({ home: homedir() }))
     : undefined;
   console.log(JSON.stringify({
     configured: true,

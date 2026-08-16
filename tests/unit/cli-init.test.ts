@@ -35,7 +35,9 @@ function config(dataDirectory: string): GatewayConfig {
  * Fake adapter that actually stores its rendered definition on disk so
  * service-definition reconciliation (#94) can compare real content.
  */
-function fakeManager(calls: { registered: number; started: number }, definitionPath: string): ServiceManagerAdapter {
+type FakeAdapter = ServiceManagerAdapter & { definitionPath: string; renderDefinition: (input: ServiceDefinitionInput) => string };
+
+function fakeManager(calls: { registered: number; started: number }, definitionPath: string): FakeAdapter {
   let content: string | undefined;
   return {
     platform: "linux",
@@ -54,7 +56,7 @@ function fakeManager(calls: { registered: number; started: number }, definitionP
     start: () => { calls.started += 1; return Promise.resolve(undefined); },
     restart: () => { calls.started += 1; return Promise.resolve(undefined); },
     stop: () => Promise.resolve(undefined),
-    status: () => Promise.resolve("running"),
+    status: () => Promise.resolve("running" as const),
   };
 }
 

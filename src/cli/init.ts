@@ -149,7 +149,7 @@ export async function runInit(configPath: string, dependencies: InitDependencies
   await manager.start();
   await writeInstallation(controlPlaneDirectory, {
     ...record,
-    ...(bootstrapPath === undefined ? {} : { bootstrapPath }),
+    bootstrapPath,
     ...(reconciliation.revision === undefined ? {} : { definitionRevision: reconciliation.revision }),
   });
 

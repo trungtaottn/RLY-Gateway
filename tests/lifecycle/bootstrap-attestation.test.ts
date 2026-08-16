@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -247,10 +247,9 @@ describe("bootstrap attestation and exact build identity (#94)", () => {
     const src1 = await candidateDir(root, "0.1.0");
     await installer.installCandidate({ version: "0.1.0", sourceDirectory: src1 });
     await installer.activateStaged();
-    const id1 = await computeArtifactId(src1);
     const src2 = await candidateDir(root, "2.0.0");
     await installer.installCandidate({ version: "2.0.0", sourceDirectory: src2 });
-    const id2 = await computeArtifactId(src2);
+    const id1 = await computeArtifactId(src1);
     // The restarted runtime boots DIFFERENT bytes than the committed candidate
     // (same semantic version, different artifact): probation must fail closed.
     const boots = [

@@ -133,7 +133,8 @@ describe("exact build identity (#94)", () => {
       dataProtocolVersion: 1,
       stateSchemaVersion: 2,
     });
-    const identity = buildIdentityFromMeta(meta!);
+    if (meta === undefined) throw new Error("expected build metadata");
+    const identity = buildIdentityFromMeta(meta);
     expect(identity.semanticVersion).toBe("1.2.3");
     expect(identity.releaseChannel).toBe("beta");
     expect(identity.artifactId).toBeUndefined();

@@ -105,4 +105,40 @@ describe("service definition builders", () => {
     });
     expect(unit).toContain("ExecStart=/usr/local/bin/node /opt/rly-gateway/dist/cli/main.js gateway start --config \"/Users/alice/work dir/100%%gateway.config.toml\"");
   });
+
+  it("renders the stable bootstrap contract without an entrypoint or Node path (#94)", () => {
+    const bootstrapInput = {
+      serviceName: "rly-gateway",
+      executable: "/Users/alice/.rly/bootstrap/rly-gateway",
+      configPath: "/Users/alice/work/gateway.config.toml",
+    };
+    const plist = buildLaunchAgentPlist({ ...bootstrapInput, label: "com.rly.gateway" });
+    const unit = buildSystemdUserUnit(bootstrapInput);
+    for (const definition of [plist, unit]) {
+      // The executable is the RLY-owned bootstrap and the arg list carries the
+      // gateway start contract — no module entrypoint, no node binary.
+      expect(definition).toContain("/Users/alice/.rly/bootstrap/rly-gateway");
+      expect(definition).toContain("gateway");
+      expect(definition).toContain("start");
+      expect(definition).toContain("--config");
+      expect(definition).not.toMatch(/dist[/\\]cli[/\\]init\.js/);
+      expect(definition).not.toMatch(/dist[/\\]cli[/\\]main\.js/);
+      expect(definition).not.toMatch(/(^|\/|\\)node(\.exe)?([\s"<]|$)/);
+      expect(definition).not.toMatch(/runtime[/\\]refs[/\\]/);
+    }
+    expect(unit).toContain("ExecStart=/Users/alice/.rly/bootstrap/rly-gateway gateway start --config /Users/alice/work/gateway.config.toml");
+    expect(plist).toContain("<string>/Users/alice/.rly/bootstrap/rly-gateway</string>");
+  });
+
+  it("renders the bootstrap contract with XML escaping and systemd quoting (#94)", () => {
+    const bootstrapInput = {
+      serviceName: "rly-gateway",
+      executable: "/Users/a&b/.rly/bootstrap/rly-gateway",
+      configPath: "/Users/alice/work dir/gateway.config.toml",
+    };
+    const plist = buildLaunchAgentPlist({ ...bootstrapInput, label: "com.rly.gateway" });
+    expect(plist).toContain("/Users/a&amp;b/.rly/bootstrap/rly-gateway");
+    const unit = buildSystemdUserUnit(bootstrapInput);
+    expect(unit).toContain("ExecStart=/Users/a&b/.rly/bootstrap/rly-gateway gateway start --config \"/Users/alice/work dir/gateway.config.toml\"");
+  });
 });
