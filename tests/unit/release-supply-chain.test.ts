@@ -526,9 +526,11 @@ describe("exact-byte qualification (#128)", () => {
     const assembled = await assembleFixtureArtifact();
     const { artifactDir } = assembled;
     const pair = generateSigningKeyPair();
-    const digest = "c".repeat(64);
-    // A real tarball so the clean-install gate extracts the exact bytes.
+    // A real tarball so the clean-install gate extracts the exact bytes; the
+    // digest/signature are the REAL values (the #129 verified-install gate
+    // recomputes them, so a stub would fail the exact-byte comparison).
     const tarball = await tarballForTree(artifactDir, 0);
+    const digest = sha256Of(tarball);
     await writeFile(`${artifactDir}.tar.gz`, tarball);
     await writeFile(`${artifactDir}.tar.gz.sig`, `${JSON.stringify(signDigestStatement(pair.privateKey, digest), null, 2)}\n`);
 
@@ -555,6 +557,9 @@ describe("exact-byte qualification (#128)", () => {
     expect(result.gates.map((gate) => gate.id)).toEqual([
       "clean-install", "identity", "permissions", "platform-signing", "runtime-readiness", "update-handoff", "init-service-registration", "uninstall", "verified-install",
     ]);
+    const gate = result.gates.find((g) => g.id === "verified-install");
+    if (gate !== undefined && gate.status !== "passed") console.log("GATE-DETAIL", JSON.stringify(gate));
+    expect(gate?.status).toBe("passed");
     expect(result.result).toBe("experimental-gaps");
     expect(qualificationBlocksStable(result).some((blocker) => blocker.includes("init-service-registration"))).toBe(true);
   });
