@@ -275,7 +275,10 @@ describe("immutable deployment store (#92)", () => {
     // The writer could not advance past an unobserved generation, so the
     // reader provably exercised the no-gap invariant at every replacement.
     expect(readerResult.value).toBeGreaterThanOrEqual(GENERATIONS);
-  });
+    // #149 CI robustness: 12 sequential fsync-heavy installCandidate cycles
+    // can exceed the default 5s timeout on a loaded macOS runner while the
+    // test itself is deterministic (setImmediate coordination, ~90ms locally).
+  }, 15_000);
 
   it("verifyCandidate and readManifest operate on the staged deployment only", async () => {
     const root = await directory();
