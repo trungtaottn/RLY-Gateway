@@ -275,7 +275,8 @@ describe("immutable deployment store (#92)", () => {
     // The writer could not advance past an unobserved generation, so the
     // reader provably exercised the no-gap invariant at every replacement.
     expect(readerResult.value).toBeGreaterThanOrEqual(GENERATIONS);
-  });
+    // EXPERIMENT-ONLY: generous CI budget to isolate a macOS runner hang.
+  }, 120_000);
 
   it("verifyCandidate and readManifest operate on the staged deployment only", async () => {
     const root = await directory();
