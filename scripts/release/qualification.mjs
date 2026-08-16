@@ -395,8 +395,15 @@ export async function runVerifiedInstallGate({
     const keyPem = String(keypair.publicKey);
     const privateKeyPem = String(keypair.privateKey);
     const buildMeta = await readJsonSafe(join(artifactRoot, "rly-build.json"));
+    const { channelVersionFor } = await import("./channel.mjs");
+    const releaseVersion = buildMeta?.semanticVersion ?? releaseManifest?.releaseVersion ?? "unknown";
+    if (channelVersionFor(releaseVersion, channel) === null) {
+      return gateResult("verified-install", "skipped", {
+        detail: `release version ${releaseVersion} is not a valid ${channel} channel version; channel acquisition exercises qualified release versions only`,
+      });
+    }
     const manifest = buildReleaseManifest({
-      releaseVersion: buildMeta?.semanticVersion ?? releaseManifest?.releaseVersion ?? "unknown",
+      releaseVersion,
       releaseChannel: channel,
       sourceCommit: buildMeta?.commitRevision ?? releaseManifest?.sourceCommit ?? "unknown",
       buildId: buildMeta?.buildId ?? releaseManifest?.buildId ?? "unknown",

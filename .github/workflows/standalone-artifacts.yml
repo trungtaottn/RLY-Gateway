@@ -83,6 +83,7 @@ jobs:
       - name: Build standalone artifact matrix
         env:
           RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RLY_RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
           TARGETS: ${{ inputs.targets || '' }}
         run: |
           ARGS=(--build --targets "${TARGETS:-all}")
