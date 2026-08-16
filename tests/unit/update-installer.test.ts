@@ -234,7 +234,14 @@ describe("immutable deployment store (#92)", () => {
       try {
         for (let index = 0; index < GENERATIONS; index += 1) {
           console.error(`[DIAG] writer gen=${String(index + 1)}/12 start ${String(Date.now())}`);
-          await installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB });
+          await Promise.race([
+            installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB }),
+            new Promise<never>((_resolve, reject) => {
+              setTimeout(() => {
+                reject(new Error(`[DIAG] INSTALLCANDIDATE STUCK 15s at gen=${String(index + 1)}`));
+              }, 15_000);
+            }),
+          ]);
           console.error(`[DIAG] writer gen=${String(index + 1)}/12 done ${String(Date.now())}`);
           barrier.generation += 1;
           while (barrier.seen < barrier.generation) {
@@ -257,7 +264,15 @@ describe("immutable deployment store (#92)", () => {
           console.error(`[DIAG] reader stalled 5s: seen=${String(barrier.seen)} gen=${String(barrier.generation)} observed=${String(observed)} at ${String(Date.now())}`);
           lastProgress = Date.now();
         }
-        const target = await readlink(installer.stagedPath).catch(() => undefined);
+        const target = await Promise.race([
+          readlink(installer.stagedPath).catch(() => undefined),
+          new Promise<undefined>((resolve) => {
+            setTimeout(() => {
+              console.error(`[DIAG] READLINK STUCK 15s: seen=${String(barrier.seen)} gen=${String(barrier.generation)} path=${installer.stagedPath} at ${String(Date.now())}`);
+              resolve(undefined);
+            }, 15_000);
+          }),
+        ]);
         if (target === undefined) {
           throw new Error(`reader observed a missing staged reference (gap)`);
         }
