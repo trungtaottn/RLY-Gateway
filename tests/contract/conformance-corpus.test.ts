@@ -119,7 +119,7 @@ describe("Wave 1 conformance corpus (#121)", () => {
     };
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "resp_x", object: "response", status: "completed", model: "fixture-model", output: [], usage: {} }), { status: 200 }));
     const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
-    for await (const _ of adapter.invoke(request as never, decisionFor(request.id), new AbortController().signal)) { void _; }
+    for await (const _ of adapter.invoke(request, decisionFor(request.id), new AbortController().signal)) { void _; }
     const outbound = fetch.mock.calls[0]?.[1]?.body;
     expect(typeof outbound === "string" ? JSON.parse(outbound) : undefined).toEqual(fixture.expectedOutboundBody);
   });
