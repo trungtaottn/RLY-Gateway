@@ -48,6 +48,8 @@ export type FixtureOptions = Readonly<{
   /** When true the channel metadata snapshot carries no matching release. */
   unknownSnapshot?: boolean;
   freeze?: boolean;
+  /** Content of a fake executable `rly` launcher (shell-installer end-to-end). */
+  launcherContent?: string;
 }>;
 
 export async function buildReleaseFixture(options: FixtureOptions): Promise<ReleaseFixture> {
@@ -102,6 +104,9 @@ export async function buildReleaseFixture(options: FixtureOptions): Promise<Rele
   }, null, 2)}\n`, "utf8");
   await mkdir(join(artifactDir, "docs"), { recursive: true, mode: 0o700 });
   await writeFile(join(artifactDir, "docs", "third-party-notices.md"), "notices\n", "utf8");
+  if (options.launcherContent !== undefined) {
+    await writeFile(join(artifactDir, "rly"), options.launcherContent, { mode: 0o755 });
+  }
 
   const artifactDigest = await treeDigest(artifactDir, { exclude: ["rly-artifact.json"] });
   await writeFile(join(artifactDir, "rly-artifact.json"), `${JSON.stringify({
@@ -118,8 +123,7 @@ export async function buildReleaseFixture(options: FixtureOptions): Promise<Rele
     targetStatus: options.targetStatus ?? "supported",
     artifactDigest,
     fileCount: 6,
-  }, null, 2)}\n`, "utf8");
-  const filename = `rly-${version}-${target}.tar.gz`;
+  }, null, 2)}\n`, "utf8");  const filename = `rly-${version}-${target}.tar.gz`;
   const tarballPath = join(options.releaseDir, filename);
   execFileSync("tar", ["-czf", tarballPath, "-C", artifactDir, "."], { stdio: "ignore" });
   const tarballBytes = await readFile(tarballPath);

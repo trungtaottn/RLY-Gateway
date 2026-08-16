@@ -12,7 +12,7 @@ import { bootstrapScriptPath } from "../runtime/bootstrap.js";
 import { readInstallation } from "../storage/installation.js";
 import { RLY_STATE_DIRECTORY_NAME } from "../storage/paths.js";
 import { resolveChannelPolicy } from "./update.js";
-import { readPrivateSymlinkTarget } from "../storage/private-files.js";
+import { isNotFound, readPrivateSymlinkTarget } from "../storage/private-files.js";
 
 /**
  * `rly install` (#129) — the verified first-install / repair/reinstall path.
@@ -41,6 +41,54 @@ async function isReadable(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Installs the user-facing `~/.local/bin/rly` launcher as a symlink to the
+ * stable RLY-owned bootstrap (the ONLY installed execution identity — the
+ * same script the service manager references). Idempotent; a foreign file or
+ * symlink at that path is NEVER overwritten (fails closed with an actionable
+ * message). Deterministic per-platform install location: `~/.local/bin` on
+ * both macOS and Linux, no sudo.
+ */
+export async function installUserLauncherSymlink(
+  options: Readonly<{ home: string; controlPlaneDirectory: string }>,
+): Promise<Readonly<{ path: string; created: boolean; foreign: boolean }>> {
+  const { mkdir, lstat, readlink, symlink, rename, unlink } = await import("node:fs/promises");
+  const directory = join(options.home, ".local", "bin");
+  await mkdir(directory, { recursive: true, mode: 0o755 }).catch((error: unknown) => {
+    if (isNotFound(error)) throw error;
+  });
+  const linkPath = join(directory, "rly");
+  const target = join(options.controlPlaneDirectory, "bootstrap", "rly-gateway");
+  const existing = await readlink(linkPath).catch((error: unknown) => {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  });
+  if (existing !== undefined) {
+    const resolved = resolve(linkPath, "..", existing);
+    if (resolved !== target) return { path: linkPath, created: false, foreign: true };
+    return { path: linkPath, created: false, foreign: false };
+  }
+  const details = await lstat(linkPath).catch((error: unknown) => {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  });
+  if (details !== undefined) return { path: linkPath, created: false, foreign: true };
+  // Atomic create (temp link + rename) so a concurrent reader never sees a gap.
+  const temporaryPath = join(directory, `.rly.${randomSuffix()}.tmp`);
+  await symlink(target, temporaryPath);
+  try {
+    await rename(temporaryPath, linkPath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+  return { path: linkPath, created: true, foreign: false };
+}
+
+function randomSuffix(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export type InstallCommandOptions = Readonly<{
@@ -233,7 +281,6 @@ export async function firstInstall(
   });
   return { code, configPath: initConfigPath };
 }
-
 /**
  * Repair/reinstall path for an existing installation: verifies ownership and
  * build identity, repairs missing/stale bootstrap + service definitions
@@ -344,6 +391,14 @@ export async function runInstallCommand(
       console.log(JSON.stringify({ ok: false, error: "the per-user service could not be registered; inspect the service log" }));
       return result.code;
     }
+    const launcher = await installUserLauncherSymlink({ home, controlPlaneDirectory });
+    if (launcher.foreign) {
+      console.log(JSON.stringify({
+        ok: false,
+        error: `${launcher.path} is not RLY-owned; refusing to overwrite a foreign path. Add the RLY bootstrap to your PATH manually or resolve the conflict`,
+      }));
+      return 1;
+    }
     console.log(JSON.stringify({
       ok: true,
       installed: true,
@@ -353,6 +408,7 @@ export async function runInstallCommand(
       artifactDigest: candidate.artifactDigest,
       verification: { channelMetadata: true, manifest: true, signature: true, digest: true, qualification: candidate.qualificationStatus },
       service: { registered: true, bootstrap: bootstrapScriptPath(controlPlaneDirectory) },
+      launcher: { path: launcher.path, created: launcher.created },
       configPath: result.configPath,
       message: "RLY installed and the per-user service is registered; run `rly config` to add providers/accounts/pools/profiles",
     }));
