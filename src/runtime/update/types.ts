@@ -89,6 +89,11 @@ export const deploymentMetadataSchema = z.object({
   migrationForwardOnly: z.boolean().optional(),
   /** Rollback compatibility class (#93); legacy manifests map to a class. */
   migrationClass: migrationClassSchema.optional(),
+  /** Exact build identity (#94): build ID / commit / channel carried into the
+   * immutable deployment so diagnostics can compare expected vs serving. */
+  buildId: z.string().min(1).optional(),
+  commitRevision: z.string().min(1).optional(),
+  releaseChannel: z.enum(["dev", "beta", "stable"]).optional(),
   installedAt: z.iso.datetime(),
 });
 
@@ -192,6 +197,11 @@ export type UpdateStateSnapshot = Readonly<{
  * candidate is obtained/verified; #35 owns the signed/verified artifact
  * distribution channel. Tests and the local installer implement this contract
  * independently of packaging.
+ *
+ * #94: the manifest is the release-candidate metadata — it declares the same
+ * exact build identity fields the runtime reports on `/identity` so update
+ * probation can compare exact identity (artifact digest is authoritative;
+ * buildId/commit/channel/protocol versions corroborate it).
  */
 export type CandidateManifest = Readonly<{
   product: string;
@@ -207,6 +217,12 @@ export type CandidateManifest = Readonly<{
   migrationClass?: MigrationClass;
   /** Legacy #73 signal, superseded by `migrationClass` (#93). */
   migrationForwardOnly?: boolean;
+  /** Exact build identity (#94) of the candidate artifact. */
+  buildId?: string;
+  commitRevision?: string;
+  releaseChannel?: "dev" | "beta" | "stable";
+  controlProtocolVersion?: number;
+  dataProtocolVersion?: number;
 }>;
 
 export type CandidateInstallResult = Readonly<{

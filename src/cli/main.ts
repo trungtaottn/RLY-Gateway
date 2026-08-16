@@ -21,6 +21,7 @@ import {
   type ExplicitClaudeSettings,
 } from "../runtime/claude-overlay.js";
 import { acquireGateway, type GatewayLeaseHandle } from "../runtime/gateway-lifecycle.js";
+import { currentBuildIdentity } from "../runtime/build-identity.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 import { RLY_STATE_DIRECTORY_NAME } from "../storage/paths.js";
 
@@ -37,10 +38,11 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly compat <status|review promote|reject|quarantine|lift|explain> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | rly --version | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly compat <status|review promote|reject|quarantine|lift|explain> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
 }
 
 export type ParsedCliCommand =
+  | Readonly<{ command: "version" }>
   | Readonly<{ command: "status" | "doctor" | "quota" | "route-trace"; configPath: string }>
   | Readonly<{ command: "run-claude" | "run-codex"; configPath: string; claudeArgs: readonly string[]; route?: string; profile?: string }>
   | Readonly<{ command: "init"; configPath: string }>
@@ -137,6 +139,10 @@ function parseBareProfileCommand(profile: string, args: readonly string[], cwd: 
 /** Parses gateway arguments and leaves all arguments after `--` untouched for Claude. */
 export function parseCliArgs(args: readonly string[], cwd = process.cwd()): ParsedCliCommand | undefined {
   const [command] = args;
+  if (command === "version" || command === "--version") {
+    if (args.length > 1) throw new Error("version accepts no arguments");
+    return { command: "version" };
+  }
   if (isDiagnosticCommand(command)) {
     return { command, configPath: configPath(args.slice(1), cwd) };
   }
@@ -354,6 +360,27 @@ async function runHarnessCommand(
   }
 }
 
+/**
+ * `rly --version`: prints the exact CLI build identity (#94) — the same
+ * versioned fields `/identity`, doctor/status, the release manifest, and
+ * update probation compare. Secret-free build metadata only.
+ */
+async function runVersion(): Promise<number> {
+  const identity = await currentBuildIdentity();
+  console.log(JSON.stringify({
+    product: identity.product,
+    version: identity.semanticVersion,
+    commitRevision: identity.commitRevision,
+    buildId: identity.buildId,
+    releaseChannel: identity.releaseChannel,
+    controlProtocolVersion: identity.controlProtocolVersion,
+    dataProtocolVersion: identity.dataProtocolVersion,
+    stateSchemaVersion: identity.stateSchemaVersion,
+    identitySchemaVersion: identity.identitySchemaVersion,
+  }));
+  return 0;
+}
+
 export async function runCli(
   args: readonly string[],
   dependencies: CliDependencies = { environment: process["env"] },
@@ -364,6 +391,7 @@ export async function runCli(
     return 2;
   }
   if (parsed.command === "run-claude" || parsed.command === "run-codex") return runHarnessCommand(parsed, dependencies);
+  if (parsed.command === "version") return runVersion();
   if (parsed.command === "canary") return runCanaryCommand(parsed.action, parsed.configPath);
   if (parsed.command === "compat") return runCompatCommand(parsed.action, parsed.configPath);
   if (parsed.command === "update") return runUpdateCommand(parsed.options);

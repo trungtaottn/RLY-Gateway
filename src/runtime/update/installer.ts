@@ -68,6 +68,12 @@ const candidateManifestSchema = z.object({
   stateVersion: z.number().int().positive(),
   migrationForwardOnly: z.boolean().optional(),
   migrationClass: migrationClassSchema.optional(),
+  // Exact build identity (#94) of the release candidate.
+  buildId: z.string().min(1).optional(),
+  commitRevision: z.string().min(1).optional(),
+  releaseChannel: z.enum(["dev", "beta", "stable"]).optional(),
+  controlProtocolVersion: z.number().int().positive().optional(),
+  dataProtocolVersion: z.number().int().positive().optional(),
 });
 
 const legacyMigrationMarkerSchema = z.object({
@@ -96,6 +102,11 @@ export async function readCandidateManifestFromDirectory(directory: string): Pro
         stateVersion: manifest.stateVersion,
         ...(manifest.migrationClass === undefined ? {} : { migrationClass: manifest.migrationClass }),
         ...(manifest.migrationForwardOnly === undefined ? {} : { migrationForwardOnly: manifest.migrationForwardOnly }),
+        ...(manifest.buildId === undefined ? {} : { buildId: manifest.buildId }),
+        ...(manifest.commitRevision === undefined ? {} : { commitRevision: manifest.commitRevision }),
+        ...(manifest.releaseChannel === undefined ? {} : { releaseChannel: manifest.releaseChannel }),
+        ...(manifest.controlProtocolVersion === undefined ? {} : { controlProtocolVersion: manifest.controlProtocolVersion }),
+        ...(manifest.dataProtocolVersion === undefined ? {} : { dataProtocolVersion: manifest.dataProtocolVersion }),
       };
 }
 
@@ -172,6 +183,9 @@ export class LocalCandidateInstaller implements CandidateInstaller {
           ...(manifest === undefined ? {} : { stateVersion: manifest.stateVersion }),
           ...(manifest === undefined ? {} : { migrationForwardOnly: manifest.migrationForwardOnly }),
           ...(manifest === undefined ? {} : { migrationClass: manifest.migrationClass }),
+          ...(manifest === undefined ? {} : { buildId: manifest.buildId }),
+          ...(manifest === undefined ? {} : { commitRevision: manifest.commitRevision }),
+          ...(manifest === undefined ? {} : { releaseChannel: manifest.releaseChannel }),
           installedAt: new Date().toISOString(),
         };
         await writePrivateTextAtomically(join(staging, DEPLOYMENT_METADATA_FILE_NAME), `${JSON.stringify(metadata)}\n`);
@@ -439,6 +453,9 @@ export class LocalCandidateInstaller implements CandidateInstaller {
       ...(manifest === undefined ? {} : { stateVersion: manifest.stateVersion }),
       ...(manifest === undefined ? {} : { migrationForwardOnly: manifest.migrationForwardOnly }),
       ...(manifest === undefined ? {} : { migrationClass: manifest.migrationClass }),
+      ...(manifest === undefined ? {} : { buildId: manifest.buildId }),
+      ...(manifest === undefined ? {} : { commitRevision: manifest.commitRevision }),
+      ...(manifest === undefined ? {} : { releaseChannel: manifest.releaseChannel }),
       installedAt: new Date().toISOString(),
     };
     await writePrivateTextAtomically(join(directory, DEPLOYMENT_METADATA_FILE_NAME), `${JSON.stringify(metadata)}\n`);

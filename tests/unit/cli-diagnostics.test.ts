@@ -278,4 +278,84 @@ describe("CLI diagnostics", () => {
       await rm(runtimeDirectory(port), { recursive: true, force: true });
     }
   });
+
+  it("exposes bootstrap path, expected/serving build identity, and reconciliation state (#94)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-bootstrap-diag-"));
+    directories.push(directory);
+    const controlPlane = join(directory, "control-plane");
+    const packageRoot = join(directory, "pkg");
+    await mkdir(join(packageRoot, "dist", "cli"), { recursive: true, mode: 0o700 });
+    await writeFile(join(packageRoot, "dist", "cli", "main.js"), "// runtime\n", "utf8");
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "rly-gateway", version: "0.1.0" }), "utf8");
+    const { ensureInitialActiveDeployment, writeBootstrapScript, resolveActiveDeployment } = await import("../../src/runtime/bootstrap.js");
+    await ensureInitialActiveDeployment(controlPlane, { packageRoot });
+    const bootstrapPath = await writeBootstrapScript(controlPlane);
+    const active = await resolveActiveDeployment(controlPlane);
+    const configPath = join(directory, "gateway.toml");
+    await writeFile(configPath, [
+      "schemaVersion = 1",
+      "[gateway]",
+      'port = 17901',
+      'logLevel = "silent"',
+      "[controlPlane]",
+      `dataDirectory = "${controlPlane}"`,
+    ].join("\n"), "utf8");
+    // Installation record (platform linux) so status reports reconciliation.
+    await writeFile(join(controlPlane, "installation.json"), JSON.stringify({
+      schemaVersion: 1,
+      version: "0.1.0",
+      configPath,
+      platform: "linux",
+      serviceName: "rly-gateway",
+      registeredAt: new Date().toISOString(),
+      bootstrapPath,
+    }), "utf8");
+    // Fake manager confined to the temp dir; its definition is missing.
+    const { defaultBuildIdentity } = await import("../../src/runtime/build-identity.js");
+    const fakeManager = {
+      platform: "linux" as const,
+      serviceName: "rly-gateway",
+      definitionPath: join(directory, "rly-gateway.service"),
+      isSupported: () => true,
+      isRegistered: () => Promise.resolve(false),
+      register: () => Promise.resolve(undefined),
+      renderDefinition: () => "/tmp/.rly/bootstrap/rly-gateway gateway start --config " + configPath,
+      unregister: () => Promise.resolve(undefined),
+      start: () => Promise.resolve(undefined),
+      restart: () => Promise.resolve(undefined),
+      stop: () => Promise.resolve(undefined),
+      status: () => Promise.resolve("not-registered" as const),
+    };
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      // Status: read-only — reports bootstrap + expected/serving + definition
+      // reconciliation state without mutating.
+      await expect(runStatus(configPath, { createServiceManager: () => fakeManager })).resolves.toBe(1);
+      const status = JSON.parse(String(log.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+      const bootstrap = status["bootstrap"] as Record<string, unknown>;
+      expect(bootstrap["path"]).toBe(bootstrapPath);
+      expect(bootstrap["installed"]).toBe(true);
+      const activeInfo = bootstrap["active"] as Record<string, unknown>;
+      expect(activeInfo["artifactId"]).toBe(active.artifactId);
+      const expected = bootstrap["expected"] as Record<string, unknown>;
+      expect(expected["artifactId"]).toBe(active.artifactId);
+      expect(expected["semanticVersion"]).toBe("0.1.0");
+      expect(expected["releaseChannel"]).toBe("dev");
+      const definition = status["serviceDefinition"] as Record<string, unknown>;
+      expect(definition["status"]).toBe("missing");
+      expect(String(log.mock.calls.at(-1)?.[0])).not.toMatch(/Bearer|accessToken|authorization|api[_-]?key|prompt|@/i);
+
+      // Doctor: detects AND idempotently repairs the missing definition.
+      await expect(runDoctor(configPath, { createServiceManager: () => fakeManager })).resolves.toBe(0);
+      const doctor = JSON.parse(String(log.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+      const doctorDefinition = doctor["serviceDefinition"] as Record<string, unknown>;
+      expect(doctorDefinition["status"]).toBe("repaired"); // doctor detected AND repaired idempotently
+      const doctorUpdate = doctor["update"] as Record<string, unknown>;
+      expect(doctorUpdate["buildIdentity"]).toBeDefined();
+      expect(doctor["bootstrap"]).toBeDefined();
+      expect(defaultBuildIdentity().semanticVersion).toBe(RUNTIME_VERSION);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });

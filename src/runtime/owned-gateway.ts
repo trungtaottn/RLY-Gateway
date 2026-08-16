@@ -19,7 +19,8 @@ import { RouteSelector } from "../routing/pools/selector.js";
 import { defaultControlPlaneDirectory, resolveDefaultControlPlaneDirectory } from "../storage/paths.js";
 import { applyRetentionPolicy } from "../storage/retention.js";
 import { createGatewayServer, listenGateway } from "./gateway-server.js";
-import { EXECUTABLE_FINGERPRINT, HEARTBEAT_MS, RUNTIME_VERSION } from "./gateway-attestation.js";
+import { HEARTBEAT_MS, RUNTIME_VERSION } from "./gateway-attestation.js";
+import { buildIdentityDigest, currentBuildIdentity } from "./build-identity.js";
 import { UpdateStateStore } from "./update/store.js";
 import type { AcquireGatewayOptions, GatewayLeaseHandle } from "./gateway-lifecycle.js";
 import { LeaseManager } from "./lease-manager.js";
@@ -65,6 +66,11 @@ export async function startOwnedGateway(input: Readonly<{
 }>): Promise<GatewayLeaseHandle> {
   const { options, processIdentity, store, baseUrl, managementBaseUrl, configFingerprint, leaseId } = input;
   const resident = options.resident === true;
+  // #94: the serving build identity (semantic version, commit, build ID,
+  // channel, protocol/state versions, serving artifact digest) is computed
+  // once and shared by `/identity`, the ownership record fingerprint, and
+  // the resident handle so all surfaces agree on the exact same identity.
+  const buildIdentity = options.buildIdentity ?? await currentBuildIdentity(options.environment ?? process.env);
   const secretValue = randomBytes(32).toString("base64url");
   const managementSecretValue = randomBytes(32).toString("base64url");
   const instanceId = randomUUID();
@@ -194,6 +200,7 @@ export async function startOwnedGateway(input: Readonly<{
       traces,
       shutdown,
       stateVersion: SCHEMA_V2_VERSION,
+      buildIdentity,
       updateState: () => updateStore.read().catch(() => undefined),
       compatibility,
       ...(resident ? { resident: true } : {}),
@@ -222,7 +229,10 @@ export async function startOwnedGateway(input: Readonly<{
       ...processIdentity,
       instanceId,
       port: options.config.gateway.port,
-      executableFingerprint: EXECUTABLE_FINGERPRINT,
+      // #94: build-aware executable fingerprint — the digest of the exact
+      // serving build identity (incl. artifact digest), so attestation
+      // distinguishes same-semantic-version-different-artifact.
+      executableFingerprint: buildIdentityDigest(buildIdentity),
       configFingerprint,
       nonceHash: createHash("sha256").update(secretValue).digest("hex"),
       ownerLauncherPid: processIdentity.pid,
@@ -252,7 +262,7 @@ export async function startOwnedGateway(input: Readonly<{
     ...(resident
       ? {
           resident: true,
-          runtimeVersion: RUNTIME_VERSION,
+          runtimeVersion: buildIdentity.semanticVersion,
           shutdown,
           stopped,
         }

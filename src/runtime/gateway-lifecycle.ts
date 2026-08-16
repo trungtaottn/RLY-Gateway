@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { GatewayConfig } from "../config/schema.js";
 import { fingerprintConfig } from "../config/config-fingerprint.js";
 import type { createManagementServer } from "../management/server.js";
+import type { BuildIdentity } from "./build-identity.js";
 import {
   attestedIdentities,
   heartbeatRemote,
@@ -50,6 +51,13 @@ export type AcquireGatewayOptions = Readonly<{
   heartbeatMs?: number;
   /** Starts the runtime with explicit per-user service ownership. */
   resident?: boolean;
+  /**
+   * Exact build identity (#94). Defaults to the compiled identity plus the
+   * `RLY_SERVING_ARTIFACT` env exported by the stable bootstrap; tests and
+   * distributions override it to prove identity surfaces agree.
+   */
+  buildIdentity?: BuildIdentity;
+  environment?: NodeJS.ProcessEnv;
 }>;
 
 export function runtimeDirectory(port: number): string {
@@ -131,7 +139,7 @@ export async function acquireGateway(options: AcquireGatewayOptions): Promise<Ga
 
 export type RuntimeInspection =
   | Readonly<{ state: "not-running" }>
-  | Readonly<{ state: "attested-compatible"; resident: boolean; runtimeVersion?: string; instanceId: string }>
+  | Readonly<{ state: "attested-compatible"; resident: boolean; runtimeVersion?: string; instanceId: string; buildIdentity?: BuildIdentity }>
   | Readonly<{ state: "attested-incompatible" }>
   | Readonly<{ state: "occupied-foreign" }>
   | Readonly<{ state: "stale-record" }>;
@@ -160,6 +168,7 @@ export async function inspectRuntimeGateway(
             state: "attested-compatible",
             resident: attested.identity.resident === true,
             ...(attested.identity.runtimeVersion === undefined ? {} : { runtimeVersion: attested.identity.runtimeVersion }),
+            ...(attested.identity.build === undefined ? {} : { buildIdentity: attested.identity.build }),
             instanceId: record.instanceId,
           }
         : { state: "attested-incompatible" };

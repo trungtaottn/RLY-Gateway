@@ -1,7 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { createIdentityProof } from "./gateway-server.js";
-import { createManagementIdentityProof } from "../management/server.js";
-import type { OwnershipRecord } from "./ownership-record.js";
+import { createIdentityProof } from "./gateway-server.js" ;
+import { createManagementIdentityProof } from "../management/server.js" ;
+import type { OwnershipRecord } from "./ownership-record.js" ;
+import type { BuildIdentity } from "./build-identity.js" ;
+import { buildIdentityDigest } from "./build-identity.js" ;
 
 export const HEARTBEAT_MS = 5_000;
 export const RUNTIME_VERSION = "0.1.0";
@@ -24,6 +26,13 @@ export type GatewayIdentity = Readonly<{
   draining?: boolean;
   /** Secret-free update metadata (#73). */
   update?: Readonly<{ state: string; pendingVersion?: string; previousVersion?: string }>;
+  /**
+   * Exact build identity (#94): semantic version, commit revision, build ID,
+   * release channel, control/data protocol versions, state schema version,
+   * and the serving artifact digest when running from a #92 deployment. Same
+   * semantic version, different artifact is observable and comparable here.
+   */
+  build?: BuildIdentity;
   proof: string;
 }>;
 
@@ -72,6 +81,22 @@ export async function mutateRemoteLease(
   if (!response.ok) throw new Error(`Gateway lease ${method.toLowerCase()} failed`);
 }
 
+/**
+ * Build-aware reuse gate (#94). A pre-#94 ownership record (old executable
+ * fingerprint) is reusable only by a legacy identity without a `build`
+ * field. A #94 record carries `executableFingerprint = buildIdentityDigest`
+ * of the serving build identity (including the artifact digest), so an
+ * attested instance started from one artifact can never be reused as a
+ * different artifact — even when the semantic versions match.
+ */
+export function buildMatchesRecord(record: OwnershipRecord, identity: GatewayIdentity): boolean {
+  if (record.executableFingerprint === EXECUTABLE_FINGERPRINT) {
+    // Legacy record: reuse only the legacy gate (identity carries no build).
+    return identity.build === undefined;
+  }
+  return identity.build !== undefined && buildIdentityDigest(identity.build) === record.executableFingerprint;
+}
+
 export function reusableRecord(
   record: OwnershipRecord,
   identity: GatewayIdentity,
@@ -80,7 +105,7 @@ export function reusableRecord(
   return record.instanceId === identity.instanceId
     && record.configFingerprint === configFingerprint
     && identity.configFingerprint === configFingerprint
-    && record.executableFingerprint === EXECUTABLE_FINGERPRINT;
+    && buildMatchesRecord(record, identity);
 }
 
 export function heartbeatRemote(

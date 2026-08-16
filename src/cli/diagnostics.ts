@@ -10,9 +10,18 @@ import { RUNTIME_VERSION } from "../runtime/gateway-attestation.js";
 import { inspectRuntimeGateway, runtimeDirectory } from "../runtime/gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime/runtime-store.js";
 import { readClaudeOverlayStatus, readClaudeViewStatuses } from "../runtime/claude-overlay.js";
+import {
+  bootstrapScriptPath,
+  bootstrapServiceDefinition,
+  readDeploymentMetadata,
+  resolveActiveDeployment,
+} from "../runtime/bootstrap.js";
+import type { BuildIdentity } from "../runtime/build-identity.js";
+import { currentBuildIdentity } from "../runtime/build-identity.js";
 import { runtimeProtocolCompatible } from "../runtime/update/policy.js";
 import { UpdateStateStore } from "../runtime/update/store.js";
 import { createServiceManager } from "../service-manager/index.js";
+import { detectDefinition, reconcileDefinition } from "../service-manager/reconcile.js";
 import { serviceDetail } from "../service-manager/types.js";
 import { readInstallation } from "../storage/installation.js";
 import { defaultControlPlaneDirectory } from "../storage/paths.js";
@@ -106,6 +115,8 @@ async function updateSummary(config: GatewayConfig): Promise<Record<string, unkn
   }
   const identity = await attestedIdentityOrUndefined(config);
   const residentVersion = identity?.runtimeVersion;
+  const residentBuild = identity?.build;
+  const cliBuild = await currentBuildIdentity();
   const transactionPhase = identity?.update?.phase ?? record?.transaction?.phase;
   const lock = await store.lockStatus().catch(() => undefined);
   return {
@@ -127,6 +138,21 @@ async function updateSummary(config: GatewayConfig): Promise<Record<string, unkn
       ...(residentVersion === undefined ? {} : { resident: residentVersion }),
       compatible: runtimeProtocolCompatible(RUNTIME_VERSION, residentVersion ?? RUNTIME_VERSION),
     },
+    // #94: exact build identity — CLI and serving runtime share the same
+    // versioned fields (/identity, diagnostics, manifest, probation compare
+    // these). Secret-free build metadata only.
+    buildIdentity: {
+      cli: {
+        semanticVersion: cliBuild.semanticVersion,
+        commitRevision: cliBuild.commitRevision,
+        buildId: cliBuild.buildId,
+        releaseChannel: cliBuild.releaseChannel,
+        controlProtocolVersion: cliBuild.controlProtocolVersion,
+        dataProtocolVersion: cliBuild.dataProtocolVersion,
+        stateSchemaVersion: cliBuild.stateSchemaVersion,
+      },
+      ...(residentBuild === undefined ? {} : { serving: residentBuild }),
+    },
     ...(lock === undefined ? {} : { lock: lock.held ? { held: true, ...(lock.ownerPid === undefined ? {} : { ownerPid: lock.ownerPid }), ...(lock.stale === undefined ? {} : { stale: lock.stale }) } : { held: false } }),
     ...(record?.lastActivationResult === undefined ? {} : { lastActivationResult: record.lastActivationResult }),
     ...(record?.lastRollbackResult === undefined ? {} : { lastRollbackResult: record.lastRollbackResult }),
@@ -141,6 +167,7 @@ async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
   stateVersion?: number;
   activeSessions?: number;
   draining?: boolean;
+  build?: BuildIdentity;
   update?: { state: string; pendingVersion?: string; previousVersion?: string; phase?: string };
 } | undefined> {
   const store = new RuntimeStore(runtimeDirectory(config.gateway.port));
@@ -159,6 +186,7 @@ async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
       stateVersion?: number;
       activeSessions?: number;
       draining?: boolean;
+      build?: BuildIdentity;
       update?: { state: string; pendingVersion?: string; previousVersion?: string; phase?: string };
       proof?: string;
     };
@@ -170,6 +198,7 @@ async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
       ...(payload.stateVersion === undefined ? {} : { stateVersion: payload.stateVersion }),
       ...(payload.activeSessions === undefined ? {} : { activeSessions: payload.activeSessions }),
       ...(payload.draining === undefined ? {} : { draining: payload.draining }),
+      ...(payload.build === undefined ? {} : { build: payload.build }),
       ...(payload.update === undefined ? {} : { update: payload.update }),
     };
   } catch {
@@ -177,11 +206,63 @@ async function attestedIdentityOrUndefined(config: GatewayConfig): Promise<{
   }
 }
 
+/**
+ * #94 bootstrap/build-identity diagnostics: stable bootstrap path + install
+ * state, the committed active deployment identity (#92), the EXPECTED build
+ * identity (from the active deployment metadata) vs the SERVING build
+ * identity (attested `/identity`), and their match status — including the
+ * same-semantic-version-different-artifact signal. Secret-free identifiers
+ * and paths only.
+ */
+async function bootstrapDiagnostics(
+  config: GatewayConfig,
+  controlPlaneDirectory: string,
+): Promise<Record<string, unknown>> {
+  const bootstrapPath = bootstrapScriptPath(controlPlaneDirectory);
+  const installed = await canRead(bootstrapPath);
+  const active = await resolveActiveDeployment(controlPlaneDirectory).catch(() => undefined);
+  let expected: Readonly<{
+    semanticVersion: string;
+    artifactId: string;
+    buildId?: string;
+    commitRevision?: string;
+    releaseChannel?: string;
+  }> | undefined;
+  if (active !== undefined) {
+    const metadata = await readDeploymentMetadata(active.deploymentDirectory).catch(() => undefined);
+    expected = {
+      semanticVersion: active.version,
+      artifactId: active.artifactId,
+      ...(metadata?.buildId === undefined ? {} : { buildId: metadata.buildId }),
+      ...(metadata?.commitRevision === undefined ? {} : { commitRevision: metadata.commitRevision }),
+      ...(metadata?.releaseChannel === undefined ? {} : { releaseChannel: metadata.releaseChannel }),
+    };
+  }
+  const serving = (await attestedIdentityOrUndefined(config))?.build;
+  const match = expected !== undefined && serving !== undefined
+    ? serving.artifactId === expected.artifactId && serving.semanticVersion === expected.semanticVersion
+    : undefined;
+  const differentArtifact = expected !== undefined && serving !== undefined
+    && expected.semanticVersion === serving.semanticVersion
+    && expected.artifactId !== serving.artifactId;
+  return {
+    path: bootstrapPath,
+    installed,
+    active: active === undefined
+      ? { status: "no-committed-deployment" }
+      : { artifactId: active.artifactId, version: active.version },
+    ...(expected === undefined ? {} : { expected }),
+    ...(serving === undefined ? {} : { serving }),
+    ...(match === undefined ? {} : { match }),
+    ...(differentArtifact ? { differentArtifact: true } : {}),
+  };
+}
+
 function cryptoRandomChallenge(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export async function runDoctor(path: string): Promise<number> {
+export async function runDoctor(path: string, dependencies: { createServiceManager?: typeof createServiceManager } = {}): Promise<number> {
   if (!(await canRead(path))) {
     console.log(JSON.stringify({ ok: false, config: "missing", path }));
     return 1;
@@ -200,6 +281,24 @@ export async function runDoctor(path: string): Promise<number> {
     const codexProbe = codex.found ? await probeClientVersion(codex.executable) : undefined;
     const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
     const claudeViews = await readClaudeViewStatuses(controlPlaneDirectory);
+    // #94: stable bootstrap + exact build identity diagnostics; doctor may
+    // also detect and idempotently repair a stale/missing service definition
+    // (never provider/account configuration).
+    const bootstrap = await bootstrapDiagnostics(config, controlPlaneDirectory);
+    const installation = await readInstallation(controlPlaneDirectory);
+    let serviceDefinition: Record<string, unknown> | undefined;
+    if (installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")) {
+      const manager = (dependencies.createServiceManager ?? createServiceManager)({ home: homedir() });
+      const expected = bootstrapServiceDefinition(controlPlaneDirectory, installation.configPath);
+      const reconciled = await reconcileDefinition(manager, expected).catch(() => undefined);
+      if (reconciled !== undefined) {
+        serviceDefinition = {
+          status: reconciled.status,
+          ...(reconciled.revision === undefined ? {} : { revision: reconciled.revision }),
+          ...(reconciled.migrated === undefined ? {} : { migrated: reconciled.migrated }),
+        };
+      }
+    }
     // #124: Effective Compatibility Registry diagnostics — counts + pinned
     // policy only, never credentials/account identity/prompts/responses.
     const compatibility = new EffectiveCompatibilityRegistry({
@@ -256,6 +355,8 @@ export async function runDoctor(path: string): Promise<number> {
         },
       },
       update: await updateSummary(config),
+      bootstrap,
+      ...(serviceDefinition === undefined ? {} : { serviceDefinition }),
       profiles: await profileInventory(config),
       claudeViews,
     }));
@@ -270,7 +371,7 @@ export async function runDoctor(path: string): Promise<number> {
   }
 }
 
-export async function runStatus(path: string): Promise<number> {
+export async function runStatus(path: string, dependencies: { createServiceManager?: typeof createServiceManager } = {}): Promise<number> {
   const config = await requireConfig(path, { configured: false, running: false });
   if (!config) return 1;
   const state = await inspectRuntimeGateway(config);
@@ -280,12 +381,28 @@ export async function runStatus(path: string): Promise<number> {
   const installation = await readInstallation(controlPlaneDirectory);
   const claudeOverlay = await readClaudeOverlayStatus(controlPlaneDirectory);
   const claudeViews = await readClaudeViewStatuses(controlPlaneDirectory);
+  // #94: bootstrap/build-identity + service-definition reconciliation state
+  // (detect only — status never mutates; doctor/init repair).
+  const bootstrap = await bootstrapDiagnostics(config, controlPlaneDirectory);
+  let definition: Record<string, unknown> | undefined;
+  if (installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")) {
+    const manager = (dependencies.createServiceManager ?? createServiceManager)({ home: homedir() });
+    const expected = bootstrapServiceDefinition(controlPlaneDirectory, installation.configPath);
+    const detected = await detectDefinition(manager, expected).catch(() => undefined);
+    if (detected !== undefined) {
+      definition = {
+        status: detected.status,
+        ...(detected.revision === undefined ? {} : { revision: detected.revision }),
+        ...(detected.migrated === undefined ? {} : { migrated: detected.migrated }),
+      };
+    }
+  }
   // Report service registration/load state separately from runtime readiness
   // on platforms with a per-user service manager (macOS LaunchAgent, Linux
   // systemd --user) and only when an installation record exists (never runs
   // launchctl/systemctl against a fresh home).
   const detail = installation !== undefined && (installation.platform === "darwin" || installation.platform === "linux")
-    ? await serviceDetail(createServiceManager({ home: homedir() }))
+    ? await serviceDetail((dependencies.createServiceManager ?? createServiceManager)({ home: homedir() }))
     : undefined;
   console.log(JSON.stringify({
     configured: true,
@@ -313,6 +430,8 @@ export async function runStatus(path: string): Promise<number> {
                 ...(detail.enabled === undefined ? {} : { enabled: detail.enabled }),
               }),
         },
+    bootstrap,
+    ...(definition === undefined ? {} : { serviceDefinition: definition }),
     host: config.gateway.host,
     port: config.gateway.port,
     managementPort: config.gateway.managementPort,
