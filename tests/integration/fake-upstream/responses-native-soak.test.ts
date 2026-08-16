@@ -50,7 +50,7 @@ describe("long-session soak: #120 incremental transport + retry/error handling (
     const second = createResponsesIncrementalEncoder();
     const base = { requestId: "req_soak", timestamp: "2026-08-15T00:00:00.000Z", providerId: "fixture", modelId: "fixture-model" };
     let sequence = 0;
-    first.push({ ...base, sequence: 0, type: "response-started", responseId: "resp_soak" });
+    first.push({ ...base, sequence: sequence++, type: "response-started", responseId: "resp_soak" });
     for (let index = 0; index < 300; index += 1) {
       first.push({ ...base, sequence: sequence++, type: "content-started", index, contentType: "text", itemId: `msg_${String(index)}` });
       for (let delta = 0; delta < 10; delta += 1) first.push({ ...base, sequence: sequence++, type: "text-delta", index, text: "t" });
