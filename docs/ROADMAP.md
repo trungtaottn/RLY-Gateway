@@ -130,6 +130,17 @@ Outcome: installed runtime execution is immutable, transactionally activated, an
 - Transactional activation with durable journal phases, real-identity update lock, drain fence, migration compatibility classes, bounded rollback, deterministic crash recovery (#93).
 - Stable RLY-owned bootstrap contract (`<control-plane>/bootstrap/rly-gateway`) as the sole service-manager execution identity (never `dist/cli/init.js`/Node path); exact build identity (semantic version/commit/build ID/channel/protocol/state versions/artifact digest) shared by `/identity`, `rly --version`, diagnostics, manifest, and probation; build-aware attestation fail-closed; idempotent service-definition reconciliation (#94).
 
+## Milestone 12 — Signed release supply chain and exact-byte qualification (#128)
+
+Outcome: platform artifacts from #35 become authenticated, traceable, qualification-tested release bytes with SBOM/provenance, platform signing/notarization where required, signed channel metadata, and immutable digest publication.
+
+- Canonical release manifest (`rly-release.json`) binding version/channel/commit/build ID/targets/artifact digests/bundled runtime/state-protocol compatibility + required signatures/attestations, consistent with the #94 build identity.
+- Per-artifact SBOM + build provenance from the ACTUAL packaged bytes referencing the exact artifact digest (TUF-style sibling metadata, never embedded).
+- Platform authenticity: macOS code-signing/notarization/stapling verification gate before stable promotion; Linux artifact signature + release manifest trust chain; missing required platform signature blocks promotion.
+- Signed channel metadata (`rly-channel-<channel>.json`) with explicit rollback/staleness/freeze semantics; the updater never trusts mutable `latest` redirects alone.
+- Exact-byte qualification as the publication authority: clean install, identity, permissions, platform signing, runtime readiness, update handoff, init/service registration, uninstall; a target without qualification evidence is not stable-qualified.
+- Release immutability (no silent byte replacement under the same release identity), workflow hardening (pinned Actions, least privilege, no npm credentials), machine-readable beta/stable gates, and a privacy/public boundary on all published metadata.
+
 ## Beyond V1
 
 See [BACKLOG.md](./BACKLOG.md). Nothing there is committed without promotion.

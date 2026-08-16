@@ -171,17 +171,20 @@ export function evaluateChannelMetadata(metadata, { highestObservedVersion = 0, 
 /**
  * The per-release qualification status a channel carries. Beta permits
  * documented experimental gaps; stable does not. Returns the machine-readable
- * status string recorded in channel metadata.
+ * status string recorded in channel metadata. Accepts the qualification
+ * document shape ({ result: "qualified" | "experimental-gaps" | "not-qualified" })
+ * or a plain { status } record.
  */
 export function qualificationStatusForChannel(qualificationByTarget, channel) {
   const targets = Object.keys(qualificationByTarget).sort();
   if (targets.length === 0) return "not-qualified";
+  const statusOf = (target) => qualificationByTarget[target]?.result ?? qualificationByTarget[target]?.status;
   if (channel === "stable") {
-    const allQualified = targets.every((target) => qualificationByTarget[target].status === "qualified");
+    const allQualified = targets.every((target) => statusOf(target) === "qualified");
     return allQualified ? "qualified" : "not-qualified";
   }
-  const anyNotQualified = targets.some((target) => qualificationByTarget[target].status === "not-qualified");
+  const anyNotQualified = targets.some((target) => statusOf(target) === "not-qualified");
   if (anyNotQualified) return "not-qualified";
-  const anyGaps = targets.some((target) => qualificationByTarget[target].status === "experimental-gaps");
+  const anyGaps = targets.some((target) => statusOf(target) === "experimental-gaps");
   return anyGaps ? "experimental-gaps" : "qualified";
 }

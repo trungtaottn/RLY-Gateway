@@ -514,21 +514,25 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(workflow).toContain("RELEASE_TAG");
   });
 
-  it("builds the full matrix, verifies every artifact, and uploads tarballs + sha256 + manifest", () => {
+  it("builds the full matrix, verifies every artifact, and uploads tarballs + sha256 + manifest + supply chain", () => {
     const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "standalone-artifacts.yml"), "utf8");
     expect(workflow).toContain("scripts/standalone/build-standalone.mjs");
     expect(workflow).toContain("scripts/standalone/verify-artifact.mjs");
-    expect(workflow).toContain("upload-artifact@v4");
+    expect(workflow).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
     expect(workflow).toContain("gh release upload");
     expect(workflow).toContain("out/standalone/*.tar.gz");
     expect(workflow).toContain("artifacts.json");
   });
 
-  it("pins the pnpm/Node toolchain like the rest of CI", () => {
+  it("pins the pnpm/Node toolchain like the rest of CI and runs the #128 release supply chain", () => {
     const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "standalone-artifacts.yml"), "utf8");
-    expect(workflow).toContain("pnpm/action-setup@v4");
+    expect(workflow).toContain("pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1");
     expect(workflow).toContain("node-version: 24");
     expect(workflow).toContain("pnpm install --frozen-lockfile");
+    expect(workflow).toContain("scripts/release/qualify.mjs");
+    expect(workflow).toContain("scripts/release/publish.mjs");
+    expect(workflow).toContain("scripts/release/verify-release.mjs");
+    expect(workflow).toContain("RLY_RELEASE_SIGNING_KEY");
   });
 });
 

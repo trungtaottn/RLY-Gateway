@@ -429,6 +429,14 @@ describe("signed channel metadata (#128)", () => {
     expect(qualificationStatusForChannel(qualified, "stable")).toBe("qualified");
     expect(qualificationStatusForChannel({}, "stable")).toBe("not-qualified");
   });
+
+  it("reads the qualification DOCUMENT shape ({ result }) so gaps are recorded, not hidden", () => {
+    // The real rly-qualification.json per-target document carries `result`;
+    // an experimental-gaps result must never surface as qualified in the channel.
+    const docGaps = { "linux-x64": { result: "experimental-gaps" } };
+    expect(qualificationStatusForChannel(docGaps, "beta")).toBe("experimental-gaps");
+    expect(qualificationStatusForChannel(docGaps, "stable")).toBe("not-qualified");
+  });
 });
 
 describe("exact-byte qualification (#128)", () => {

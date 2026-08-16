@@ -7,9 +7,12 @@ Personal, protocol-preserving gateway and local multi-provider control plane. Cl
 The foundation, Anthropic Messages boundary, direct-provider Claude route,
 authenticated control-plane/management contract, project-owned credential
 broker, deterministic account pools, Claude Code profile integration, the
-Codex CLI Responses harness, the resident runtime service/bootstrap, and the
-standalone runtime artifact pipeline are implemented. Remaining next-focus
-work is Codex OAuth and ClinePass through Claude Code; see
+Codex CLI Responses harness, the resident runtime service/bootstrap, the
+standalone runtime artifact pipeline, and the signed release supply chain
+(canonical release manifest, SBOM/provenance, Ed25519 signing, signed channel
+metadata, exact-byte qualification) are implemented. Remaining next-focus
+work is Codex OAuth and ClinePass through Claude Code and the verified
+installer/updater UX (#129); see
 [BACKLOG.md](./docs/BACKLOG.md) and [TASKLIST](./docs/TASKLIST.md).
 
 ## Distribution
@@ -21,7 +24,20 @@ toolchain or a source checkout. GitHub Releases is the artifact origin
 (`rly-<version>-<target>.tar.gz` + sha256 + `artifacts.json`); npm/Homebrew,
 if introduced, are secondary convenience channels pointing at the same
 canonical artifact lineage. External Node is a development concern only. See
-`scripts/standalone/` and `docs/ARCHITECTURE.md`.
+`scripts/standalone/`, `docs/ARCHITECTURE.md`, and `docs/release-governance.md`.
+
+## Release supply chain
+
+The artifact lineage is published through a signed release supply chain
+(#128): a canonical release manifest (`rly-release.json`), per-artifact SBOMs
+and provenance referencing the exact artifact digest, Ed25519 signatures, and
+signed channel metadata (`rly-channel-<channel>.json`) mapping beta/stable to
+exact digests — **exact-byte qualification is the publication authority** (a
+release is promoted only on evidence produced by installing and exercising
+the exact artifact digest later published). The signing private key lives only
+in the repository secret `RLY_RELEASE_SIGNING_KEY`; the public key is
+committed at `scripts/release/signing-public-key.pem`. See
+`scripts/release/` and `docs/release-governance.md`.
 
 ## Start here
 
