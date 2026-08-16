@@ -20,8 +20,30 @@ async function directory(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(directories.splice(0).map(removeDirectoryRobustly));
 });
+
+/**
+ * Removes a test directory, retrying transient ENOTEMPTY/EBUSY (macOS) so
+ * teardown never collides with a concurrently finishing writer. force:true
+ * swallows ENOENT but not ENOTEMPTY, which Node's recursive rm can raise
+ * spuriously under load or when an in-flight writer is still publishing.
+ */
+async function removeDirectoryRobustly(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error
+        ? String((error as NodeJS.ErrnoException).code)
+        : "";
+      if (code !== "ENOTEMPTY" && code !== "EBUSY") throw error;
+      if (attempt === 19) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+}
 
 async function candidateDirectory(root: string, version: string, bytes: string, manifest: Partial<CandidateManifest> = {}): Promise<string> {
   const source = join(root, `candidate-${version}`);
@@ -195,14 +217,36 @@ describe("immutable deployment store (#92)", () => {
     // missing-ref window (that window is not an atomic-replace gap).
     await installer.installCandidate({ version: "2.0.0", sourceDirectory: sourceA });
 
+    // Deterministic overlap, not timing luck: the writer publishes a
+    // generation counter after every atomic ref swap and cannot advance until
+    // the reader has observed that generation. The reader spins on the staged
+    // reference the whole time, so every replacement is exercised under a
+    // concurrently active reader and the invariant below (old or new valid
+    // reference, never a gap) is asserted at every observation. Coordination
+    // is pure event-loop state (setImmediate yields, never wall-clock sleeps),
+    // so the test can neither pass by missing the swaps nor fail from
+    // scheduling luck, and the reader provably observes every generation.
+    const barrier = { generation: 0, seen: 0, writerFailed: false };
+    const GENERATIONS = 12;
+    const MAX_READS = 100_000;
+
     const replacements = (async () => {
-      for (let index = 0; index < 12; index += 1) {
-        await installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB });
+      try {
+        for (let index = 0; index < GENERATIONS; index += 1) {
+          await installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB });
+          barrier.generation += 1;
+          while (barrier.seen < barrier.generation) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+        }
+      } catch (error) {
+        barrier.writerFailed = true;
+        throw error;
       }
     })();
     const reader = (async () => {
       let observed = 0;
-      while (observed < 250) {
+      while (barrier.seen < GENERATIONS && !barrier.writerFailed) {
         const target = await readlink(installer.stagedPath).catch(() => undefined);
         if (target === undefined) {
           throw new Error(`reader observed a missing staged reference (gap)`);
@@ -215,9 +259,22 @@ describe("immutable deployment store (#92)", () => {
           throw new Error(`reader observed a foreign reference: ${target}`);
         }
         observed += 1;
+        if (observed > MAX_READS) {
+          throw new Error("reader never observed all replacement generations; store or harness stalled");
+        }
+        barrier.seen = Math.max(barrier.seen, barrier.generation);
       }
+      return observed;
     })();
-    await Promise.all([replacements, reader]);
+    // Await BOTH sides even on failure so teardown never races a still-running
+    // writer. The old `Promise.all` rejected as soon as the reader failed and
+    // let afterEach rmdir collide with an in-flight install (ENOTEMPTY).
+    const [writerResult, readerResult] = await Promise.allSettled([replacements, reader]);
+    if (writerResult.status === "rejected") throw writerResult.reason;
+    if (readerResult.status === "rejected") throw readerResult.reason;
+    // The writer could not advance past an unobserved generation, so the
+    // reader provably exercised the no-gap invariant at every replacement.
+    expect(readerResult.value).toBeGreaterThanOrEqual(GENERATIONS);
   });
 
   it("verifyCandidate and readManifest operate on the staged deployment only", async () => {
