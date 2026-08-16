@@ -6,6 +6,7 @@ import { parseAdminArgs, runAdmin, type AdminCommand } from "./admin.js";
 import { parseConfigArgs, runConfig, type ConfigCommand } from "./config.js";
 import { runDoctor, runQuota, runRouteTrace, runStatus } from "./diagnostics.js";
 import { runCanaryCommand, type CanaryAction } from "./canary.js";
+import { parseCompatArgs, runCompatCommand, type CompatAction } from "./compat.js";
 import { runGatewayCommand, type GatewayAction } from "./gateway.js";
 import { runInit } from "./init.js";
 import { parseUpdateArgs, runUpdateCommand, assertUpdateLaunchAllowed } from "./update.js";import { loadConfig } from "../config/load-config.js";
@@ -36,7 +37,7 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly compat <status|review promote|reject|quarantine|lift|explain> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
 }
 
 export type ParsedCliCommand =
@@ -45,6 +46,7 @@ export type ParsedCliCommand =
   | Readonly<{ command: "init"; configPath: string }>
   | Readonly<{ command: "gateway"; action: GatewayAction; configPath: string }>
   | Readonly<{ command: "canary"; action: CanaryAction; configPath: string }>
+  | Readonly<{ command: "compat"; action: CompatAction; configPath: string }>
   | Readonly<{ command: "update"; options: ReturnType<typeof parseUpdateArgs> }>
   | AdminCommand
   | ConfigCommand;
@@ -167,6 +169,11 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
     const options = rest.slice(1);
     if (options.length > 0 && options[0] !== "--config") throw new Error(`unknown option ${String(options[0])}`);
     return { command: "canary", action, configPath: configPath(options, cwd) };
+  }
+  if (command === "compat") {
+    const rest = args.slice(1);
+    const action = parseCompatArgs(rest);
+    return { command: "compat", action, configPath: configPath(rest, cwd) };
   }
   if (command === "update") {
     return { command: "update", options: parseUpdateArgs(args.slice(1), cwd) };
@@ -358,6 +365,7 @@ export async function runCli(
   }
   if (parsed.command === "run-claude" || parsed.command === "run-codex") return runHarnessCommand(parsed, dependencies);
   if (parsed.command === "canary") return runCanaryCommand(parsed.action, parsed.configPath);
+  if (parsed.command === "compat") return runCompatCommand(parsed.action, parsed.configPath);
   if (parsed.command === "update") return runUpdateCommand(parsed.options);
   if (parsed.command === "init") return (dependencies.runInit ?? runInit)(parsed.configPath);
   if (parsed.command === "gateway") return (dependencies.runGateway ?? runGatewayCommand)(parsed.action, parsed.configPath);
