@@ -1,6 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { ControlPlaneStore } from "../control-plane/store.js";
+import { ClaimEvidenceStore } from "../canary/artifact.js";
+import { CLAUDE_CODE_CONTRACT } from "../canary/client-fixtures.js";
+import { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
+import { ReviewDecisionStore, QuarantineStore } from "../compatibility/stores.js";
+import { runtimeCompatibilityPolicy } from "../compatibility/policy.js";
 import { CredentialBroker } from "../credentials/broker.js";
 import { CredentialService } from "../credentials/service.js";
 import { createManagementServer, listenManagement } from "../management/server.js";
@@ -158,6 +163,21 @@ export async function startOwnedGateway(input: Readonly<{
     // malformed update-state file fails the metadata read closed (omitted),
     // never the whole identity.
     const updateStore = new UpdateStateStore(controlPlaneDirectory);
+    // #124: the Effective Compatibility Registry is the SOLE runtime
+    // compatibility authority. Built from the control-plane stores + the
+    // pinned client contract + the material RLY build; legacy static registry
+    // states remain seed/reference data only.
+    const compatibility = new EffectiveCompatibilityRegistry({
+      claims: new ClaimEvidenceStore(controlPlaneDirectory),
+      reviews: new ReviewDecisionStore(controlPlaneDirectory),
+      quarantines: new QuarantineStore(controlPlaneDirectory),
+      policy: runtimeCompatibilityPolicy({
+        supportedClientBaseline: CLAUDE_CODE_CONTRACT.baseline,
+        pinnedProtocolRevision: CLAUDE_CODE_CONTRACT.fixtureRevision,
+        pinnedFixtureRevision: CLAUDE_CODE_CONTRACT.fixtureRevision,
+        rlyBuildVersion: RUNTIME_VERSION,
+      }),
+    });
     const gatewayOptions = {
       host,
       port,
@@ -175,6 +195,7 @@ export async function startOwnedGateway(input: Readonly<{
       shutdown,
       stateVersion: SCHEMA_V2_VERSION,
       updateState: () => updateStore.read().catch(() => undefined),
+      compatibility,
       ...(resident ? { resident: true } : {}),
     };
     const managementOptions = {

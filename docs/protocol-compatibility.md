@@ -348,6 +348,17 @@ CI (`pnpm verify`) and manual runs separate the three evidence layers explicitly
 
 Skipped sentinels/tests are skipped — never PASS.
 
+### Effective Compatibility Registry (#124)
+
+The **Effective Compatibility Registry** is the SOLE runtime compatibility authority: it resolves #122 claim/evidence observations, #123 Layer B/C runner records, explicit reviewed trust decisions, negative quarantine, and freshness/staleness into ONE effective answer per exact claim/feature (`src/compatibility/`). The model registry keeps owning model identity/capability evidence; static `model.compatibility.state` is seed/reference data only.
+
+- **Reviewed trust** — an explicit `promote`/`reject` decision is tied to the exact claim identity AND evidence revision (digest of the claim's observation history). PASS alone never auto-promotes; evidence updated after a decision makes the claim review-stale (re-review required).
+- **Negative quarantine** — a strong reproducible failure quarantines an EXACT claim/path/feature (narrow scope; never deletes historical evidence); required features fail closed (`quarantined-fail-closed`); only the separately documented administrative `allowQuarantineBypass` policy permits a visible bypass.
+- **Freshness/staleness** — evidence goes stale on client version/baseline drift, protocol/adapter revision drift, provider endpoint/auth-mode drift, physical model fingerprint change, fixture/corpus revision drift, material RLY build change, and evidence age; a stale positive never stays silently VERIFIED.
+- **Effective answer** — `trusted`/`stale`/`experimental`/`untrusted`/`quarantined`/`missing` with trust, observed health, freshness, quarantine, and enforcement reason kept as distinct diagnosable fields (never one persisted boolean).
+- **Enforcement** — normal execution requires effective trusted compatibility for required features (fail closed, no silent fallback); the explicit experimental override (exact-pin opt-in / `allowExperimental`) is visible in traces/doctor and can never bypass a hard quarantine.
+- **Runtime consumers** — model selection (#68), logical tier resolution (#69), model projection/discovery (#72), reasoning/tool eligibility, and profile route resolution consume ECR snapshots; `rly compat` (status/review/quarantine/lift/explain) and doctor surface the effective result secret-free.
+
 ## Compatibility maintenance
 
 Protocol drift starts with a redacted reproducing fixture. Any newly observed

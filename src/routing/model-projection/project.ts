@@ -1,5 +1,5 @@
 /**
- * Deterministic model projection engine (#72).
+ * Deterministic model projection engine (#72, ECR authority by #124).
  *
  * Pure, secret-free, no account/credential access:
  * - `projectModelUniverse` projects the trusted registry through a session's
@@ -8,6 +8,12 @@
  *   exact access-provider/model target + pool). Routing never parses ids.
  * - `compileModelUniverseSnapshot` pins a session's model universe from the
  *   control-plane policy at launch-session issue time.
+ *
+ * #124: when an Effective Compatibility Registry snapshot is supplied it is
+ * the projection compatibility AUTHORITY: paths lacking effective trusted
+ * claims for the required Claude/Codex features are excluded by default;
+ * quarantine excludes even with the explicit opt-in; the static
+ * `model.compatibility.state` becomes seed/reference data only.
  */
 
 import { createHash } from "node:crypto";
@@ -18,6 +24,9 @@ import {
   type ModelEvidence,
   type RegistryDocument,
 } from "../../registry/model-registry.js";
+import { requiredFeaturesForEvidence } from "../../compatibility/features.js";
+import type { ClaimFeature } from "../../canary/claim.js";
+import type { EffectiveCompatibility } from "../../compatibility/types.js";
 import {
   isProjectionId,
   RLY_MODEL_PREFIX,
@@ -26,6 +35,9 @@ import {
   type ModelUniverseSnapshot,
   type ProviderPoolBinding,
 } from "./types.js";
+
+/** #124: ECR snapshot keyed by registry logicalId → per-feature answers. */
+export type EffectiveProjectionSnapshot = ReadonlyMap<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>;
 
 /**
  * Presentation-only provider labels. Never used for routing; two providers
@@ -111,7 +123,9 @@ function providerSlug(providerName: string): string {
 export function projectionFor(
   binding: ProviderPoolBinding,
   evidence: ModelEvidence,
+  effective?: ReadonlyMap<ClaimFeature, EffectiveCompatibility>,
 ): ModelProjection {
+  const label = effective === undefined ? undefined : worstEffectiveLabel(effective);
   return Object.freeze({
     id: projectionIdFor(binding.providerName, evidence.identity.upstreamModelId),
     displayName: `${modelDisplayName(evidence.identity.upstreamModelId)} (${providerDisplayName(binding.providerName)})`,
@@ -121,30 +135,85 @@ export function projectionFor(
     upstreamModelId: evidence.identity.upstreamModelId,
     ...(evidence.identity.modelFamily === undefined ? {} : { modelFamily: evidence.identity.modelFamily }),
     compatibilityState: evidence.compatibility.state,
+    ...(label === undefined ? {} : { effectiveLabel: label }),
     verifiedAt: evidence.verifiedAt,
   });
+}
+
+/** Worst effective label across the required RLY features (projection gate). */
+export function worstEffectiveLabel(effective: ReadonlyMap<ClaimFeature, EffectiveCompatibility>): string {
+  const rank: Readonly<Record<string, number>> = Object.freeze({
+    trusted: 0, experimental: 1, stale: 2, untrusted: 3, missing: 4, quarantined: 5,
+  });
+  let worst: string = "missing";
+  for (const result of effective.values()) {
+    const candidate = result.effective;
+    if ((rank[candidate] ?? 9) > (rank[worst] ?? 9)) worst = candidate;
+  }
+  return worst;
 }
 
 /**
  * Projects the trusted registry through a session's pinned bindings.
  * Deterministic: sorted by provider name, then registry document order per
- * provider. `BROKEN` compatibility is never projected; `EXPERIMENTAL` is
- * projected only when the session's explicit policy opt-in is enabled.
+ * provider.
+ *
+ * Without an ECR snapshot the legacy seed mapping applies (`BROKEN` never
+ * projected; `EXPERIMENTAL` only with the explicit opt-in). With a snapshot
+ * the ECR is the authority: quarantined paths are NEVER projected, trusted
+ * paths project by default, and evidence-backed experimental/stale paths
+ * project only with the explicit opt-in.
  */
 export function projectModelUniverse(
   registry: RegistryDocument,
   snapshot: ModelUniverseSnapshot,
+  effective?: EffectiveProjectionSnapshot,
 ): readonly ModelProjection[] {
   const projections: ModelProjection[] = [];
   const bindings = [...snapshot.bindings].sort((left, right) => left.providerName.localeCompare(right.providerName));
   for (const binding of bindings) {
     for (const evidence of modelsForProvider(registry, binding.providerName)) {
-      if (evidence.compatibility.state === "BROKEN") continue;
-      if (evidence.compatibility.state === "EXPERIMENTAL" && !snapshot.experimentalModels) continue;
-      projections.push(projectionFor(binding, evidence));
+      if (effective === undefined) {
+        if (evidence.compatibility.state === "BROKEN") continue;
+        if (evidence.compatibility.state === "EXPERIMENTAL" && !snapshot.experimentalModels) continue;
+        projections.push(projectionFor(binding, evidence));
+        continue;
+      }
+      const effectiveForModel = effective.get(evidence.logicalId);
+      if (effectiveForModel === undefined || effectiveForModel.size === 0) {
+        // No ECR data: seed mapping only (runtime facade always populates rows).
+        if (evidence.compatibility.state === "BROKEN") continue;
+        if (evidence.compatibility.state === "EXPERIMENTAL" && !snapshot.experimentalModels) continue;
+        projections.push(projectionFor(binding, evidence));
+        continue;
+      }
+      if (projectionEligible(evidence, effectiveForModel, snapshot.experimentalModels)) {
+        projections.push(projectionFor(binding, evidence, effectiveForModel));
+      }
     }
   }
   return Object.freeze(projections);
+}
+
+/**
+ * ECR-driven projection gate (#124). Required RLY features must be effectively
+ * trusted by default; quarantine excludes even with the explicit opt-in.
+ */
+function projectionEligible(
+  evidence: ModelEvidence,
+  effective: ReadonlyMap<ClaimFeature, EffectiveCompatibility>,
+  experimentalModels: boolean,
+): boolean {
+  const features = requiredFeaturesForEvidence(evidence);
+  const results = features
+    .map((feature) => effective.get(feature))
+    .filter((result): result is EffectiveCompatibility => result !== undefined);
+  if (results.some((result) => result.quarantine === "active" || result.effective === "quarantined")) return false;
+  if (results.every((result) => result.effective === "trusted")) return true;
+  if (!experimentalModels) return false;
+  // Explicit opt-in may expose evidence-backed experimental/stale paths but
+  // NEVER untrusted (rejected/contradicted/failed) or missing paths.
+  return results.every((result) => result.effective === "experimental" || result.effective === "stale");
 }
 
 /**
@@ -159,9 +228,10 @@ export function resolveProjection(
   projectionId: string,
   snapshot: ModelUniverseSnapshot,
   registry: RegistryDocument,
+  effective?: EffectiveProjectionSnapshot,
 ): Readonly<{ projection: ModelProjection; binding: ProviderPoolBinding; evidence: ModelEvidence }> | undefined {
   if (!isProjectionId(projectionId)) return undefined;
-  for (const projection of projectModelUniverse(registry, snapshot)) {
+  for (const projection of projectModelUniverse(registry, snapshot, effective)) {
     if (projection.id !== projectionId) continue;
     const binding = snapshot.bindings.find(
       (candidate) => candidate.providerName === projection.providerName && candidate.poolId === projection.poolId,

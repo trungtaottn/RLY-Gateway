@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { LaunchSession, LaunchSessionRegistry } from "../profiles/sessions.js";
 import type { RegistryDocument } from "../registry/model-registry.js";
+import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
+import { requiredFeaturesForEvidence } from "../compatibility/features.js";
 import {
   compileModelUniverseSnapshot,
   projectModelUniverse,
@@ -35,6 +37,8 @@ export type AnthropicModelsRouteDependencies = Readonly<{
   registry: RegistryDocument;
   /** Explicit user policy opt-in exposing EXPERIMENTAL compatibility targets. */
   experimentalModels: boolean;
+  /** #124: Effective Compatibility Registry — the projection authority. */
+  compatibility?: EffectiveCompatibilityRegistry;
   resolveSession: (token: string | undefined) => LaunchSession | undefined;
   extractToken: (headers: Readonly<{ authorization?: string | undefined; "x-api-key"?: string | string[] | undefined }>) => string | undefined;
 }>;
@@ -63,7 +67,18 @@ export function registerAnthropicModelsRoute(app: FastifyInstance, dependencies:
       ?? compileModelUniverseSnapshot(policy, dependencies.registry, {
         experimentalModels: dependencies.experimentalModels,
       });
-    const projections = projectModelUniverse(dependencies.registry, universe);
+    // #124: when the Effective Compatibility Registry is wired it is the
+    // projection authority — paths lacking effective trusted claims for the
+    // required Claude/Codex features are excluded by default; quarantine
+    // excludes even with the explicit opt-in.
+    const effective = dependencies.compatibility === undefined
+      ? undefined
+      : await dependencies.compatibility.snapshotForModels(
+          dependencies.registry.models,
+          (row) => requiredFeaturesForEvidence(row),
+          { required: false },
+        );
+    const projections = projectModelUniverse(dependencies.registry, universe, effective);
     const { limit = 20, before_id, after_id } = parsedQuery.data;
     let window = projections;
     if (after_id !== undefined) {

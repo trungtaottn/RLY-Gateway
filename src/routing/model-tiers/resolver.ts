@@ -9,7 +9,7 @@ import {
 } from "../../registry/model-registry.js";
 import { isModelSelectionError } from "../model-selection/errors.js";
 import { selectModel } from "../model-selection/selector.js";
-import type { ModelSelectionInput, ReasoningRequirement } from "../model-selection/types.js";
+import type { EffectiveSelectionSnapshot, ModelSelectionInput, ReasoningRequirement } from "../model-selection/types.js";
 import { isTierResolutionError, TierResolutionError, type TierResolutionFailure } from "./errors.js";
 import { defaultTierMapping, tierMappingKey } from "./mapping.js";
 import type {
@@ -31,6 +31,12 @@ export type TierResolutionDependencies = Readonly<{
   reasoning?: ReasoningRequirement;
   /** Explicit opt-in for EXPERIMENTAL candidates on the derived path (#68 policy). */
   allowExperimental?: boolean;
+  /**
+   * #124: Effective Compatibility Registry snapshot — the compatibility
+   * AUTHORITY for every #68 selection inside tier resolution. When supplied,
+   * static `model.compatibility.state` is seed/reference data only.
+   */
+  effective?: EffectiveSelectionSnapshot;
   /**
    * Explicit ordered fallback provider list for cross-provider fallback. Never
    * derived implicitly: cross-provider fallback requires an explicit policy.
@@ -84,6 +90,7 @@ export function resolveTier(
       registry,
       "override-rejected",
       `User override rejected for ${context.accessProviderId}/${context.explicitUserMapping}`,
+      dependencies,
     );
     return settled(context, family, model, "user-override", "explicit-user-mapping", mapping, registry);
   }
@@ -103,18 +110,24 @@ export function resolveTier(
       registry,
       "mapping-invalid",
       `Reviewed tier mapping for ${context.accessProviderId}|${family}|${context.requestedTier} no longer has trusted/compatible evidence`,
+      dependencies,
     );
     return settled(context, family, model, "reviewed-mapping", "reviewed-mapping-match", mapping, registry);
   }
 
   // Stage 3: deterministic #68 candidate evaluation inside the same provider+family.
   try {
-    const selection = selectModel({ ...baseSelection, preferredFamily: family }, registry);
+    const selection = selectModel({ ...baseSelection, preferredFamily: family }, registry, selectionDeps(dependencies));
     return settled(context, family, selection.model, "derived", "deterministic-family-candidate", mapping, registry);
   } catch (error) {
     if (!isModelSelectionError(error)) throw error;
     return fallbackOrFail(context, dependencies, baseSelection, registry, mapping, family, error.code);
   }
+}
+
+/** #124: passes the ECR snapshot into #68 selection when supplied. */
+function selectionDeps(dependencies: TierResolutionDependencies): Readonly<{ effective?: EffectiveSelectionSnapshot }> | undefined {
+  return dependencies.effective === undefined ? undefined : { effective: dependencies.effective };
 }
 
 /** Derives the model family for the current execution context, deterministically. */
@@ -144,9 +157,10 @@ function exactTarget(
   registry: RegistryDocument,
   failure: TierResolutionFailure,
   message: string,
+  dependencies: TierResolutionDependencies = {},
 ): ModelEvidence {
   try {
-    return selectModel({ ...baseSelection, exactModelId: modelId }, registry).model;
+    return selectModel({ ...baseSelection, exactModelId: modelId }, registry, selectionDeps(dependencies)).model;
   } catch (error) {
     if (isModelSelectionError(error)) {
       throw new TierResolutionError(failure, `${message} (${error.code})`, error.code);
@@ -169,7 +183,7 @@ function fallbackOrFail(
   // unambiguous family context (else it would be an implicit cross-family jump).
   if (context.allowCrossFamilyFallback && family !== undefined) {
     try {
-      const selection = selectModel({ ...baseSelection }, registry);
+      const selection = selectModel({ ...baseSelection }, registry, selectionDeps(dependencies));
       return settled(
         context,
         family,
@@ -200,8 +214,9 @@ function fallbackOrFail(
           ? selectModel(
               { ...providerSelection, ...(family === undefined ? {} : { preferredFamily: family }) },
               registry,
+              selectionDeps(dependencies),
             ).model
-          : exactTarget(providerSelection, mappedModelId, registry, "tier-unavailable", `Fallback mapping rejected for ${providerId}`);
+          : exactTarget(providerSelection, mappedModelId, registry, "tier-unavailable", `Fallback mapping rejected for ${providerId}`, dependencies);
         return settled(
           context,
           family,

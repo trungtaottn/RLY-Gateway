@@ -19,8 +19,12 @@ import { defaultControlPlaneDirectory } from "../storage/paths.js";
 import { detectClaudeTarget, detectCodexTarget } from "../targets/detect.js";
 import { probeClientVersion } from "../targets/versions.js";
 import { RLY_LIVE_CANARY_ENV } from "../canary/run.js";
-import { CLAUDE_CODE_FIXTURE_BASELINE } from "../canary/client-fixtures.js";
+import { CLAUDE_CODE_CONTRACT, CLAUDE_CODE_FIXTURE_BASELINE } from "../canary/client-fixtures.js";
 import { EVIDENCE_SCHEMA_VERSION, LEGACY_V1_POLICY } from "../canary/claim.js";
+import { ClaimEvidenceStore } from "../canary/artifact.js";
+import { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
+import { ReviewDecisionStore, QuarantineStore } from "../compatibility/stores.js";
+import { runtimeCompatibilityPolicy } from "../compatibility/policy.js";
 import { INSTALLED_CLIENT_RUNNER_VERSION, LIVE_ACCESS_PATH_RUNNER_VERSION } from "../canary/runner-types.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
@@ -194,6 +198,19 @@ export async function runDoctor(path: string): Promise<number> {
     const codexProbe = codex.found ? await probeClientVersion(codex.executable) : undefined;
     const controlPlaneDirectory = config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
     const claudeViews = await readClaudeViewStatuses(controlPlaneDirectory);
+    // #124: Effective Compatibility Registry diagnostics — counts + pinned
+    // policy only, never credentials/account identity/prompts/responses.
+    const compatibility = new EffectiveCompatibilityRegistry({
+      claims: new ClaimEvidenceStore(controlPlaneDirectory),
+      reviews: new ReviewDecisionStore(controlPlaneDirectory),
+      quarantines: new QuarantineStore(controlPlaneDirectory),
+      policy: runtimeCompatibilityPolicy({
+        supportedClientBaseline: CLAUDE_CODE_FIXTURE_BASELINE,
+        pinnedProtocolRevision: CLAUDE_CODE_CONTRACT.fixtureRevision,
+        pinnedFixtureRevision: CLAUDE_CODE_CONTRACT.fixtureRevision,
+        rlyBuildVersion: RUNTIME_VERSION,
+      }),
+    });
     console.log(JSON.stringify({
       ok: true,
       syntaxValid: true,
@@ -216,6 +233,7 @@ export async function runDoctor(path: string): Promise<number> {
         ...(codexProbe?.version === undefined ? {} : { version: codexProbe.version }),
         versionSource: codex.found ? (codexProbe?.source ?? "unknown") : "unknown",
       },
+      effectiveCompatibility: await compatibility.summary(),
       canary: {
         testedBaseline: CLAUDE_CODE_FIXTURE_BASELINE,
         liveGateEnv: RLY_LIVE_CANARY_ENV,

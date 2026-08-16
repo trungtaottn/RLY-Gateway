@@ -12,7 +12,10 @@ import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
 import { ReasoningTranslationError, resolveReasoning } from "../providers/reasoning.js";
-import { directProviderRegistry, type RegistryDocument } from "../registry/model-registry.js";
+import { directProviderRegistry, modelsForProvider, type RegistryDocument } from "../registry/model-registry.js";
+import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
+import { requiredFeaturesForCapabilities } from "../compatibility/features.js";
+import type { EffectiveSelectionSnapshot } from "../routing/model-selection/types.js";
 import { createModelProjectionTrace, resolveProjection } from "../routing/model-projection/project.js";
 import type { ModelProjectionTrace } from "../routing/model-projection/types.js";
 import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route.js";
@@ -46,6 +49,8 @@ export type ProfileRouteDependencies = Readonly<{
   required?: readonly CapabilityRequirement[];
   /** Session-scoped Claude Code agent execution contexts (#71). */
   agentContexts?: AgentExecutionContextRegistry;
+  /** #124: Effective Compatibility Registry — the runtime compatibility authority. */
+  compatibility?: EffectiveCompatibilityRegistry;
 }>;
 
 /** Profile-route dependencies plus an optional trusted registry override (#72). */
@@ -77,6 +82,17 @@ export async function resolveProfileRoute(
   // the explicit client-alias contract) — never by bare string equality with
   // a tier name.
   const intent = classifyIntentForRequest(canonical.requestedModel);
+  // #124: the Effective Compatibility Registry is the compatibility authority —
+  // feature-scoped effective trust/health/freshness/quarantine/enforcement,
+  // never the static registry state alone. Resolved once per request and
+  // threaded into tier resolution + final exact selection.
+  const effectiveSnapshot = await effectiveSnapshotFor(
+    dependencies,
+    provider.name,
+    dependencies.required ?? [],
+    canonical,
+    directProviderRegistry,
+  );
   const intentResolution = resolveModelIntent(
     intent,
     canonical,
@@ -84,6 +100,7 @@ export async function resolveProfileRoute(
     inspected.profile,
     dependencies.required ?? [],
     parentReference?.context,
+    effectiveSnapshot,
   );
   const resolvedModelId = intentResolution.modelId;
   const resolvedRole = intentResolution.role;
@@ -93,7 +110,15 @@ export async function resolveProfileRoute(
   // registry, BEFORE any account/pool selection. The selected physical model is
   // frozen into the effective request/route; account failover can never change it.
   const reasoningRequest = canonical.inference.reasoning ?? reasoningRequestFromWire({});
-  const selection = selectModelForRequest(resolvedModelId, provider.name, dependencies.required ?? [], canonical);
+  const selection = selectModelForRequest(
+    resolvedModelId,
+    provider.name,
+    dependencies.required ?? [],
+    canonical,
+    directProviderRegistry,
+    effectiveSnapshot,
+    dependencies.compatibility?.policy.allowQuarantineBypass,
+  );
   const modelEvidence = selection.model;
   // Stage 1b (#70): translate the canonical reasoning intent into the selected
   // model's native control through the provider-owned boundary, BEFORE account
@@ -255,12 +280,23 @@ export async function resolveProjectedModelRoute(
   // registry. Re-validates capabilities/compatibility/reasoning for the exact
   // physical target — a BROKEN or unsupported target fails closed here.
   const reasoningRequest = canonical.inference.reasoning ?? reasoningRequestFromWire({});
+  // #124: the Effective Compatibility Registry is the compatibility authority
+  // for the exact projected target (feature-scoped, fail-closed).
+  const effectiveSnapshot = await effectiveSnapshotFor(
+    dependencies,
+    provider.name,
+    dependencies.required ?? [],
+    canonical,
+    registry,
+  );
   const selection = selectModelForRequest(
     resolved.evidence.identity.upstreamModelId,
     provider.name,
     dependencies.required ?? [],
     canonical,
     registry,
+    effectiveSnapshot,
+    dependencies.compatibility?.policy.allowQuarantineBypass,
   );
   const modelEvidence = selection.model;
   // Stage 1b (#70): translate the canonical reasoning intent into the selected
@@ -472,6 +508,7 @@ function resolveModelIntent(
   profile: ProfileRecord,
   required: readonly CapabilityRequirement[],
   parent?: ExecutionContext,
+  effective?: EffectiveSelectionSnapshot,
 ): Readonly<{
   role: ActivatedRole;
   modelId: string;
@@ -480,11 +517,11 @@ function resolveModelIntent(
 }> {
   switch (intent.kind) {
     case "RLY_LOGICAL_TIER": {
-      const resolution = resolveTierForRequest(intent.tier, canonical, providerName, profile, required, parent);
+      const resolution = resolveTierForRequest(intent.tier, canonical, providerName, profile, required, parent, effective);
       return { role: resolution.role, modelId: resolution.modelId, tierResolution: resolution, intentTrace: intentTraceFor(intent, { tier: intent.tier }) };
     }
     case "CLIENT_NATIVE_ALIAS": {
-      const resolution = resolveTierForRequest(intent.mappedTier, canonical, providerName, profile, required, parent);
+      const resolution = resolveTierForRequest(intent.mappedTier, canonical, providerName, profile, required, parent, effective);
       return { role: resolution.role, modelId: resolution.modelId, tierResolution: resolution, intentTrace: intentTraceFor(intent, { tier: intent.mappedTier, alias: intent.alias }) };
     }
     case "EXACT_PROJECTION": {
@@ -548,6 +585,7 @@ function resolveTierForRequest(
   profile: ProfileRecord,
   required: readonly CapabilityRequirement[],
   parent?: ExecutionContext,
+  effective?: EffectiveSelectionSnapshot,
 ): Readonly<{ role: LogicalTier; modelId: string; trace: TierResolutionTrace }> {
   const parentModelId = parent?.resolvedModelId ?? parentModelForProfile(profile.modelRoles);
   const parentFamily = parent?.modelFamily;
@@ -564,6 +602,7 @@ function resolveTierForRequest(
     }, {
       requiredCapabilities: required,
       ...(reasoning === undefined ? {} : { reasoning }),
+      ...(effective === undefined ? {} : { effective }),
     });
     return Object.freeze({ role: tier, modelId: resolution.model.identity.upstreamModelId, trace: resolution.trace });
   } catch (error) {
@@ -594,6 +633,8 @@ function selectModelForRequest(
   required: readonly CapabilityRequirement[],
   request: CanonicalRequest,
   registry: RegistryDocument = directProviderRegistry,
+  effective?: EffectiveSelectionSnapshot,
+  allowQuarantineBypass?: boolean,
 ): ModelSelectionResult {
   try {
     const reasoning = reasoningRequirementFrom(request, required);
@@ -602,7 +643,10 @@ function selectModelForRequest(
       exactModelId: modelId,
       requiredCapabilities: required,
       ...(reasoning === undefined ? {} : { reasoning }),
-    }, registry);
+    }, registry, {
+      ...(effective === undefined ? {} : { effective }),
+      ...(allowQuarantineBypass === undefined ? {} : { allowQuarantineBypass }),
+    });
   } catch (error) {
     if (isModelSelectionError(error)) {
       throw new ProfileActivationError(
@@ -620,6 +664,26 @@ function selectModelForRequest(
     }
     throw error;
   }
+}
+
+/**
+ * #124: resolves the Effective Compatibility Registry snapshot for one request:
+ * every candidate model of the access provider, feature-scoped to the exact
+ * required capabilities + reasoning requirement. Returns undefined when no ECR
+ * is wired (the caller then falls back to the documented seed mapping).
+ */
+async function effectiveSnapshotFor(
+  dependencies: ProfileRouteDependencies,
+  providerId: string,
+  required: readonly CapabilityRequirement[],
+  request: CanonicalRequest,
+  registry: RegistryDocument,
+): Promise<EffectiveSelectionSnapshot | undefined> {
+  const compatibility = dependencies.compatibility;
+  if (compatibility === undefined) return undefined;
+  const rows = modelsForProvider(registry, providerId);
+  const features = requiredFeaturesForCapabilities(required, reasoningRequirementFrom(request, required));
+  return compatibility.snapshotForModels(rows, () => features, { required: false });
 }
 
 async function credentialSnapshots(
