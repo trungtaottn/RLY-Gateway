@@ -6,6 +6,7 @@ import { evidenceRevisionFor } from "./features.js";
 import type {
   EffectiveCompatibility,
   EffectiveCompatibilityLabel,
+  EffectiveEnforcement,
   EffectiveFreshness,
   EffectiveHealth,
   EffectiveResolutionInput,
@@ -53,6 +54,41 @@ function healthFromStatus(status: ClaimStatus, hasAnyEvidence: boolean): { healt
     case "failed": return { health: "failed", reason: "failed-observation" };
     case "not-run": return { health: "degraded", reason: "required-layer-missing" };
     case "missing": return { health: "unknown" };
+  }
+}
+
+/**
+ * Policy enforcement for one effective label (#124). Context-dependent: an
+ * exact pin or an explicit `allowExperimental` opt-in is the traceable
+ * experimental override; it can elevate `experimental`/`stale` but NEVER
+ * `untrusted`/`missing`/`quarantined`. A hard quarantine is bypassable only
+ * through the separately documented administrative policy.
+ */
+export function enforceEffective(
+  label: EffectiveCompatibilityLabel,
+  input: Readonly<{
+    required: boolean;
+    experimentalOverride: boolean;
+    allowQuarantineBypass: boolean;
+  }>,
+): Readonly<{ enforcement: EffectiveEnforcement; reason?: string }> {
+  if (!input.required) return { enforcement: "allowed" };
+  switch (label) {
+    case "trusted":
+      return { enforcement: "allowed" };
+    case "quarantined":
+      return input.allowQuarantineBypass
+        ? { enforcement: "quarantine-bypass", reason: "admin-quarantine-bypass" }
+        : { enforcement: "blocked", reason: "quarantined-fail-closed" };
+    case "experimental":
+    case "stale":
+      return input.experimentalOverride
+        ? { enforcement: "experimental-override", reason: "explicit-experimental-override" }
+        : { enforcement: "blocked", reason: label === "stale" ? "stale-positive-not-trusted" : "unreviewed-experimental" };
+    case "untrusted":
+      return { enforcement: "blocked", reason: "untrusted-required-feature" };
+    case "missing":
+      return { enforcement: "blocked", reason: "missing-evidence-fail-closed" };
   }
 }
 
@@ -125,33 +161,13 @@ export function resolveEffectiveCompatibility(input: EffectiveResolutionInput): 
   const label = labelFor(input);
 
   // Enforcement dimension.
-  let enforcement: EffectiveCompatibility["enforcement"] = "allowed";
-  let enforcementReason: string | undefined;
-  if (input.required) {
-    if (label === "trusted") {
-      enforcement = "allowed";
-    } else if (label === "quarantined") {
-      if (input.allowQuarantineBypass === true) {
-        enforcement = "quarantine-bypass";
-        enforcementReason = "admin-quarantine-bypass";
-      } else {
-        enforcement = "blocked";
-        enforcementReason = "quarantined-fail-closed";
-      }
-    } else if (label === "experimental" || label === "stale") {
-      if (input.experimentalOverride === true) {
-        enforcement = "experimental-override";
-        enforcementReason = "explicit-experimental-override";
-      } else {
-        enforcement = "blocked";
-        enforcementReason = label === "stale" ? "stale-positive-not-trusted" : "unreviewed-experimental";
-      }
-    } else {
-      // untrusted / missing: never bypassable by the experimental override.
-      enforcement = "blocked";
-      enforcementReason = label === "missing" ? "missing-evidence-fail-closed" : "untrusted-required-feature";
-    }
-  }
+  const enforced = enforceEffective(label, {
+    required: input.required,
+    experimentalOverride: input.experimentalOverride,
+    allowQuarantineBypass: input.allowQuarantineBypass,
+  });
+  const enforcement = enforced.enforcement;
+  const enforcementReason = enforced.reason;
 
   return Object.freeze({
     claimKey,

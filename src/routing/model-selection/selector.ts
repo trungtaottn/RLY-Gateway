@@ -8,6 +8,7 @@ import {
   type RegistryDocument,
 } from "../../registry/model-registry.js";
 import { requiredFeaturesForCapabilities } from "../../compatibility/features.js";
+import { enforceEffective } from "../../compatibility/effective.js";
 import type { EffectiveCompatibility } from "../../compatibility/types.js";
 import { ModelSelectionError, type ModelSelectionFailure } from "./errors.js";
 import type {
@@ -73,13 +74,17 @@ function compatibilityFailure(
 
 /**
  * #124 ECR-driven compatibility pass. Returns a failure string (or undefined)
- * plus the authority/effective/enforcement metadata for the trace.
+ * plus the authority/effective/enforcement metadata for the trace. The ECR
+ * snapshot carries the pure effective answer; enforcement is recomputed here
+ * from the request context (required features + exact-pin/experimental
+ * opt-in + the separately documented quarantine-bypass policy).
  */
 function effectiveCompatibilityFailure(
   model: ModelEvidence,
   input: ModelSelectionInput,
   exact: boolean,
   effective: ReadonlyMap<string, ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>>,
+  allowQuarantineBypass: boolean,
 ): Readonly<{ failure?: string; effectiveLabel?: string; enforcementReason?: string }> {
   const features = requiredFeaturesForCapabilities(input.requiredCapabilities, input.reasoning);
   const effectiveForModel = effective.get(model.logicalId);
@@ -89,6 +94,11 @@ function effectiveCompatibilityFailure(
     const failure = compatibilityFailure(model, exact, input.allowExperimental);
     return failure === undefined ? {} : { failure };
   }
+  const context = {
+    required: true,
+    experimentalOverride: input.allowExperimental === true || exact,
+    allowQuarantineBypass,
+  };
   let worst: EffectiveCompatibility | undefined;
   let blocked: EffectiveCompatibility | undefined;
   let missingRequired = false;
@@ -98,23 +108,26 @@ function effectiveCompatibilityFailure(
       missingRequired = true;
       continue;
     }
-    if (worst === undefined || result.enforcement === "blocked") worst = result;
-    if (result.enforcement === "blocked" && blocked === undefined) blocked = result;
+    if (worst === undefined) worst = result;
+    if (enforceEffective(result.effective, context).enforcement === "blocked" && blocked === undefined) blocked = result;
   }
   if (missingRequired) {
     return { failure: COMPATIBILITY_FAILURES.experimental, enforcementReason: "missing-ecr-data-for-required-feature" };
   }
-  const summary = worst ?? [...effectiveForModel.values()][0];
+  const summary = worst;
   if (blocked !== undefined) {
+    const enforced = enforceEffective(blocked.effective, context);
     return {
       failure: blocked.effective === "quarantined" ? COMPATIBILITY_FAILURES.broken : COMPATIBILITY_FAILURES.experimental,
       effectiveLabel: blocked.effective,
-      enforcementReason: blocked.enforcementReason ?? "blocked-required-feature",
+      enforcementReason: enforced.reason ?? "blocked-required-feature",
     };
   }
   return {
     ...(summary === undefined ? {} : { effectiveLabel: summary.effective }),
-    ...(summary?.enforcement === "quarantine-bypass" ? { enforcementReason: "admin-quarantine-bypass" } : {}),
+    ...(summary !== undefined && enforceEffective(summary.effective, context).enforcement === "quarantine-bypass"
+      ? { enforcementReason: "admin-quarantine-bypass" }
+      : {}),
   };
 }
 
@@ -123,11 +136,12 @@ function assess(
   input: ModelSelectionInput,
   exact: boolean,
   effective?: ReadonlyMap<string, ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>>,
+  allowQuarantineBypass = false,
 ): ModelCandidateAssessment {
   const missing = missingCapabilities(model.capabilities, input.requiredCapabilities);
   const reasoning = input.reasoning ?? { required: false };
   const reasoningFail = reasoningFailure(reasoning, model);
-  const ecr = effective === undefined ? undefined : effectiveCompatibilityFailure(model, input, exact, effective);
+  const ecr = effective === undefined ? undefined : effectiveCompatibilityFailure(model, input, exact, effective, allowQuarantineBypass);
   const compatFail = ecr?.failure ?? (effective === undefined ? compatibilityFailure(model, exact, input.allowExperimental) : undefined);
   return Object.freeze({
     logicalId: model.logicalId,
@@ -213,6 +227,8 @@ export function selectModel(
   dependencies?: Readonly<{
     /** #124: ECR snapshot (logicalId → per-feature effective answers). */
     effective?: EffectiveSelectionSnapshot;
+    /** #124: separately documented administrative quarantine-bypass policy. */
+    allowQuarantineBypass?: boolean;
   }>,
 ): ModelSelectionResult {
   const exact = input.exactModelId !== undefined;
@@ -247,7 +263,7 @@ export function selectModel(
     candidates = providerModels;
   }
 
-  const assessments = candidates.map((model) => assess(model, input, exact, dependencies?.effective));
+  const assessments = candidates.map((model) => assess(model, input, exact, dependencies?.effective, dependencies?.allowQuarantineBypass));
   const eligible = assessments.filter(
     (assessment) => assessment.capabilityPass && assessment.reasoningPass && assessment.compatibilityPass,
   );

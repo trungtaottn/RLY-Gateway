@@ -73,6 +73,8 @@ export type ModelProjection = Readonly<{
   upstreamModelId: string;
   modelFamily?: string;
   compatibilityState: CompatibilityState;
+  /** #124: effective ECR label when the ECR is the projection authority. */
+  effectiveLabel?: string;
   /** Registry evidence date; also drives the discovery `created_at` field. */
   verifiedAt: string;
 }>;
