@@ -74,7 +74,7 @@ describe("release workflow contracts", () => {
     expect(beta).toContain("branches: [dev]");
     expect(stable).toContain("branches: [main]");
     expect(beta).toContain("github.actor != format('{0}[bot]', vars.RLY_RELEASE_ALIGNMENT_APP_SLUG)");
-    expect(stable).toContain("actions/create-github-app-token@v3");
+    expect(stable).toContain("actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1");
     expect(stable).toContain("GITHUB_TOKEN: ${{ steps.alignment-token.outputs.token }}");
   });
 

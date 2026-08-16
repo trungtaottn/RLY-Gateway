@@ -22,3 +22,8 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+
+# Release signing private keys are secrets — never commit.
+signing-private-key.pem
+**/signing-private-key.pem
+
