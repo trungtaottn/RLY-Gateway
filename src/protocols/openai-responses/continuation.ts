@@ -126,21 +126,25 @@ export class ResponseContinuationStore {
     };
   }
 
-  public async remember(request: CanonicalRequest, events: readonly CanonicalEvent[]): Promise<StoredResponse | undefined> {
-    const started = events.find((item) => item.type === "response-started");
-    const completed = events.some((item) => item.type === "response-completed");
-    if (!started || !completed) return undefined;
-    const aggregated = aggregateResponsesEvents(events);
+  public async rememberAggregated(request: CanonicalRequest, aggregated: Readonly<{ id: string; model: string; output: readonly unknown[] }>): Promise<StoredResponse | undefined> {
     const output = Array.isArray(aggregated.output) ? aggregated.output : [];
     const stored: StoredResponse = {
-      id: String(aggregated.id),
+      id: aggregated.id,
       createdAt: new Date().toISOString(),
-      model: String(aggregated.model),
+      model: aggregated.model,
       messages: [...request.messages, ...messagesFromOutput(output)],
       ...(request.fidelity === undefined ? {} : { fidelity: request.fidelity }),
     };
     await this.put(stored);
     return stored;
+  }
+
+  public async remember(request: CanonicalRequest, events: readonly CanonicalEvent[]): Promise<StoredResponse | undefined> {
+    const started = events.find((item) => item.type === "response-started");
+    const completed = events.some((item) => item.type === "response-completed");
+    if (!started || !completed) return undefined;
+    const aggregated = aggregateResponsesEvents(events);
+    return this.rememberAggregated(request, { id: String(aggregated.id), model: String(aggregated.model), output: Array.isArray(aggregated.output) ? aggregated.output : [] });
   }
 
   public toResponsesObject(stored: StoredResponse): Record<string, unknown> {

@@ -1,13 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { Readable } from "node:stream";
-import type { CanonicalEvent } from "../core/canonical-event.js";
 import { decideRoute, UnsupportedRouteError, type RouteRecord } from "../core/router.js";
 import { ProfileActivationError } from "../profiles/errors.js";
 import { decodeAnthropicRequest, AnthropicProtocolError } from "../protocols/anthropic/decoder.js";
-import { aggregateAnthropicEvents, encodeAnthropicEvents } from "../protocols/anthropic/encoder.js";
+import { aggregateAnthropicEvents, createAnthropicIncrementalEncoder } from "../protocols/anthropic/encoder.js";
 import { collectWithSafeRetry, type CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { ProviderAdapterError } from "../providers/provider-adapter.js";
 import { NoEligibleAccountError } from "../routing/errors.js";
+import { createStreamLifecycle, type StreamTimeoutPolicy } from "./stream-lifecycle.js";
+import { pumpStream } from "./stream-pump.js";
 
 export type ResolvedAnthropicRoute = Readonly<{ upstream: CanonicalUpstream; route: RouteRecord }>;
 export type RouteResolverHeaders = Readonly<{
@@ -23,6 +24,13 @@ export type AnthropicRouteDependencies = Readonly<{
     required?: ReturnType<typeof decodeAnthropicRequest>["required"],
   ) => ResolvedAnthropicRoute | undefined | Promise<ResolvedAnthropicRoute | undefined>;
   configFingerprint: string;
+  /**
+   * #120 stream timeout policy. Defaults to `DEFAULT_STREAM_TIMEOUT_POLICY`:
+   * a bounded connection/setup window before the first frame and an idle/
+   * progress window between frames — no generic whole-request timer, so
+   * healthy long-lived agent streams are never killed.
+   */
+  streamTimeouts?: Partial<StreamTimeoutPolicy>;
 }>;
 type Closeable = Readonly<{
   once: (event: "aborted" | "close", listener: () => void) => unknown;
@@ -64,6 +72,11 @@ function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+/** #120 in-band timeout frame: the client is still connected, so it gets a structured error. */
+function timeoutError(category: "setup" | "idle"): AnthropicProtocolError {
+  return new AnthropicProtocolError("api_error", category === "setup" ? "Gateway stream did not start within the setup window" : "Gateway stream made no progress within the idle window", 504);
+}
+
 export function registerAnthropicMessagesRoute(app: FastifyInstance, dependencies: AnthropicRouteDependencies): void {
   app.post("/v1/messages", async (request, reply) => {
     try {
@@ -75,25 +88,45 @@ export function registerAnthropicMessagesRoute(app: FastifyInstance, dependencie
       decideRoute({ requestId: decoded.request.id, route, required: decoded.required, configFingerprint: dependencies.configFingerprint });
       const controller = new AbortController();
       const unbindAbort = bindClientAbort(request.raw, reply.raw, controller);
-      try {
-        if (decoded.request.stream) {
-          const source = upstream.invoke(decoded.request, controller.signal);
-          async function* sse(): AsyncIterable<string> {
-            const seen: CanonicalEvent[] = [];
-            let emitted = 0;
-            try {
-              for await (const event of source) {
-                seen.push(event);
-                const encoded = encodeAnthropicEvents(seen, false);
-                for (const wire of encoded.slice(emitted)) yield sseFrame(wire.event, wire.data);
-                emitted = encoded.length;
-              }
-            } catch (error) {
-              if (!controller.signal.aborted) yield sseFrame("error", errorPayload(error));
-            }
-          }
-          return await reply.header("content-type", "text/event-stream; charset=utf-8").header("cache-control", "no-cache").send(Readable.from(sse()));
+      if (decoded.request.stream) {
+        // #120 incremental transport: the upstream signal is the merged
+        // client-disconnect + policy-timeout signal; the pump encodes each
+        // event once, respects downstream backpressure by suspending at yield,
+        // and cleans up exactly once when the stream terminates. The client
+        // abort binding is released by the pump's onFinished (the handler
+        // returns before the stream ends), not by the handler's finally.
+        const lifecycle = createStreamLifecycle({
+          clientSignal: controller.signal,
+          ...(dependencies.streamTimeouts === undefined ? {} : { policy: dependencies.streamTimeouts }),
+        });
+        const source = upstream.invoke(decoded.request, lifecycle.signal);
+        const encoder = createAnthropicIncrementalEncoder();
+        const onDrain = (): void => lifecycle.noteBackpressure();
+        reply.raw.on("drain", onDrain);
+        const readable = Readable.from(pumpStream(source, {
+          lifecycle,
+          encoder,
+          frame: (wire) => sseFrame(wire.event, wire.data),
+          errorFrame: (error) => sseFrame("error", errorPayload(error)),
+          timeoutFrame: (category) => sseFrame("error", errorPayload(timeoutError(category))),
+          onFinished: (metrics) => {
+            reply.raw.removeListener("drain", onDrain);
+            unbindAbort();
+            request.log.info({ streamMetrics: metrics }, "stream finished");
+          },
+        }));
+        try {
+          return await reply.header("content-type", "text/event-stream; charset=utf-8").header("cache-control", "no-cache").send(readable);
+        } catch (error) {
+          // Pre-stream send failure: release the drain listener and the client
+          // abort binding; the outer catch converts the error into a
+          // structured reply.
+          reply.raw.removeListener("drain", onDrain);
+          unbindAbort();
+          throw error;
         }
+      }
+      try {
         const events = await collectWithSafeRetry(upstream, decoded.request, controller.signal);
         return await reply.send(aggregateAnthropicEvents(events));
       } finally {
