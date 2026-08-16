@@ -122,6 +122,14 @@ Outcome: newly installed Claude Code / Codex CLI versions are never auto-support
 
 Exit: canary matrix/evidence/CLI/projection-gate/privacy suites and full `pnpm verify` pass.
 
+## Milestone 11 — Wave 4 service/identity boundary (#92/#93/#94)
+
+Outcome: installed runtime execution is immutable, transactionally activated, and bound to an exact build identity — activation/rollback verify the exact bytes now serving.
+
+- Immutable content-addressed deployments + atomic `staged`/`active`/`previous` refs; INSTALL != ACTIVATE; legacy layout migration (#92).
+- Transactional activation with durable journal phases, real-identity update lock, drain fence, migration compatibility classes, bounded rollback, deterministic crash recovery (#93).
+- Stable RLY-owned bootstrap contract (`<control-plane>/bootstrap/rly-gateway`) as the sole service-manager execution identity (never `dist/cli/init.js`/Node path); exact build identity (semantic version/commit/build ID/channel/protocol/state versions/artifact digest) shared by `/identity`, `rly --version`, diagnostics, manifest, and probation; build-aware attestation fail-closed; idempotent service-definition reconciliation (#94).
+
 ## Beyond V1
 
 See [BACKLOG.md](./BACKLOG.md). Nothing there is committed without promotion.
