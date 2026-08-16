@@ -304,6 +304,12 @@ These are acceptance scenarios, not hand-maintained implementation test names. T
 | AT-284 | README/install/update/uninstall/project-decision/RTM/AT documentation matches the implemented lifecycle and the INSTALL != ACTIVATE boundary | README, SPEC §6.15, ARCHITECTURE, project-decisions, FRS/SRS, RTM Phase 129 rows, and this catalogue describe the verified acquisition, bootstrap install, channel policy, uninstall/purge, repair, and the rule that acquisition never activates; FR-039 / SR-F-043 / AT-272–AT-285 added with non-colliding IDs (checked against merged dev max FR-038 / SR-F-042 / AT-271 from #128) |
 | AT-285 | Installer/updater/uninstaller evidence is hermetic, deterministic, and regression-safe (#129) | `tests/unit/installer-{signing,acquisition,state}.test.ts`, `tests/unit/cli-{install,uninstall,update-acquisition}.test.ts`, `tests/integration/installer-shell.test.ts`, `tests/privacy/installer.test.ts`, and the `verified-install` qualification gate stay green; `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:privacy`, `pnpm build`, `git diff --check`, and the release supply-chain gate stay green (FR-039; SR-F-043) |
 
+## Phase 144 acceptance scenarios (#144 — materializeRuntimeTree symlink preservation)
+
+| ID | Acceptance scenario | Expected result |
+| --- | --- | --- |
+| AT-286 | Materialize a runtime tree preserving pnpm symlinks so transitive dependencies resolve (#144) | A two-level pnpm virtual-store fixture (top-level link → `.pnpm/<pkg>@<ver>/node_modules/<pkg>` whose sibling links resolve the level-1 and level-2 deps, mirroring fastify→avvio) materialized by `materializeRuntimeTree` keeps every relative in-tree link with its original relative target and the deployed tree RUNS: real Node resolution through the preserved virtual store succeeds; the pre-fix dereferencing behavior fails with `Cannot find module '<dep>'`; absolute/escaping symlinks are refused (self-contained deployments); pnpm metadata, `.bin` shims, and dependency test artifacts are pruned; `computeArtifactId` digests the relative links deterministically (`link:<target>`) and the candidate installer stages the symlinked candidate preserving the layout (FR-040; SR-F-044; FR-032)
+
 ## Evidence rules
 
 - Automated evidence records command, tested revision, result, and redacted artifact where needed.
