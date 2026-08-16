@@ -26,6 +26,9 @@
     "test:privacy": "vitest run tests/privacy && node scripts/check-privacy.mjs",
     "test:browser": "playwright test",
     "test:release": "node scripts/check-ci-workflow.mjs && node scripts/check-license.mjs && node scripts/package-release.mjs && node scripts/clean-install-smoke.mjs",
+    "artifact:build": "node scripts/standalone/build-standalone.mjs --build",
+    "artifact:verify": "node scripts/standalone/verify-artifact.mjs",
+    "test:standalone": "vitest run tests/unit/standalone-artifact.test.ts",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:browser && pnpm build && pnpm test:privacy && pnpm test:release"
   },
   "dependencies": {
