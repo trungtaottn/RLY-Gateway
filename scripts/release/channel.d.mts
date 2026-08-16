@@ -52,4 +52,4 @@ export function evaluateChannelMetadata(
   metadata: ChannelMetadata,
   args?: { highestObservedVersion?: number; now?: string; maxAgeDaysOverride?: number },
 ): { ok: boolean; errors: string[]; rollbackDetected: boolean; stale: boolean; frozen: boolean; ageDays: number | null };
-export function qualificationStatusForChannel(qualificationByTarget: Record<string, { status: string }>, channel: string): string;
+export function qualificationStatusForChannel(qualificationByTarget: Record<string, { result?: string; status?: string }>, channel: string): string;

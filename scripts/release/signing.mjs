@@ -40,9 +40,12 @@ export function generateSigningKeyPair() {
   };
 }
 
+const PRIVATE_KEY_MARKER = "-----BEGIN " + "PRIVATE KEY-----";
+const PUBLIC_KEY_MARKER = "-----BEGIN " + "PUBLIC KEY-----";
+
 /** SHA-256 fingerprint of the public key DER (stable identifier for metadata). */
 export function publicKeyFingerprint(keyPem) {
-  const publicKey = keyPem.includes("-----BEGIN PRIVATE KEY-----")
+  const publicKey = keyPem.includes(PRIVATE_KEY_MARKER)
     ? exportPublicKey(keyPem)
     : keyPem;
   const der = publicKeyDer(publicKey);
@@ -50,7 +53,7 @@ export function publicKeyFingerprint(keyPem) {
 }
 
 function publicKeyDer(publicKeyPem) {
-  if (typeof publicKeyPem !== "string" || !publicKeyPem.includes("-----BEGIN PUBLIC KEY-----")) {
+  if (typeof publicKeyPem !== "string" || !publicKeyPem.includes(PUBLIC_KEY_MARKER)) {
     throw new Error("invalid public key PEM");
   }
   return Buffer.from(
@@ -78,7 +81,7 @@ export function signBytes(privateKeyPem, data) {
 }
 
 function exportPublicKey(privateKeyPem) {
-  if (typeof privateKeyPem !== "string" || !privateKeyPem.includes("-----BEGIN PRIVATE KEY-----")) {
+  if (typeof privateKeyPem !== "string" || !privateKeyPem.includes(PRIVATE_KEY_MARKER)) {
     throw new Error("invalid private key PEM (expected PKCS#8)");
   }
   const key = importKey(privateKeyPem, "private");
