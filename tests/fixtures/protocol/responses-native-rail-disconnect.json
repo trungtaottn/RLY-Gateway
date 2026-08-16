@@ -1,0 +1,16 @@
+{
+  "purpose": "Conformance corpus fixture (#121): disconnect ambiguity on the native Responses rail. The provider stream STARTS (response.created) and emits output deltas but ends WITHOUT response.completed or response.failed — the provider accepted the request, so the failure commitment is provider-accepted and MUST never be retried/replayed. All values synthetic.",
+  "protocol": "openai-responses",
+  "rail": "native",
+  "scenario": "disconnect-after-acceptance",
+  "inboundFrames": [
+    { "event": "response.created", "data": { "type": "response.created", "response": { "id": "resp_native_disc", "object": "response", "status": "in_progress", "model": "fixture-model", "output": [], "usage": {} } } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_disc", "role": "assistant", "status": "in_progress", "content": [] } } },
+    { "event": "response.output_text.delta", "data": { "type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "partial text" } }
+  ],
+  "expectedError": {
+    "name": "ProviderAdapterError",
+    "code": "api_error",
+    "commitment": "provider-accepted"
+  }
+}

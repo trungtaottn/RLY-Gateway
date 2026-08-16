@@ -149,6 +149,8 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
     const fail = (code: string, message: string, info?: ProviderErrorInfo): never => {
       throw new ProviderAdapterError(code, message, info, commitment);
     };
+    // True once a terminal `response.completed`/`response.failed` frame was seen.
+    let terminal = false;
     if (!request.stream) {
       yield* this.decodeNonStreaming(request, decision, response, state, commitment, fail);
       return;
@@ -228,6 +230,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
           break;
         }
         case "response.completed": {
+          terminal = true;
           const responseObj = record(wire.data.response);
           for (const item of outputItems(responseObj)) captureReasoningArtifact(state, item);
           if (state.artifacts.length > 0) {
@@ -244,6 +247,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
           break;
         }
         case "response.failed": {
+          terminal = true;
           const responseObj = record(wire.data.response);
           for (const item of outputItems(responseObj)) captureReasoningArtifact(state, item);
           if (state.artifacts.length > 0) {
@@ -269,6 +273,12 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
       }
     }
     if (!state.started) fail("api_error", "Provider stream ended before a response started");
+    if (!terminal) {
+      // #121: the provider acknowledged the request but never delivered a
+      // terminal frame — the outcome is ambiguous and the attempt is
+      // committed; conservative no-replay.
+      fail("api_error", "Provider stream ended without a terminal response");
+    }
   }
 
   private async *decodeNonStreaming(
@@ -394,7 +404,10 @@ function captureReasoningArtifact(state: RailState, item: Readonly<Record<string
   const itemId = typeof item.id === "string" ? item.id : undefined;
   const encrypted = typeof item.encrypted_content === "string" ? item.encrypted_content : undefined;
   if (itemId === undefined || encrypted === undefined || encrypted.length === 0) return;
-  state.artifacts.push({ kind: "openai-reasoning-encrypted-content", association: itemId, value: encrypted });
+  const artifact: OpaqueArtifact = { kind: "openai-reasoning-encrypted-content", association: itemId, value: encrypted };
+  if (!state.artifacts.some((existing) => existing.kind === artifact.kind && existing.association === artifact.association && existing.value === artifact.value)) {
+    state.artifacts.push(artifact);
+  }
 }
 
 function outputItems(response: Readonly<Record<string, unknown>> | undefined): readonly Readonly<Record<string, unknown>>[] {

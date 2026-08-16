@@ -63,6 +63,13 @@ function boundedNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function headerNumber(headers: Headers, name: string): number | undefined {
+  const raw = headers.get(name);
+  if (raw === null) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Readonly<Record<string, unknown>> : undefined;
 }
@@ -79,8 +86,8 @@ function retryAfterSecondsOf(headers: Headers): number | undefined {
 }
 
 function rateLimitOf(headers: Headers): ProviderRateLimit | undefined {
-  const limit = boundedNumber(headers.get("x-ratelimit-limit"));
-  const remaining = boundedNumber(headers.get("x-ratelimit-remaining"));
+  const limit = headerNumber(headers, "x-ratelimit-limit");
+  const remaining = headerNumber(headers, "x-ratelimit-remaining");
   const resetSeconds = retryAfterSecondsOf(headers);
   if (limit === undefined && remaining === undefined && resetSeconds === undefined) return undefined;
   return Object.freeze({
