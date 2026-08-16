@@ -26,7 +26,7 @@ import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { Buffer } from "node:buffer";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
@@ -231,7 +231,7 @@ async function main() {
   }
 
   const staging = await prepareRuntimeStaging();
-  const outDir = options.out;
+  const outDir = resolve(options.out);
   await mkdir(outDir, { recursive: true });
   const host = hostTarget();
   const results = [];

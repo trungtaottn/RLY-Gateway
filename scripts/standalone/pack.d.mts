@@ -50,6 +50,7 @@ export type ArtifactMetadata = {
 export type TreeNode = {
   path: string;
   type: "file" | "dir" | "symlink" | "special";
+  target?: string;
 };
 
 export type BundledNode = {
@@ -74,6 +75,9 @@ export function pinnedNodeVersion(): Promise<string>;
 export function targetStatus(target: string): MatrixEntry;
 export function hostTarget(platform?: string, arch?: string): string | null;
 export function forbiddenMatch(path: string): string | undefined;
+export function isSafeRelativeSymlink(entryPath: string, target: string): boolean;
+export function isTestArtifactPath(name: string): boolean;
+export function paxRecord(key: string, value: string): string;
 export function walkTree(root: string, relativePrefix?: string): Promise<TreeNode[]>;
 export function checkAllowlist(root: string): Promise<string[]>;
 export function treeDigest(root: string, options?: { exclude?: string[] }): Promise<string>;
@@ -93,7 +97,7 @@ export function buildArtifactMetadata(args: {
 }): ArtifactMetadata;
 export function copyEntryDeref(source: string, target: string, visited?: Set<string>): Promise<void>;
 export function buildTarBytes(
-  entries: Array<{ path: string; type: "file" | "dir"; size: number; content: Uint8Array }>,
+  entries: Array<{ path: string; type: "file" | "dir" | "symlink"; size: number; content: Uint8Array; linkname?: string }>,
   sourceDateEpoch: number,
 ): Uint8Array;
 export function gzipDeterministic(buffer: Uint8Array): Uint8Array;

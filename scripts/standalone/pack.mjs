@@ -22,9 +22,9 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, readlink, realpath, symlink, writeFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -118,7 +118,9 @@ export const DOCS_ALLOWLIST = Object.freeze(["third-party-notices.md"]);
 
 /**
  * Forbidden path markers (matched case-insensitively against the full
- * relative path). Any match fails packaging/verification.
+ * relative path). Any match fails packaging/verification. Deliberately
+ * structural (dirs/names), NOT the RLY-owned module vocabulary
+ * (`dist/credentials` is compiled runtime code, not leaked secrets).
  */
 export const FORBIDDEN_PATH_PATTERNS = Object.freeze([
   /(^|\/)\.git($|\/)/,
@@ -135,16 +137,52 @@ export const FORBIDDEN_PATH_PATTERNS = Object.freeze([
   /\.sqlite-wal$/,
   /\.sqlite-shm$/,
   /\.log$/,
-  /(^|\/)credentials($|\/)/,
   /\.pem$/,
   /\.key$/,
+  /\.p12$/,
+  /\.pfx$/,
   /\.DS_Store$/,
-  // pnpm metadata may carry store/absolute paths; never shipped.
+  // pnpm metadata files may carry store/absolute paths; never shipped.
+  // (`.pnpm` itself stays: it holds the real virtual-store files that some
+  // packages resolve through hoisted paths.)
   /(^|\/)\.modules\.yaml$/,
   /(^|\/)\.package-map\.json$/,
   /(^|\/)\.pnpm-workspace-state-v1\.json$/,
-  /(^|\/)\.pnpm($|\/)/,
+  /(^|\/)\.pnpm\/lock\.yaml$/,
 ]);
+
+/** Secret-content markers applied to RLY-owned artifact files (same rules as the repo privacy scan). */
+export const SECRET_CONTENT_PATTERNS = Object.freeze([
+  { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+  { name: "bearer credential", pattern: /Bearer\s+[A-Za-z0-9._~+/=-]{20,}/i },
+  { name: "JWT-like credential", pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/ },
+]);
+
+/**
+ * Scans RLY-owned artifact files (dist/ + top-level manifests/notices) for
+ * secret content. Third-party node_modules are covered by file-shape checks
+ * only (their content is not ours). Returns violations.
+ */
+export async function checkForSecretContent(root) {
+  const violations = [];
+  const candidates = (await walkTree(root))
+    .filter((entry) => entry.type === "file")
+    .filter((entry) => entry.path.startsWith("dist/") || !entry.path.includes("/"))
+    .map((entry) => entry.path)
+    .filter((path) => !/\.(map)$/.test(path));
+  for (const path of candidates) {
+    let contents;
+    try {
+      contents = await readFile(join(root, path), "utf8");
+    } catch {
+      continue; // binary file
+    }
+    for (const rule of SECRET_CONTENT_PATTERNS) {
+      if (rule.pattern.test(contents)) violations.push(`${path}: ${rule.name} content`);
+    }
+  }
+  return violations.sort();
+}
 
 /** pnpm metadata that may carry store/absolute paths; never shipped. */
 export const PNPM_METADATA_FILES = Object.freeze([
@@ -153,6 +191,16 @@ export const PNPM_METADATA_FILES = Object.freeze([
   ".pnpm-workspace-state-v1.json",
   "lock.yaml",
 ]);
+
+/**
+ * Dependency test artifacts never required at runtime (#35: exclude "tests
+ * not required at runtime"): `tests`/`__tests__`/`__snapshots__` directories
+ * and `*.test.*` / `*.spec.*` files. Pruned when dereferencing bundled
+ * dependencies into the artifact.
+ */
+export function isTestArtifactPath(name) {
+  return /(^|\/)(tests|__tests__|__snapshots__)($|\/)/.test(name) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(name);
+}
 
 export function forbiddenMatch(path) {
   const normalized = path.replaceAll("\\", "/");
@@ -168,7 +216,7 @@ export function comparePath(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Walks a tree and returns every entry as { path, type: "file" | "dir" }. */
+/** Walks a tree and returns every entry as { path, type, target? }. */
 export async function walkTree(root, relativePrefix = "") {
   const entries = [];
   const names = (await readdir(join(root, relativePrefix))).sort(comparePath);
@@ -176,7 +224,7 @@ export async function walkTree(root, relativePrefix = "") {
     const path = relativePrefix ? `${relativePrefix}/${name}` : name;
     const details = await lstat(join(root, relativePrefix, name));
     if (details.isSymbolicLink()) {
-      entries.push({ path, type: "symlink" });
+      entries.push({ path, type: "symlink", target: await readlink(join(root, relativePrefix, name)) });
     } else if (details.isDirectory()) {
       entries.push({ path, type: "dir" });
       entries.push(...await walkTree(root, path));
@@ -202,7 +250,17 @@ export async function checkAllowlist(root) {
     if (!allowed) violations.push(`unexpected top-level entry: ${name}`);
   }
   for (const entry of entries) {
-    if (entry.type === "symlink") violations.push(`symlink in artifact (must be self-contained real files): ${entry.path}`);
+    if (entry.type === "symlink") {
+      // pnpm's node_modules layout uses relative in-tree symlinks (the bundled
+      // dependency layout must preserve them or transitive resolution breaks).
+      // Anything outside node_modules/, absolute, or escaping the artifact is
+      // refused (self-contained, no link attacks).
+      if (!entry.path.startsWith("node_modules/")) {
+        violations.push(`symlink outside node_modules/: ${entry.path}`);
+      } else if (!isSafeRelativeSymlink(entry.path, entry.target ?? "")) {
+        violations.push(`unsafe symlink target (${entry.target}) for ${entry.path}`);
+      }
+    }
     if (entry.type === "special") violations.push(`special file in artifact: ${entry.path}`);
     if (entry.path.startsWith("bin/") && entry.path !== "bin" && !BIN_ALLOWLIST.includes(entry.path.slice("bin/".length))) {
       violations.push(`unexpected file under bin/: ${entry.path}`);
@@ -214,6 +272,14 @@ export async function checkAllowlist(root) {
     if (marker !== undefined) violations.push(`forbidden path marker (${marker}): ${entry.path}`);
   }
   return violations.sort();
+}
+
+/** A symlink target is safe when relative and resolving it stays inside the artifact. */
+export function isSafeRelativeSymlink(entryPath, target) {
+  if (target === "" || target.startsWith("/") || /^[A-Za-z]:/.test(target)) return false;
+  const resolved = resolve("/", dirname(entryPath), target);
+  const rootPrefix = "/node_modules";
+  return resolved === rootPrefix || resolved.startsWith(`${rootPrefix}${sep}`);
 }
 
 /**
@@ -240,7 +306,12 @@ async function treeFileDigests(root, relativePath, exclude) {
     if (exclude.includes(entryPath)) continue;
     const details = await lstat(join(directory, name));
     if (details.isSymbolicLink()) {
-      throw new Error(`cannot digest artifact with symlink: ${entryPath}; artifacts must be self-contained real files`);
+      // Deterministic symlink identity: the relative link target participates
+      // in the digest (pnpm layout); the real content is hashed at its real
+      // path under node_modules/.pnpm, never double-counted.
+      const target = await readlink(join(directory, name));
+      entries.push({ path: entryPath, sha256: `link:${target}` });
+      continue;
     }
     if (details.isDirectory()) {
       entries.push(...await treeFileDigests(root, entryPath, exclude));
@@ -367,9 +438,11 @@ export function exactGitTag(cwd = ROOT) {
 }
 
 /**
- * Copies a tree entry with pnpm symlinks dereferenced (cycle-safe visited
- * realpath set) and pnpm metadata files skipped, so the artifact is fully
- * self-contained real files (deterministic digest, no store paths).
+ * Copies a bundled-dependency tree into the artifact. pnpm's relative in-tree
+ * symlinks are PRESERVED (dereferencing them breaks transitive resolution);
+ * absolute/escaping symlinks, pnpm metadata files, and dependency test
+ * artifacts are refused/skipped. Cycle-safe via a visited-realpath set for
+ * the real-file copies under the virtual store.
  */
 export async function copyEntryDeref(source, target, visited = new Set()) {
   const details = await lstat(source).catch((error) => {
@@ -378,19 +451,25 @@ export async function copyEntryDeref(source, target, visited = new Set()) {
   });
   if (details === undefined) return;
   if (details.isSymbolicLink()) {
+    const targetPath = await readlink(source);
+    if (targetPath.startsWith("/") || /^[A-Za-z]:/.test(targetPath)) {
+      throw new Error(`refusing absolute dependency symlink in artifact: ${source} -> ${targetPath}`);
+    }
     const resolved = await realpath(source);
     const key = `${source}\0${resolved}`;
     if (visited.has(key)) return;
     visited.add(key);
-    await copyEntryDeref(resolved, target, visited);
+    await mkdir(dirname(target), { recursive: true });
+    await symlink(targetPath, target);
     return;
   }
   if (details.isDirectory()) {
-    const base = source.split("/").at(-1);
-    if (PNPM_METADATA_FILES.includes(base)) return;
     await mkdir(target, { recursive: true });
     const children = await readdir(source);
     for (const child of children.sort(comparePath)) {
+      // pnpm metadata, executable shims (.bin embeds absolute store paths),
+      // and dependency test artifacts never ship.
+      if (PNPM_METADATA_FILES.includes(child) || child === ".bin" || isTestArtifactPath(child)) continue;
       await copyEntryDeref(join(source, child), join(target, child), visited);
     }
     return;
@@ -414,11 +493,12 @@ export function buildTarBytes(entries, sourceDateEpoch) {
   };
   for (const entry of entries) {
     const path = entry.path.replaceAll("\\", "/");
-    const typeflag = entry.type === "dir" ? "5" : "0";
-    const size = entry.type === "dir" ? 0 : entry.size;
+    const typeflag = entry.type === "dir" ? "5" : entry.type === "symlink" ? "2" : "0";
+    const size = entry.type === "dir" || entry.type === "symlink" ? 0 : entry.size;
+    const linkname = entry.type === "symlink" ? (entry.linkname ?? "") : "";
     const truncated = Buffer.from(path, "utf8").subarray(0, 100).toString("utf8");
     if (Buffer.byteLength(path, "utf8") > 100 || truncated !== path) {
-      const pax = Buffer.from(`%d path=${path}\n`, "utf8");
+      const pax = Buffer.from(paxRecord("path", path), "utf8");
       pushHeader(makeHeader({
         name: "PaxHeader",
         mode: 0o644,
@@ -446,7 +526,7 @@ export function buildTarBytes(entries, sourceDateEpoch) {
       size,
       mtime,
       typeflag,
-      linkname: "",
+      linkname,
       uname: "",
       gname: "",
       devmajor: 0,
@@ -461,6 +541,16 @@ export function buildTarBytes(entries, sourceDateEpoch) {
   }
   blocks.push(Buffer.alloc(512), Buffer.alloc(512));
   return Buffer.concat(blocks);
+}
+
+/** PAX extended-header record with the correct total-length prefix. */
+export function paxRecord(key, value) {
+  let body = `${key}=${value}\n`;
+  let record = `${Buffer.byteLength(body) + 1} ${body}`;
+  while (Buffer.byteLength(record) !== Number(record.split(" ")[0])) {
+    record = `${Buffer.byteLength(record)} ${body}`;
+  }
+  return record;
 }
 
 function makeHeader({ name, mode, uid, gid, size, mtime, typeflag, linkname, uname, gname, devmajor, devminor, prefix }) {
@@ -497,14 +587,16 @@ export function gzipDeterministic(buffer) {
   return gzipSync(buffer, { level: 9 });
 }
 
-/** Builds the deterministic tarball bytes for a tree (dirs + files, sorted). */
+/** Builds the deterministic tarball bytes for a tree (dirs + files + relative symlinks, sorted). */
 export async function tarballForTree(root, sourceDateEpoch) {
   const entries = [];
   for (const entry of await walkTree(root)) {
-    if (entry.type === "symlink" || entry.type === "special") {
-      throw new Error(`cannot tar artifact with ${entry.type}: ${entry.path}`);
+    if (entry.type === "special") {
+      throw new Error(`cannot tar artifact with special file: ${entry.path}`);
     }
-    if (entry.type === "dir") {
+    if (entry.type === "symlink") {
+      entries.push({ path: entry.path, type: "symlink", size: 0, content: Buffer.alloc(0), linkname: entry.target ?? "" });
+    } else if (entry.type === "dir") {
       entries.push({ path: `${entry.path}/`, type: "dir", size: 0, content: Buffer.alloc(0) });
     } else {
       const content = await readFile(join(root, entry.path));
@@ -535,7 +627,7 @@ export async function assembleStandaloneArtifact({
   if (matrix === undefined) throw new Error(`unknown standalone target: ${target}`);
   const artifactDir = join(outDir, `rly-${releaseVersion}-${target}`);
   await mkdir(artifactDir, { recursive: true });
-  await cp(runtimeRoot, artifactDir, { recursive: true });
+  await cp(runtimeRoot, artifactDir, { recursive: true, verbatimSymlinks: true });
 
   await mkdir(join(artifactDir, "bin"), { recursive: true });
   await cp(node.bin, join(artifactDir, "bin", "node"));
@@ -575,6 +667,10 @@ export async function assembleStandaloneArtifact({
   if (violations.length > 0) {
     throw new Error(`allowlist failed for ${target}:\n  - ${violations.join("\n  - ")}`);
   }
+  const secretViolations = await checkForSecretContent(artifactDir);
+  if (secretViolations.length > 0) {
+    throw new Error(`secret content detected for ${target}:\n  - ${secretViolations.join("\n  - ")}`);
+  }
   return { artifactDir, metadata, digest: artifactDigest, fileCount: files };
 }
 
@@ -587,6 +683,8 @@ export async function verifyArtifactDirectory(artifactRoot, { target, expectedVe
   const errors = [];
   const violations = await checkAllowlist(artifactRoot);
   if (violations.length > 0) errors.push(`allowlist violations:\n  - ${violations.join("\n  - ")}`);
+  const secretViolations = await checkForSecretContent(artifactRoot);
+  if (secretViolations.length > 0) errors.push(`secret content in RLY-owned files:\n  - ${secretViolations.join("\n  - ")}`);
 
   const [packageJson, buildMeta, manifest, metadata] = await Promise.all([
     readJsonSafe(join(artifactRoot, "package.json")),
@@ -654,9 +752,10 @@ export async function verifyArtifactDirectory(artifactRoot, { target, expectedVe
  * using the BUNDLED node, and returns the parsed identity object.
  */
 export async function smokeRun(artifactRoot, { timeoutMs = 60_000 } = {}) {
-  const launcher = join(artifactRoot, "rly");
+  const root = resolve(artifactRoot);
+  const launcher = join(root, "rly");
   const output = execFileSync(launcher, ["--version"], {
-    cwd: artifactRoot,
+    cwd: root,
     encoding: "utf8",
     timeout: timeoutMs,
     env: { ...process.env, RLY_BUNDLED_NODE: "1" },

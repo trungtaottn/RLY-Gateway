@@ -422,10 +422,60 @@ describe("launcher and manifest shape (#35)", () => {
   });
 });
 
+describe("pnpm dependency layout preservation (#35)", () => {
+  it("preserves relative in-tree symlinks (pnpm layout) and digests them deterministically", async () => {
+    const root = await directory();
+    await mkdir(join(root, "docs"), { recursive: true });
+    await mkdir(join(root, "dist", "cli"), { recursive: true });
+    await mkdir(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules"), { recursive: true });
+    await mkdir(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify"), { recursive: true });
+    await mkdir(join(root, "node_modules", ".pnpm", "avvio@9", "node_modules", "avvio"), { recursive: true });
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "rly-gateway", version: "1.2.3", type: "module" }));
+    await writeFile(join(root, "LICENSE"), "MIT\n");
+    await writeFile(join(root, "docs", "third-party-notices.md"), "notices\n");
+    await writeFile(join(root, "dist", "cli", "main.js"), "export const x = 1;\n");
+    await writeFile(join(root, "dist", "rly-build.json"), `${JSON.stringify(IDENTITY, null, 2)}\n`);
+    await writeFile(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify", "package.json"), JSON.stringify({ name: "fastify", main: "index.js" }));
+    await writeFile(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify", "index.js"), "require('avvio');\n");
+    await writeFile(join(root, "node_modules", ".pnpm", "avvio@9", "node_modules", "avvio", "index.js"), "module.exports = {};\n");
+    const { symlink } = await import("node:fs/promises");
+    await symlink(".pnpm/fastify@5/node_modules/fastify", join(root, "node_modules", "fastify"));
+    await symlink("../../avvio@9/node_modules/avvio", join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "avvio"));
+
+    const node = await fakeNode();
+    const assembled = await assembleStandaloneArtifact({
+      runtimeRoot: root,
+      outDir: await directory(),
+      target: "linux-x64",
+      node,
+      identityMeta: IDENTITY,
+      releaseVersion: "1.2.3",
+      sourceDateEpoch: 0,
+    });
+    expect(await checkAllowlist(assembled.artifactDir)).toEqual([]);
+    const { lstat: lstatFile } = await import("node:fs/promises");
+    expect((await lstatFile(join(assembled.artifactDir, "node_modules", "fastify"))).isSymbolicLink()).toBe(true);
+    expect((await lstatFile(join(assembled.artifactDir, "node_modules", ".pnpm", "fastify@5", "node_modules", "avvio"))).isSymbolicLink()).toBe(true);
+    const verification = await verifyArtifactDirectory(assembled.artifactDir, { target: "linux-x64", expectedVersion: "1.2.3" });
+    expect(verification.ok).toBe(true);
+  });
+
+  it("refuses symlinks that escape node_modules or are absolute", async () => {
+    const { symlink } = await import("node:fs/promises");
+    const root = await fixtureRuntimeRoot();
+    await symlink("../../etc/passwd", join(root, "node_modules", "escape"));
+    await symlink("/etc/passwd", join(root, "node_modules", "absolute"));
+    const violations = await checkAllowlist(root);
+    expect(violations.some((violation) => violation.includes("unsafe symlink target"))).toBe(true);
+    expect(violations.some((violation) => violation.includes("unsafe symlink target"))).toBe(true);
+  });
+});
+
 describe("exact git tag resolution", () => {
   it("resolves the exact tag on HEAD or returns undefined", () => {
     const tag = exactGitTag(process.cwd());
-    expect(typeof tag).toBe("string");
+    // A tagged HEAD yields the exact tag; any other HEAD yields undefined.
+    expect(tag === undefined || typeof tag === "string").toBe(true);
   });
 });
 
