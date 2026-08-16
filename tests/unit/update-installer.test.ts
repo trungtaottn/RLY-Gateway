@@ -233,24 +233,13 @@ describe("immutable deployment store (#92)", () => {
     const replacements = (async () => {
       try {
         for (let index = 0; index < GENERATIONS; index += 1) {
-          console.error(`[DIAG] writer gen=${String(index + 1)}/12 start ${String(Date.now())}`);
-          await Promise.race([
-            installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB }),
-            new Promise<never>((_resolve, reject) => {
-              setTimeout(() => {
-                reject(new Error(`[DIAG] INSTALLCANDIDATE STUCK 15s at gen=${String(index + 1)}`));
-              }, 15_000);
-            }),
-          ]);
-          console.error(`[DIAG] writer gen=${String(index + 1)}/12 done ${String(Date.now())}`);
-          barrier.generation += 1;
+                  await installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB });
+                  barrier.generation += 1;
           while (barrier.seen < barrier.generation) {
             await new Promise<void>((resolve) => setImmediate(resolve));
           }
-          console.error(`[DIAG] writer gen=${String(index + 1)}/12 barrier passed ${String(Date.now())}`);
-        }
-        console.error(`[DIAG] writer COMPLETE ${String(Date.now())}`);
-      } catch (error) {
+                }
+            } catch (error) {
         barrier.writerFailed = true;
         console.error(`[DIAG] writer FAILED ${String(Date.now())}`, error);
         throw error;
@@ -261,15 +250,13 @@ describe("immutable deployment store (#92)", () => {
       let lastProgress = Date.now();
       while (barrier.seen < GENERATIONS && !barrier.writerFailed) {
         if (Date.now() - lastProgress > 5000) {
-          console.error(`[DIAG] reader stalled 5s: seen=${String(barrier.seen)} gen=${String(barrier.generation)} observed=${String(observed)} at ${String(Date.now())}`);
-          lastProgress = Date.now();
+                  lastProgress = Date.now();
         }
         const target = await Promise.race([
           readlink(installer.stagedPath).catch(() => undefined),
           new Promise<undefined>((resolve) => {
             setTimeout(() => {
-              console.error(`[DIAG] READLINK STUCK 15s: seen=${String(barrier.seen)} gen=${String(barrier.generation)} path=${installer.stagedPath} at ${String(Date.now())}`);
-              resolve(undefined);
+                          resolve(undefined);
             }, 15_000);
           }),
         ]);
@@ -300,7 +287,10 @@ describe("immutable deployment store (#92)", () => {
     // The writer could not advance past an unobserved generation, so the
     // reader provably exercised the no-gap invariant at every replacement.
     expect(readerResult.value).toBeGreaterThanOrEqual(GENERATIONS);
-    // EXPERIMENT-ONLY: generous CI budget to isolate a macOS runner hang.
+    // #149 CI robustness: 12 sequential fsync-heavy installCandidate cycles
+    // can be starved well past the default 5s on a loaded macOS verify runner.
+    // The setImmediate coordination cannot pass from slowness, so a generous
+    // wall budget is rigor-preserving (locally ~100ms).
   }, 120_000);
 
   it("verifyCandidate and readManifest operate on the staged deployment only", async () => {
