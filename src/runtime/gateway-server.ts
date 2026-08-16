@@ -5,6 +5,7 @@ import type { GatewayConfig } from "../config/schema.js";
 import type { CapabilityRequirement } from "../core/capabilities.js";
 import type { CanonicalRequest } from "../core/canonical-request.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
+import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { registerLaunchSessionRoutes } from "../profiles/http.js";
 import { resolveProfileRoute, resolveProjectedModelRoute } from "../profiles/resolve-route.js";
@@ -54,6 +55,8 @@ export type GatewayServerOptions = Readonly<{
   agentContexts?: AgentExecutionContextRegistry;
   traces?: RouteTraceRing;
   continuationDirectory?: string;
+  /** #124: Effective Compatibility Registry — the runtime compatibility authority. */
+  compatibility?: EffectiveCompatibilityRegistry;
   /** True when this instance is owned by the per-user resident service. */
   resident?: boolean;
   /** Authenticated in-process shutdown used by the explicit service stop path. */
@@ -173,6 +176,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
           ...(options.environment === undefined ? {} : { environment: options.environment }),
           ...(required === undefined ? {} : { required }),
           ...(options.modelRegistry === undefined ? {} : { registry: options.modelRegistry }),
+          ...(options.compatibility === undefined ? {} : { compatibility: options.compatibility }),
         });
       }
       // Profile/pool session first, then TOML routes, then Codex pin.
@@ -186,6 +190,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
           ...(options.environment === undefined ? {} : { environment: options.environment }),
           ...(required === undefined ? {} : { required }),
           ...(agentContexts === undefined ? {} : { agentContexts }),
+          ...(options.compatibility === undefined ? {} : { compatibility: options.compatibility }),
         });
       }
       return resolveDirect?.(request) ?? await options.resolveOauthRoute?.(request);
@@ -211,6 +216,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
         sessions: launchSessions,
         registry: options.modelRegistry ?? directProviderRegistry,
         experimentalModels: options.config.gateway.modelDiscovery?.experimentalModels ?? false,
+        ...(options.compatibility === undefined ? {} : { compatibility: options.compatibility }),
         resolveSession: (token) => token === undefined ? undefined : launchSessions.resolve(token),
         extractToken: headerToken,
       });
