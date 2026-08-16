@@ -9,7 +9,7 @@ import { ReviewDecisionStore, QuarantineStore } from "../../src/compatibility/st
 import { runtimeCompatibilityPolicy } from "../../src/compatibility/policy.js";
 import { CLAUDE_CODE_CONTRACT } from "../../src/canary/client-fixtures.js";
 import { evidenceRevisionFor } from "../../src/compatibility/features.js";
-import { passedClaim, promoteDecision, quarantineRecord } from "../helpers/compat.js";
+import { passedClaim } from "../helpers/compat.js";
 
 /**
  * Effective Compatibility Registry privacy (#124): decision/quarantine records

@@ -61,17 +61,14 @@ describe("ECR pure resolution (#124)", () => {
     expect(result.decision?.reviewer).toBe("owner");
   });
 
-  it("marks the decision stale when evidence is updated after promotion (no auto-promotion)", () => {
+  it("marks the decision stale when evidence is updated after promotion (no auto-promotion)", async () => {
     const original = passedClaim("text");
     const decision = promoteDecision(original);
     // A genuinely new observation (different timestamp) appends.
-    const updated = {
-      ...original,
-      records: Object.freeze([...original.records, Object.freeze({
-        ...original.records[0],
-        checkedAt: "1970-01-03T00:00:00.000Z",
-      })]),
-    };
+    const { appendObservation } = await import("../../src/canary/claim.js");
+    const base = original.records[0];
+    if (base === undefined) throw new Error("missing record");
+    const updated = appendObservation(original, Object.freeze({ ...base, checkedAt: "1970-01-03T00:00:00.000Z" }));
     const result = resolveEffectiveCompatibility({
       claimKey: updated.claimKey,
       feature: "text",
@@ -103,13 +100,15 @@ describe("ECR pure resolution (#124)", () => {
     expect(override.enforcementReason).toBe("untrusted-required-feature");
   });
 
-  it("keeps trust after an identical re-observation (dedupe preserves the revision)", () => {
+  it("keeps trust after an identical re-observation (dedupe preserves the revision)", async () => {
     const original = passedClaim("text");
     const decision = promoteDecision(original);
     // appendObservation dedupes identical records → same evidence revision, so
     // the decision's coverage survives a re-run of the same observation.
     const { appendObservation } = await import("../../src/canary/claim.js");
-    const same = appendObservation(original, original.records[0]);
+    const first = original.records[0];
+    if (first === undefined) throw new Error("missing record");
+    const same = appendObservation(original, first);
     expect(evidenceRevisionFor(same)).toBe(evidenceRevisionFor(original));
     const result = resolveEffectiveCompatibility({
       claimKey: original.claimKey,

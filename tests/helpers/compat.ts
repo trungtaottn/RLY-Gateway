@@ -50,7 +50,6 @@ export function record(overrides: Partial<EvidenceArtifactV2> = {}): EvidenceArt
 
 /** Claim with every required layer (A/B/C) passing for one feature. */
 export function passedClaim(feature: ClaimFeature = "text", base: CompatibilityClaimIdentity = IDENTITY): CompatibilityClaimDocument {
-  const contract = { fixtureRevision: CLAUDE_CODE_CONTRACT.fixtureRevision };
   let doc = emptyClaimDocument(base, feature);
   for (const layer of ["A", "B", "C"] as const) {
     doc = appendObservation(doc, record({

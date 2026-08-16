@@ -131,7 +131,7 @@ function parseReviews(claimKey: string, feature: string, content: string | undef
   }
   try {
     const doc = reviewDocumentSchema.parse(parsed);
-    return Object.freeze(doc.decisions.map((decision) => cleanOptional<ReviewDecision>(decision as unknown as Record<string, unknown>)));
+    return Object.freeze(doc.decisions.map((decision) => cleanOptional(decision as unknown as Record<string, unknown>) as ReviewDecision));
   } catch {
     throw new Error(`Malformed review decision artifact for ${claimKey}|${feature}`);
   }
@@ -147,15 +147,15 @@ function parseQuarantines(claimKey: string, feature: string, content: string | u
   }
   try {
     const doc = quarantineDocumentSchema.parse(parsed);
-    return Object.freeze(doc.records.map((record) => cleanOptional<QuarantineRecord>(record as unknown as Record<string, unknown>)));
+    return Object.freeze(doc.records.map((record) => cleanOptional(record as unknown as Record<string, unknown>) as QuarantineRecord));
   } catch {
     throw new Error(`Malformed quarantine artifact for ${claimKey}|${feature}`);
   }
 }
 
 /** Drops `undefined` optional keys so records satisfy exact-optional typing. */
-function cleanOptional<T extends object>(value: Record<string, unknown>): T {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
+function cleanOptional(value: Record<string, unknown>): ReviewDecision | QuarantineRecord {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as ReviewDecision | QuarantineRecord;
 }
 
 /**

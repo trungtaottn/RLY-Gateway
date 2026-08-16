@@ -1,12 +1,12 @@
 import { claimIdentityFor, claimKeyFor, type ClaimFeature, type CompatibilityClaimDocument, type CompatibilityClaimIdentity } from "../canary/claim.js";
-import { ClaimEvidenceStore } from "../canary/artifact.js";
+import type { ClaimEvidenceStore } from "../canary/artifact.js";
 import type { ClientKind } from "../canary/types.js";
 import type { ModelEvidence } from "../registry/model-registry.js";
 import { adapterIdForProvider } from "../canary/run.js";
 import { resolveEffectiveCompatibility } from "./effective.js";
 import { seedHintForModel } from "./policy.js";
-import { ReviewDecisionStore, QuarantineStore } from "./stores.js";
-import type { CompatibilityPolicy, EffectiveCompatibility } from "./types.js";
+import type { ReviewDecisionStore, QuarantineStore } from "./stores.js";
+import type { CompatibilityPolicy, EffectiveCompatibility, QuarantineRecord, ReviewDecision } from "./types.js";
 import { assertSecretFree } from "../control-plane/secret-free.js";
 
 /**
@@ -204,8 +204,8 @@ export class EffectiveCompatibilityRegistry {
     claimKey: string,
     feature: ClaimFeature,
     claim: CompatibilityClaimDocument | undefined,
-    decisions: readonly import("./types.js").ReviewDecision[],
-    records: readonly import("./types.js").QuarantineRecord[],
+    decisions: readonly ReviewDecision[],
+    records: readonly QuarantineRecord[],
     context: EnforcementContext,
   ): EffectiveCompatibility {
     return resolveEffectiveCompatibility({

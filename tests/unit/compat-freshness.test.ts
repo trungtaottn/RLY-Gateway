@@ -3,6 +3,7 @@ import { freshnessFor } from "../../src/compatibility/freshness.js";
 import { claimIdentityFor, claimKeyFor } from "../../src/canary/claim.js";
 import { CLAUDE_CODE_CONTRACT } from "../../src/canary/client-fixtures.js";
 import { passedClaim, promoteDecision, pinnedPolicy } from "../helpers/compat.js";
+import { defaultCompatibilityPolicy } from "../../src/compatibility/policy.js";
 
 /**
  * Freshness/staleness engine (#124): marks evidence stale on configured
@@ -84,7 +85,7 @@ describe("freshness/staleness engine (#124)", () => {
 
   it("returns fresh when no drift signals are configured (no fabricated staleness)", () => {
     const claim = passedClaim("text");
-    expect(freshnessFor(claim, [], pinnedPolicy({ supportedClientBaseline: undefined, pinnedProtocolRevision: undefined, pinnedFixtureRevision: undefined, rlyBuildVersion: undefined }))).toEqual({ fresh: true });
+    expect(freshnessFor(claim, [], defaultCompatibilityPolicy())).toEqual({ fresh: true });
   });
 
   it("keys claim identity exactly so version drift is detected per exact path", () => {

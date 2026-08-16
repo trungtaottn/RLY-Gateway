@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReviewDecisionStore, QuarantineStore, COMPAT_SCHEMA_VERSION } from "../../src/compatibility/stores.js";
-import { passedClaim, promoteDecision, quarantineRecord } from "../helpers/compat.js";
+import { passedClaim } from "../helpers/compat.js";
 import { claimKeyHash } from "../../src/canary/claim.js";
 
 const directories: string[] = [];
@@ -141,7 +141,7 @@ describe("QuarantineStore (#124)", () => {
     });
     expect((await store.recordsFor(reasoning.claimKey, "reasoning")).length).toBe(0);
     // A different provider path for the same feature is untouched.
-    expect((await store.recordsFor(`${text.claimKey.replace("|codex|", "|cline|")}`, "text")).length).toBe(0);
+    expect((await store.recordsFor(text.claimKey.replace("|codex|", "|cline|"), "text")).length).toBe(0);
     const summary = await store.summary();
     expect(summary.recordCount).toBe(1);
     expect(summary.activeCount).toBe(1);

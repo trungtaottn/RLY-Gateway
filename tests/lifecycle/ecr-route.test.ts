@@ -14,14 +14,14 @@ import { RouteSelector } from "../../src/routing/pools/selector.js";
 import { gatewayConfigSchema } from "../../src/config/schema.js";
 import { ClaimEvidenceStore } from "../../src/canary/artifact.js";
 import { CLAUDE_CODE_CONTRACT } from "../../src/canary/client-fixtures.js";
-import { claimIdentityFor, claimKeyFor, appendObservation } from "../../src/canary/claim.js";
+import { claimIdentityFor, appendObservation } from "../../src/canary/claim.js";
 import { EffectiveCompatibilityRegistry } from "../../src/compatibility/registry.js";
 import { ReviewDecisionStore, QuarantineStore } from "../../src/compatibility/stores.js";
 import { runtimeCompatibilityPolicy } from "../../src/compatibility/policy.js";
 import { evidenceRevisionFor } from "../../src/compatibility/features.js";
-import { passedClaim, promoteDecision } from "../helpers/compat.js";
+import { passedClaim } from "../helpers/compat.js";
 import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
-import type { EvidenceArtifactV2, CompatibilityClaimDocument } from "../../src/canary/claim.js";
+import type { CompatibilityClaimDocument } from "../../src/canary/claim.js";
 
 /**
  * Runtime-consumer lifecycle (#124): with the Effective Compatibility Registry
@@ -81,7 +81,7 @@ async function seedControlPlane(directory: string, endpoint: string) {
   }, "cli");
 }
 
-async function startGateway(directory: string): Promise<void> {
+function startGateway(directory: string): void {
   if (!store || !broker) throw new Error("missing store");
   leases = new LeaseManager({ ttlMs: 60_000, idleGraceMs: 60_000, onIdle: () => undefined });
   const sessions = new LaunchSessionRegistry((id) => leases?.has(id) === true);
@@ -182,7 +182,7 @@ describe("ECR runtime-consumer lifecycle (#124)", () => {
     // text + cancellation + streaming are required for a streaming text request.
     const claims = await seedClaims(directory, ["text", "cancellation", "streaming"]);
     await promoteAll(directory, claims);
-    await startGateway(directory);
+    startGateway(directory);
     const token = await issueSession();
     const response = await sendText(token);
     expect(response.statusCode).toBe(200);
@@ -210,7 +210,7 @@ describe("ECR runtime-consumer lifecycle (#124)", () => {
       source: "lifecycle-test",
       quarantinedAt: new Date().toISOString(),
     });
-    await startGateway(directory);
+    startGateway(directory);
     const token = await issueSession();
     const response = await sendText(token);
     expect(response.statusCode).toBe(400);
@@ -234,12 +234,14 @@ describe("ECR runtime-consumer lifecycle (#124)", () => {
     const claimsStore = new ClaimEvidenceStore(directory);
     const textClaim = claims.find((claim) => claim.feature === "text");
     if (textClaim === undefined) throw new Error("missing text claim");
+    const base = textClaim.records[0];
+    if (base === undefined) throw new Error("missing record");
     const updated = appendObservation(textClaim, Object.freeze({
-      ...textClaim.records[0],
+      ...base,
       checkedAt: new Date(Date.now() + 60_000).toISOString(),
-    }) as EvidenceArtifactV2);
+    }));
     await claimsStore.writeClaim(updated);
-    await startGateway(directory);
+    startGateway(directory);
     const token = await issueSession();
     const response = await sendText(token);
     expect(response.statusCode).toBe(400);
@@ -272,6 +274,7 @@ describe("ECR runtime-consumer lifecycle (#124)", () => {
         rlyBuildVersion: "rly-build-999",
       }),
     });
+    if (!store || !broker) throw new Error("missing store");
     leases = new LeaseManager({ ttlMs: 60_000, idleGraceMs: 60_000, onIdle: () => undefined });
     const sessions = new LaunchSessionRegistry((id) => leases?.has(id) === true);
     const traces = new RouteTraceRing();
@@ -298,13 +301,13 @@ describe("ECR runtime-consumer lifecycle (#124)", () => {
     // visible in the route trace (never silent); a hard quarantine could never
     // be bypassed this way.
     expect(response.statusCode).toBe(200);
-    const tracesResponse = await app?.inject({
+    const tracesResponse = await app.inject({
       method: "GET",
       url: "/v1/route-traces",
       headers: { authorization: `Bearer ${token}` },
     });
-    const traceBody = tracesResponse?.json() as { traces?: { modelSelection?: { candidates?: { authority?: string; effectiveLabel?: string; enforcementReason?: string }[] } }[] };
-    const selection = traceBody?.traces?.at(-1)?.modelSelection;
+    const traceBody: { traces?: { modelSelection?: { candidates?: { authority?: string; effectiveLabel?: string; enforcementReason?: string }[] } }[] } = tracesResponse.json();
+    const selection = traceBody.traces?.at(-1)?.modelSelection;
     expect(selection?.candidates?.some((candidate) =>
       candidate.authority === "ecr" && candidate.effectiveLabel === "stale" && candidate.enforcementReason === "explicit-experimental-override",
     )).toBe(true);

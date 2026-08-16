@@ -10,6 +10,7 @@ import {
 import { requiredFeaturesForCapabilities } from "../../compatibility/features.js";
 import { enforceEffective } from "../../compatibility/effective.js";
 import type { EffectiveCompatibility } from "../../compatibility/types.js";
+import type { ClaimFeature } from "../../canary/claim.js";
 import { ModelSelectionError, type ModelSelectionFailure } from "./errors.js";
 import type {
   EffectiveSelectionSnapshot,
@@ -83,7 +84,7 @@ function effectiveCompatibilityFailure(
   model: ModelEvidence,
   input: ModelSelectionInput,
   exact: boolean,
-  effective: ReadonlyMap<string, ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>>,
+  effective: ReadonlyMap<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>,
   allowQuarantineBypass: boolean,
 ): Readonly<{ failure?: string; effectiveLabel?: string; enforcementReason?: string }> {
   const features = requiredFeaturesForCapabilities(input.requiredCapabilities, input.reasoning);
@@ -123,15 +124,13 @@ function effectiveCompatibilityFailure(
       enforcementReason: enforced.reason ?? "blocked-required-feature",
     };
   }
+  const summaryEnforced = summary === undefined ? undefined : enforceEffective(summary.effective, context);
   return {
     ...(summary === undefined ? {} : { effectiveLabel: summary.effective }),
-    ...(summary !== undefined
-      ? (() => {
-          const enforced = enforceEffective(summary.effective, context);
-          return enforced.enforcement === "quarantine-bypass" || enforced.enforcement === "experimental-override"
-            ? { enforcementReason: enforced.reason }
-            : {};
-        })()
+    ...(summaryEnforced !== undefined
+      && (summaryEnforced.enforcement === "quarantine-bypass" || summaryEnforced.enforcement === "experimental-override")
+      && summaryEnforced.reason !== undefined
+      ? { enforcementReason: summaryEnforced.reason }
       : {}),
   };
 }
@@ -140,7 +139,7 @@ function assess(
   model: ModelEvidence,
   input: ModelSelectionInput,
   exact: boolean,
-  effective?: ReadonlyMap<string, ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>>,
+  effective?: ReadonlyMap<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>,
   allowQuarantineBypass = false,
 ): ModelCandidateAssessment {
   const missing = missingCapabilities(model.capabilities, input.requiredCapabilities);

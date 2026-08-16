@@ -25,6 +25,7 @@ import {
   type RegistryDocument,
 } from "../../registry/model-registry.js";
 import { requiredFeaturesForEvidence } from "../../compatibility/features.js";
+import type { ClaimFeature } from "../../canary/claim.js";
 import type { EffectiveCompatibility } from "../../compatibility/types.js";
 import {
   isProjectionId,
@@ -36,7 +37,7 @@ import {
 } from "./types.js";
 
 /** #124: ECR snapshot keyed by registry logicalId → per-feature answers. */
-export type EffectiveProjectionSnapshot = ReadonlyMap<string, ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>>;
+export type EffectiveProjectionSnapshot = ReadonlyMap<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>;
 
 /**
  * Presentation-only provider labels. Never used for routing; two providers
@@ -122,7 +123,7 @@ function providerSlug(providerName: string): string {
 export function projectionFor(
   binding: ProviderPoolBinding,
   evidence: ModelEvidence,
-  effective?: ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>,
+  effective?: ReadonlyMap<ClaimFeature, EffectiveCompatibility>,
 ): ModelProjection {
   const label = effective === undefined ? undefined : worstEffectiveLabel(effective);
   return Object.freeze({
@@ -140,7 +141,7 @@ export function projectionFor(
 }
 
 /** Worst effective label across the required RLY features (projection gate). */
-export function worstEffectiveLabel(effective: ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>): string {
+export function worstEffectiveLabel(effective: ReadonlyMap<ClaimFeature, EffectiveCompatibility>): string {
   const rank: Readonly<Record<string, number>> = Object.freeze({
     trusted: 0, experimental: 1, stale: 2, untrusted: 3, missing: 4, quarantined: 5,
   });
@@ -200,7 +201,7 @@ export function projectModelUniverse(
  */
 function projectionEligible(
   evidence: ModelEvidence,
-  effective: ReadonlyMap<import("../../canary/claim.js").ClaimFeature, EffectiveCompatibility>,
+  effective: ReadonlyMap<ClaimFeature, EffectiveCompatibility>,
   experimentalModels: boolean,
 ): boolean {
   const features = requiredFeaturesForEvidence(evidence);

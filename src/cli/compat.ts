@@ -121,7 +121,7 @@ export function parseCompatArgs(args: readonly string[]): CompatAction {
   throw new Error("compat requires status, review, quarantine, lift, or explain");
 }
 
-async function controlPlaneDirectory(config: GatewayConfig): Promise<string> {
+function controlPlaneDirectory(config: GatewayConfig): string {
   return config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory();
 }
 
@@ -142,7 +142,7 @@ function registryFor(directory: string): EffectiveCompatibilityRegistry {
 
 export async function runCompatCommand(action: CompatAction, configPath: string): Promise<number> {
   const config = await loadConfig(configPath);
-  const directory = await controlPlaneDirectory(config);
+  const directory = controlPlaneDirectory(config);
   const claimStore = new ClaimEvidenceStore(directory);
   const reviews = new ReviewDecisionStore(directory);
   const quarantines = new QuarantineStore(directory);

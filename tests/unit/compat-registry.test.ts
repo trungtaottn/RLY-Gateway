@@ -9,8 +9,8 @@ import { EffectiveCompatibilityRegistry } from "../../src/compatibility/registry
 import { ReviewDecisionStore, QuarantineStore } from "../../src/compatibility/stores.js";
 import { runtimeCompatibilityPolicy } from "../../src/compatibility/policy.js";
 import { evidenceRevisionFor } from "../../src/compatibility/features.js";
-import { reviewedModel, MODEL_REGISTRY_REVISION, type RegistryDocument } from "../../src/registry/model-registry.js";
-import { IDENTITY, passedClaim, promoteDecision, quarantineRecord, keyFor } from "../helpers/compat.js";
+import { reviewedModel } from "../../src/registry/model-registry.js";
+import { IDENTITY, passedClaim, promoteDecision } from "../helpers/compat.js";
 import type { ProviderCapabilities } from "../../src/core/capabilities.js";
 
 const directories: string[] = [];
@@ -45,12 +45,7 @@ function codexRow(overrides: Partial<Parameters<typeof reviewedModel>[0]> = {}):
   });
 }
 
-const registry: RegistryDocument = Object.freeze({
-  registryRevision: MODEL_REGISTRY_REVISION,
-  models: Object.freeze([codexRow()]),
-});
-
-async function registryFor(directory: string): Promise<EffectiveCompatibilityRegistry> {
+function registryFor(directory: string): EffectiveCompatibilityRegistry {
   return new EffectiveCompatibilityRegistry({
     claims: new ClaimEvidenceStore(directory),
     reviews: new ReviewDecisionStore(directory),
@@ -67,7 +62,7 @@ async function registryFor(directory: string): Promise<EffectiveCompatibilityReg
 describe("EffectiveCompatibilityRegistry facade (#124)", () => {
   it("treats legacy static states as seed/reference data — never silently reviewed", async () => {
     const directory = await temporaryDirectory();
-    const registryStore = await registryFor(directory);
+    const registryStore = registryFor(directory);
     // A static VERIFIED row with NO claim evidence: seed only, never trusted.
     const row = codexRow({ compatibility: { state: "VERIFIED", baseline: "claude-code-2.1.229", evidenceRef: "verify-1", checkedAt: "2026-08-21" } });
     const effective = await registryStore.effectiveForModel(row, ["text"], { required: true, experimentalOverride: false });
@@ -83,7 +78,7 @@ describe("EffectiveCompatibilityRegistry facade (#124)", () => {
     const controlPlane = join(directory, "control-plane");
     const claimStore = new ClaimEvidenceStore(controlPlane);
     const reviews = new ReviewDecisionStore(controlPlane);
-    const registryStore = await registryFor(controlPlane);
+    const registryStore = registryFor(controlPlane);
     const claim = passedClaim("text");
     await claimStore.writeClaim(claim);
     const decision = promoteDecision(claim);
@@ -102,7 +97,10 @@ describe("EffectiveCompatibilityRegistry facade (#124)", () => {
     expect(effective.get("text")?.effective).toBe("trusted");
     expect(effective.get("text")?.decision?.reviewer).toBe("owner");
     // Evidence updated after promotion → re-review required.
-    const updated = { ...claim, records: Object.freeze([...claim.records, Object.freeze({ ...claim.records[0], checkedAt: "1970-01-09T00:00:00.000Z" })]) };
+    const { appendObservation } = await import("../../src/canary/claim.js");
+    const base = claim.records[0];
+    if (base === undefined) throw new Error("missing record");
+    const updated = appendObservation(claim, Object.freeze({ ...base, checkedAt: "1970-01-09T00:00:00.000Z" }));
     await claimStore.writeClaim(updated);
     const after = await registryStore.effectiveForModel(codexRow(), ["text"], { required: true });
     expect(after.get("text")?.effective).toBe("untrusted");
@@ -169,7 +167,7 @@ describe("EffectiveCompatibilityRegistry facade (#124)", () => {
     const driftedClaim = passedClaim("text", { ...IDENTITY, clientVersion: "claude-code-2.1.231" });
     await claimStore.writeClaim(driftedClaim);
     await reviews.addDecision({ claimKey: driftedClaim.claimKey, feature: "text", decision: "promote", evidenceRevision: evidenceRevisionFor(driftedClaim), reviewer: "owner", source: "test", reason: "reviewed", decidedAt: "1970-01-02T00:00:00.000Z", rlyBuildVersion: "rly-test-build" });
-    const registryStore = await registryFor(controlPlane);
+    const registryStore = registryFor(controlPlane);
     const effective = await registryStore.effectiveForClaimKey(driftedClaim.claimKey, "text", { required: true });
     expect(effective.effective).toBe("stale");
     expect(effective.freshness).toBe("stale");
@@ -186,7 +184,7 @@ describe("EffectiveCompatibilityRegistry facade (#124)", () => {
     const claim = passedClaim("text");
     await claimStore.writeClaim(claim);
     await reviews.addDecision({ claimKey: claim.claimKey, feature: "text", decision: "promote", evidenceRevision: evidenceRevisionFor(claim), reviewer: "owner", source: "test", reason: "reviewed", decidedAt: "1970-01-02T00:00:00.000Z", rlyBuildVersion: "rly-test-build" });
-    const registryStore = await registryFor(controlPlane);
+    const registryStore = registryFor(controlPlane);
     const row = codexRow();
     const snapshot = await registryStore.snapshotForModels([row], () => ["text"] as const, { required: false });
     const text = snapshot.get(row.logicalId)?.get("text");
@@ -196,7 +194,7 @@ describe("EffectiveCompatibilityRegistry facade (#124)", () => {
   it("produces a secret-free explanation for doctor", async () => {
     const directory = await temporaryDirectory();
     const controlPlane = join(directory, "control-plane");
-    const registryStore = await registryFor(controlPlane);
+    const registryStore = registryFor(controlPlane);
     const row = codexRow();
     const explanation = await registryStore.explain(row, ["text"]);
     expect(explanation.logicalId).toBe("codex/gpt-5.4");
@@ -210,7 +208,7 @@ describe("EffectiveCompatibilityRegistry facade (#124)", () => {
   it("exposes a secret-free summary of durable authority state", async () => {
     const directory = await temporaryDirectory();
     const controlPlane = join(directory, "control-plane");
-    const registryStore = await registryFor(controlPlane);
+    const registryStore = registryFor(controlPlane);
     const summary = await registryStore.summary();
     expect(summary.policy.supportedClientBaseline).toBe(CLAUDE_CODE_CONTRACT.baseline);
     expect(summary.policy.allowQuarantineBypass).toBe(false);

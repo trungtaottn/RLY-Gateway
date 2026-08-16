@@ -129,7 +129,7 @@ describe("compat CLI (#124)", () => {
     expect(explanation.code).toBe(0);
     const parsed = JSON.parse(explanation.output) as { logicalId: string; seedState: string; features: Record<string, { effective: string }> };
     expect(parsed.logicalId).toBe("codex/gpt-5.4");
-    expect(parsed.features.text.effective).toBe("experimental");
+    expect(parsed.features.text?.effective).toBe("experimental");
     expect(explanation.output).not.toMatch(/"(accessToken|refreshToken|authorization|token|secret|password|email|prompt|response)"/);
     const missing = await capture(() => runCompatCommand({ kind: "explain", provider: "nope", model: "nope" }, configPath));
     expect(missing.code).toBe(1);

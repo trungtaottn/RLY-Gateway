@@ -14,7 +14,8 @@ import { projectModelUniverse, resolveProjection } from "../../src/routing/model
 import type { ModelUniverseSnapshot } from "../../src/routing/model-projection/types.js";
 import { resolveEffectiveCompatibility } from "../../src/compatibility/effective.js";
 import { passedClaim, promoteDecision, quarantineRecord, pinnedPolicy, IDENTITY } from "../helpers/compat.js";
-import { evidenceRevisionFor } from "../../src/compatibility/features.js";
+import type { ClaimFeature } from "../../src/canary/claim.js";
+import type { EffectiveCompatibility, QuarantineRecord, ReviewDecision } from "../../src/compatibility/types.js";
 import { claimKeyFor } from "../../src/canary/claim.js";
 
 /**
@@ -61,16 +62,16 @@ const registry: RegistryDocument = Object.freeze({
 /** Builds a per-feature ECR answer for one model using the pure resolver. */
 function effectiveFor(
   model: ModelEvidence,
-  features: readonly (keyof typeof import("../../src/canary/claim.js").CLAIM_FEATURES extends never ? never : string)[],
-  opts: Readonly<{ decisions?: import("../../src/compatibility/types.js").ReviewDecision[]; quarantines?: import("../../src/compatibility/types.js").QuarantineRecord[]; claimFeature?: string }> = {},
-): Map<string, import("../../src/compatibility/types.js").EffectiveCompatibility> {
-  const map = new Map<string, import("../../src/compatibility/types.js").EffectiveCompatibility>();
-  for (const feature of features as readonly string[]) {
+  features: readonly string[],
+  opts: Readonly<{ decisions?: ReviewDecision[]; quarantines?: QuarantineRecord[]; claimFeature?: string }> = {},
+): ReadonlyMap<ClaimFeature, EffectiveCompatibility> {
+  const map = new Map<ClaimFeature, EffectiveCompatibility>();
+  for (const feature of features) {
     const identity = { ...IDENTITY, accessProviderId: model.identity.accessProviderId, adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: model.identity.upstreamModelId, ...(model.identity.modelFamily === undefined ? {} : { modelFamily: model.identity.modelFamily }) };
-    const claim = passedClaim(feature as "text", identity);
-    map.set(feature, resolveEffectiveCompatibility({
-      claimKey: claimKeyFor(identity, feature as "text"),
-      feature: feature as "text",
+    const claim = passedClaim(feature as ClaimFeature, identity);
+    map.set(feature as ClaimFeature, resolveEffectiveCompatibility({
+      claimKey: claimKeyFor(identity, feature as ClaimFeature),
+      feature: feature as ClaimFeature,
       claim,
       decisions: opts.decisions ?? [promoteDecision(claim)],
       quarantines: opts.quarantines ?? [],
@@ -84,7 +85,7 @@ function effectiveFor(
 }
 
 function snapshotFor(models: readonly ModelEvidence[]): EffectiveSelectionSnapshot {
-  const snapshot = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+  const snapshot = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
   for (const model of models) {
     snapshot.set(model.logicalId, effectiveFor(model, ["text", "streaming", "cancellation", "tools-single", "reasoning"]));
   }
@@ -94,10 +95,10 @@ function snapshotFor(models: readonly ModelEvidence[]): EffectiveSelectionSnapsh
 describe("#68 selector consumes the ECR (#124)", () => {
   it("blocks a quarantined required feature fail-closed with no fallback", () => {
     const model = row("cline", "gpt-5.6-sol", "openai/codex");
-    const quarantined = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+    const quarantined = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
     const featureMap = effectiveFor(model, ["text"], {
-      decisions: [promoteDecision(passedClaim("text", { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import", physicalModelId: "gpt-5.6-sol" }))],
-      quarantines: [quarantineRecord(claimKeyFor({ ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import", physicalModelId: "gpt-5.6-sol" }, "text"), "text")],
+      decisions: [promoteDecision(passedClaim("text", { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: "gpt-5.6-sol" }))],
+      quarantines: [quarantineRecord(claimKeyFor({ ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: "gpt-5.6-sol" }, "text"), "text")],
     });
     quarantined.set(model.logicalId, featureMap);
     const error = (): unknown => selectModel(
@@ -130,7 +131,7 @@ describe("#68 selector consumes the ECR (#124)", () => {
 
   it("marks PASS-only (unreviewed) claims experimental and blocks by default, allows with the exact-pin opt-in", () => {
     const model = row("cline", "gpt-5.6-sol", "openai/codex");
-    const snapshot = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+    const snapshot = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
     const featureMap = effectiveFor(model, ["text", "cancellation"], { decisions: [] });
     snapshot.set(model.logicalId, featureMap);
     // Candidate path without opt-in: blocked.
@@ -151,10 +152,12 @@ describe("#68 selector consumes the ECR (#124)", () => {
 
   it("never lets the experimental override bypass evidence-updated-after-review (untrusted)", () => {
     const model = row("cline", "gpt-5.6-sol", "openai/codex");
-    const claim = passedClaim("text", { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import", physicalModelId: "gpt-5.6-sol" });
+    const claim = passedClaim("text", { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: "gpt-5.6-sol" });
     const decision = promoteDecision(claim);
-    const updated = { ...claim, records: Object.freeze([...claim.records, Object.freeze({ ...claim.records[0], checkedAt: "1970-01-09T00:00:00.000Z" })]) };
-    const map = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+    const base = claim.records[0];
+    if (base === undefined) throw new Error("missing record");
+    const updated = { ...claim, records: [...claim.records, Object.freeze({ ...base, checkedAt: "1970-01-09T00:00:00.000Z" })] };
+    const map = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
     map.set(model.logicalId, new Map([["text", resolveEffectiveCompatibility({
       claimKey: claim.claimKey,
       feature: "text",
@@ -193,8 +196,8 @@ describe("#68 selector consumes the ECR (#124)", () => {
 describe("#69 tier resolver consumes the ECR (#124)", () => {
   it("fails closed when a quarantined required feature blocks every tier target", () => {
     const model = row("cline", "gpt-5.6-sol", "openai/codex");
-    const map = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
-    const identity = { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import", physicalModelId: "gpt-5.6-sol" };
+    const map = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
+    const identity = { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: "gpt-5.6-sol" };
     map.set(model.logicalId, new Map([["text", resolveEffectiveCompatibility({
       claimKey: claimKeyFor(identity, "text"),
       feature: "text",
@@ -224,7 +227,7 @@ describe("#69 tier resolver consumes the ECR (#124)", () => {
 });
 
 describe("#72 projection consumes the ECR (#124)", () => {
-  const snapshot = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+  const snapshot = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
   const sol = row("cline", "gpt-5.6-sol", "openai/codex");
   const terra = row("cline", "gpt-5.6-terra", "openai/codex");
   snapshot.set(sol.logicalId, effectiveFor(sol, ["text", "streaming", "cancellation", "tools-single", "reasoning", "model-discovery", "session-attribution", "effort-signal", "long-running-session"]));
@@ -259,8 +262,8 @@ describe("#72 projection consumes the ECR (#124)", () => {
   });
 
   it("never projects a quarantined path even with the opt-in", () => {
-    const quarantined = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
-    const identity = { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import", physicalModelId: "gpt-5.6-sol" };
+    const quarantined = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
+    const identity = { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: "gpt-5.6-sol" };
     quarantined.set(sol.logicalId, new Map([["text", resolveEffectiveCompatibility({
       claimKey: claimKeyFor(identity, "text"),
       feature: "text",
@@ -279,7 +282,7 @@ describe("#72 projection consumes the ECR (#124)", () => {
 
   it("keeps same-model-different-provider projections isolated", () => {
     const codexSol = row("codex", "gpt-5.6-sol", "openai/codex");
-    const codexSnapshot = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+    const codexSnapshot = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
     codexSnapshot.set(codexSol.logicalId, effectiveFor(codexSol, ["text"]));
     const mixedRegistry: RegistryDocument = Object.freeze({
       registryRevision: MODEL_REGISTRY_REVISION,
@@ -292,13 +295,13 @@ describe("#72 projection consumes the ECR (#124)", () => {
         Object.freeze({ providerId: "p-codex", providerName: "codex", poolId: "pool-codex" }),
       ]),
     });
-    const mixedSnapshot = new Map<string, ReadonlyMap<string, import("../../src/compatibility/types.js").EffectiveCompatibility>>();
+    const mixedSnapshot = new Map<string, ReadonlyMap<ClaimFeature, EffectiveCompatibility>>();
     mixedSnapshot.set(sol.logicalId, effectiveFor(sol, ["text"]));
     mixedSnapshot.set(codexSol.logicalId, effectiveFor(codexSol, ["text"]));
     const projections = projectModelUniverse(mixedRegistry, bothBindings, mixedSnapshot);
     expect(projections.filter((entry) => entry.upstreamModelId === "gpt-5.6-sol")).toHaveLength(2);
     // Quarantining the cline path must not hide the codex path.
-    const clineIdentity = { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import", physicalModelId: "gpt-5.6-sol" };
+    const clineIdentity = { ...IDENTITY, accessProviderId: "cline", adapterId: "cline-interop", authMode: "interop-import" as const, physicalModelId: "gpt-5.6-sol" };
     const quarantinedSnapshot = new Map(mixedSnapshot);
     quarantinedSnapshot.set(sol.logicalId, new Map([["text", resolveEffectiveCompatibility({
       claimKey: claimKeyFor(clineIdentity, "text"),
