@@ -118,6 +118,11 @@ async function readJsonSafe(path) {
   }
 }
 
+/** True when the qualification host can execute the target's binaries. */
+export function hostCanExecute(target, host = { platform: process.platform, arch: process.arch }) {
+  return `${host.platform}-${host.arch}` === target;
+}
+
 /**
  * Runs the qualification matrix for one target against the EXACT unpacked
  * bytes. `qualifiedBytes` binds filename + tarball sha256 + artifact digest.
@@ -142,7 +147,13 @@ export async function runQualificationGates({
   const qualifiedBytes = { filename, sha256: tarballSha256, artifactDigest };
 
   // 1. clean-install: unpack and execute the exact tarball.
-  if (tarballPath !== undefined) {
+  if (tarballPath === undefined) {
+    gates.push(gateResult("clean-install", "skipped", { detail: "no tarball provided; clean-install must run against the exact published bytes" }));
+  } else if (!hostCanExecute(target, host)) {
+    gates.push(gateResult("clean-install", "skipped", {
+      detail: `host ${host.platform}-${host.arch} cannot execute ${target} binaries; smoke-testing requires a provisioned ${target} runner`, 
+    }));
+  } else {
     try {
       const dest = join(artifactRoot, "..", ".qualify-clean-install");
       await extractTarball(tarballPath, dest);
@@ -155,32 +166,36 @@ export async function runQualificationGates({
     } catch (error) {
       gates.push(gateResult("clean-install", "failed", { detail: `unpack/run failed: ${error instanceof Error ? error.message : String(error)}` }));
     }
-  } else {
-    gates.push(gateResult("clean-install", "skipped", { detail: "no tarball provided; clean-install must run against the exact published bytes" }));
   }
 
   // 2. identity: rly --version matches the release manifest identity fields.
-  try {
-    const identity = runVersionIdentity(artifactRoot, { executor });
-    const mismatches = [];
-    const expectations = [
-      ["version", identity.version, releaseManifest?.releaseVersion],
-      ["commitRevision", identity.commitRevision, releaseManifest?.sourceCommit],
-      ["buildId", identity.buildId, releaseManifest?.buildId],
-      ["releaseChannel", identity.releaseChannel, releaseManifest?.releaseChannel],
-      ["controlProtocolVersion", identity.controlProtocolVersion, releaseManifest?.controlProtocolVersion],
-      ["dataProtocolVersion", identity.dataProtocolVersion, releaseManifest?.dataProtocolVersion],
-      ["stateSchemaVersion", identity.stateSchemaVersion, releaseManifest?.stateSchemaVersion],
-    ];
-    for (const [field, actual, expected] of expectations) {
-      if (String(actual) !== String(expected)) mismatches.push(`${field}: ${actual} != ${expected}`);
-    }
-    gates.push(gateResult("identity", mismatches.length === 0 ? "passed" : "failed", {
-      detail: mismatches.length === 0 ? "identity fields match the release manifest" : mismatches.join("; "),
-      command: "./rly --version",
+  if (!hostCanExecute(target, host)) {
+    gates.push(gateResult("identity", "skipped", {
+      detail: `host ${host.platform}-${host.arch} cannot execute ${target} binaries; identity evidence requires a provisioned ${target} runner`,
     }));
-  } catch (error) {
-    gates.push(gateResult("identity", "failed", { detail: `identity probe failed: ${error instanceof Error ? error.message : String(error)}` }));
+  } else {
+    try {
+      const identity = runVersionIdentity(artifactRoot, { executor });
+      const mismatches = [];
+      const expectations = [
+        ["version", identity.version, releaseManifest?.releaseVersion],
+        ["commitRevision", identity.commitRevision, releaseManifest?.sourceCommit],
+        ["buildId", identity.buildId, releaseManifest?.buildId],
+        ["releaseChannel", identity.releaseChannel, releaseManifest?.releaseChannel],
+        ["controlProtocolVersion", identity.controlProtocolVersion, releaseManifest?.controlProtocolVersion],
+        ["dataProtocolVersion", identity.dataProtocolVersion, releaseManifest?.dataProtocolVersion],
+        ["stateSchemaVersion", identity.stateSchemaVersion, releaseManifest?.stateSchemaVersion],
+      ];
+      for (const [field, actual, expected] of expectations) {
+        if (String(actual) !== String(expected)) mismatches.push(`${field}: ${actual} != ${expected}`);
+      }
+      gates.push(gateResult("identity", mismatches.length === 0 ? "passed" : "failed", {
+        detail: mismatches.length === 0 ? "identity fields match the release manifest" : mismatches.join("; "),
+        command: "./rly --version",
+      }));
+    } catch (error) {
+      gates.push(gateResult("identity", "failed", { detail: `identity probe failed: ${error instanceof Error ? error.message : String(error)}` }));
+    }
   }
 
   // 3. permissions: static checks over the exact bytes.
@@ -281,8 +296,7 @@ export async function runQualificationGates({
 
   // 7. init/service registration on a qualified host (launchd/systemd).
   {
-    const qualifiedHost = host.platform === "linux" && /systemd/i.test(String(host.os ?? "")) ? "linux-systemd" : host.platform === "darwin" ? "macos-launchd" : undefined;
-    if (qualifiedHost === undefined) {
+    if (host.platform !== "linux" && host.platform !== "darwin") {
       gates.push(gateResult("init-service-registration", "skipped", {
         detail: `host ${host.platform}/${host.os ?? "unknown"} has no provisioned per-user service manager; stable qualification requires a qualified host`,
       }));

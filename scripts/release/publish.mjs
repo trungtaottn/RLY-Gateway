@@ -94,7 +94,7 @@ function parseArgs(argv) {
       default: throw new Error(`unknown argument: ${arg}`);
     }
   }
-  const missing = ["releaseDir", "version", "channel", "sourceCommit", "buildId", "signingKey"].filter((key) => options[key] === undefined);
+  const missing = ["releaseDir", "version", "channel", "signingKey"].filter((key) => options[key] === undefined);
   if (missing.length > 0) throw new Error(`missing required arguments: ${missing.map((key) => `--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`).join(", ")}`);
   return options;
 }
@@ -163,11 +163,16 @@ async function main() {
   const { collected } = await collectArtifacts(releaseDir, options.version);
 
   const identity = collected[0].buildMeta;
+  // Source commit / build id default to the EXACT build identity embedded in
+  // the packaged bytes; the verify step still cross-checks every artifact's
+  // rly-build.json against the published manifest (identity enforcement).
+  const sourceCommit = options.sourceCommit ?? identity.commitRevision;
+  const buildId = options.buildId ?? identity.buildId;
   const manifest = buildReleaseManifest({
     releaseVersion: options.version,
     releaseChannel: options.channel,
-    sourceCommit: options.sourceCommit,
-    buildId: options.buildId,
+    sourceCommit,
+    buildId,
     stateSchemaVersion: identity.stateSchemaVersion,
     controlProtocolVersion: identity.controlProtocolVersion,
     dataProtocolVersion: identity.dataProtocolVersion,
@@ -175,7 +180,7 @@ async function main() {
     workflow: {
       name: options.workflowName,
       runId: options.workflowRunId,
-      workflowSha: options.workflowSha ?? options.sourceCommit,
+      workflowSha: options.workflowSha ?? sourceCommit,
       toolchain: { node: options.toolchainNode, pnpm: options.toolchainPnpm, os: options.toolchainOs },
     },
     artifacts: collected.map((artifact) => ({
@@ -236,9 +241,9 @@ async function main() {
   const provenance = buildProvenance({
     releaseVersion: options.version,
     releaseChannel: options.channel,
-    sourceCommit: options.sourceCommit,
-    buildId: options.buildId,
-    workflow: { name: options.workflowName, runId: options.workflowRunId, workflowSha: options.workflowSha ?? options.sourceCommit },
+    sourceCommit,
+    buildId,
+    workflow: { name: options.workflowName, runId: options.workflowRunId, workflowSha: options.workflowSha ?? sourceCommit },
     toolchain: { node: options.toolchainNode, pnpm: options.toolchainPnpm, os: options.toolchainOs },
     inputs: { releaseVersion: options.version, channel: options.channel, targets: collected.map((artifact) => artifact.target) },
     artifacts: collected.map((artifact) => ({ name: artifact.name, sha256: artifact.sha256, artifactDigest: artifact.artifactDigest })),

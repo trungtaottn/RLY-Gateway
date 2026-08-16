@@ -78,18 +78,41 @@ async function main() {
   const tarballPath = join(releaseDir, `rly-${version}-${target}.tar.gz`);
 
   const releaseManifest = await readJsonSafe(join(releaseDir, RELEASE_MANIFEST_FILENAME));
-  if (releaseManifest === undefined) throw new Error(`missing ${RELEASE_MANIFEST_FILENAME} in ${releaseDir}; publish the release metadata before qualifying`);
   const artifactMeta = await readJsonSafe(join(artifactRoot, "rly-artifact.json"));
   if (artifactMeta === undefined) throw new Error(`unpacked artifact missing at ${artifactRoot}`);
+
+  // Qualification may run before or after the release manifest is published;
+  // the exact-byte identity comes from the packaged build identity and the
+  // tarball sha256 from the artifact lineage (artifacts.json).
+  let identityFields = releaseManifest;
+  let tarballSha256 = releaseManifest?.artifacts?.find((entry) => entry.target === target)?.sha256;
+  if (identityFields === undefined || tarballSha256 === undefined) {
+    const artifactLineage = await readJsonSafe(join(releaseDir, "artifacts.json"));
+    const record = artifactLineage?.artifacts?.find((entry) => entry.targetPlatform === target);
+    tarballSha256 = record?.sha256;
+    const buildMeta = await readJsonSafe(join(artifactRoot, "rly-build.json"));
+    identityFields = buildMeta === undefined ? undefined : {
+      releaseVersion: buildMeta.semanticVersion,
+      releaseChannel: buildMeta.releaseChannel,
+      sourceCommit: buildMeta.commitRevision,
+      buildId: buildMeta.buildId,
+      controlProtocolVersion: buildMeta.controlProtocolVersion,
+      dataProtocolVersion: buildMeta.dataProtocolVersion,
+      stateSchemaVersion: buildMeta.stateSchemaVersion,
+    };
+  }
+  if (tarballSha256 === undefined) {
+    throw new Error(`cannot resolve the exact tarball sha256 for ${target} in ${releaseDir}`);
+  }
 
   const publicKey = await readFile(resolve(options.publicKey), "utf8");
   const qualification = await runQualificationGates({
     artifactRoot,
     tarballPath,
-    tarballSha256: releaseManifest.artifacts.find((entry) => entry.target === target)?.sha256,
+    tarballSha256,
     artifactDigest: artifactMeta.artifactDigest,
     filename: `rly-${version}-${target}.tar.gz`,
-    releaseManifest,
+    releaseManifest: identityFields,
     publicKeyPem: publicKey,
     channel: options.channel,
     target,

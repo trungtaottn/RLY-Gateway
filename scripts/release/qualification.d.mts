@@ -60,6 +60,7 @@ export function runQualificationGates(args: {
   host: { platform: string; arch: string; os: string };
 }>;
 export function deriveQualificationResult(gates: QualificationGateResult[]): "qualified" | "experimental-gaps" | "not-qualified";
+export function hostCanExecute(target: string, host?: { platform: string; arch: string }): boolean;
 export function qualificationBlocksStable(qualification: unknown, args?: { requireResult?: boolean }): string[];
 export function serializeQualification(args: {
   qualifiedBytes: { filename: string; sha256?: string; artifactDigest: string };

@@ -1,16 +1,29 @@
 name: Standalone Artifacts
 
-# RLY-owned primary distribution (#35): builds the standalone runtime artifact
-# matrix from a clean compiled tree, bundles the pinned Node runtime, enforces
-# the positive allowlist + absence checks, runs the `rly --version` smoke on
-# the supported CI target (linux-x64), and publishes the deterministic
-# tarballs + digest + manifest. Experimental targets (darwin-arm64,
-# darwin-x64, linux-arm64) are built explicitly but not smoke-tested here
-# (no qualified runner); they never silently reuse another target's bytes.
+# RLY-owned primary distribution (#35 + #128): builds the standalone runtime
+# artifact matrix from a clean compiled tree, bundles the pinned Node runtime,
+# enforces the positive allowlist + absence checks, runs the `rly --version`
+# smoke on the supported CI target (linux-x64), QUALIFIES the exact artifact
+# bytes (exact-byte qualification is the publication authority), and publishes
+# the SIGNED release supply chain (canonical release manifest, per-artifact
+# SBOM + provenance, Ed25519 signatures, signed channel metadata). Experimental
+# targets (darwin-arm64, darwin-x64, linux-arm64) are built explicitly but are
+# not smoke/qualification-tested here (no qualified runner); they are recorded
+# as experimental gaps and never masquerade as stable qualification.
 #
 # Triggered by a GitHub Release publication (the canonical artifact lineage:
 # the release tag IS the version input, so package.json/tag/runtime identity
 # never diverge) or manually with an explicit release-version input.
+#
+# Supply-chain controls (#128):
+#   - release-critical third-party Actions are pinned to reviewed immutable
+#     commit SHAs (see scripts/check-release-supply-chain.mjs),
+#   - `contents: write` is the least privilege required to upload/attach
+#     release assets; nothing else is granted,
+#   - the signing PRIVATE key is referenced ONLY via the repository secret
+#     RLY_RELEASE_SIGNING_KEY (never inline); the PUBLIC key is committed at
+#     scripts/release/signing-public-key.pem,
+#   - npm credentials are never configured (npm is not the primary channel).
 
 on:
   release:
@@ -25,6 +38,10 @@ on:
         description: "Comma-separated targets; empty = all (darwin-arm64,darwin-x64,linux-x64,linux-arm64)"
         required: false
         type: string
+      channel:
+        description: "Release channel (beta|stable); derived from the release tag when empty"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -33,27 +50,36 @@ jobs:
   artifacts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.release && github.event.release.target_commitish || github.ref }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 11.16.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Resolve canonical release version
+      - name: Resolve canonical release version and channel
         id: version
         env:
           RLY_RELEASE_VERSION: ${{ inputs.release-version || '' }}
           RELEASE_TAG: ${{ github.event.release && github.event.release.tag_name || '' }}
+          INPUT_CHANNEL: ${{ inputs.channel || '' }}
         run: |
           VERSION="${RLY_RELEASE_VERSION:-${RELEASE_TAG#v}}"
+          CHANNEL="${INPUT_CHANNEL:-}"
+          if [ -z "${CHANNEL}" ]; then
+            case "${VERSION}" in
+              *-beta.*) CHANNEL="beta" ;;
+              *) CHANNEL="stable" ;;
+            esac
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Canonical release version: ${VERSION}"
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
+          echo "Canonical release version: ${VERSION} (channel ${CHANNEL})"
       - name: Build standalone artifact matrix
         env:
           RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -75,8 +101,52 @@ jobs:
             tar -xzf "$tarball" -C "$TMP/$target_dir"
             node scripts/standalone/verify-artifact.mjs --artifact "$TMP/$target_dir" --expected-version "${VERSION}" --smoke
           done
-      - name: Upload artifact matrix
-        uses: actions/upload-artifact@v4
+      - name: Qualify exact artifact bytes (supported CI target)
+        env:
+          RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RLY_RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
+        run: |
+          set -euo pipefail
+          VERSION="${RLY_RELEASE_VERSION}"
+          CHANNEL="${RLY_RELEASE_CHANNEL}"
+          # Qualify every target from the EXACT unpacked bytes. Host-aware gates
+          # (clean-install/identity) skip targets the runner cannot execute and
+          # record the gap; a FAILED gate (not-qualified) fails the workflow.
+          for tarball in out/standalone/rly-${VERSION}-*.tar.gz; do
+            target_dir="$(basename "$tarball" .tar.gz)"
+            target="${target_dir#rly-${VERSION}-}"
+            node scripts/release/qualify.mjs --release-dir out/standalone --target "${target}" --version "${VERSION}" --channel "${CHANNEL}"
+          done
+      - name: Publish signed release supply chain (manifest, SBOM, provenance, signatures, channel metadata)
+        env:
+          RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RLY_RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
+          RLY_RELEASE_SIGNING_KEY: ${{ secrets.RLY_RELEASE_SIGNING_KEY }}
+        run: |
+          node scripts/release/publish.mjs \
+            --release-dir out/standalone \
+            --version "${RLY_RELEASE_VERSION}" \
+            --channel "${RLY_RELEASE_CHANNEL}" \
+            --signing-key env:RLY_RELEASE_SIGNING_KEY \
+            --workflow-name standalone-artifacts \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-sha "${{ github.sha }}" \
+            --toolchain-node 24 \
+            --toolchain-pnpm 11.16.0 \
+            --toolchain-os ubuntu-latest \
+            --qualification out/standalone/rly-qualification.json \
+            --verbose
+      - name: Verify signed release supply chain
+        env:
+          RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RLY_RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
+        run: |
+          node scripts/release/verify-release.mjs \
+            --release-dir out/standalone \
+            --channel "${RLY_RELEASE_CHANNEL}" \
+            --verbose
+      - name: Upload artifact matrix + release supply chain
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: rly-standalone-${{ steps.version.outputs.version }}
           path: out/standalone/**
@@ -87,4 +157,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/artifacts.json --clobber
+          gh release upload "$RELEASE_TAG" out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/*.sig out/standalone/*.sbom.json out/standalone/rly-release.json out/standalone/rly-release.json.sig out/standalone/rly-provenance.json out/standalone/rly-provenance.json.sig out/standalone/rly-channel-*.json out/standalone/rly-channel-*.json.sig out/standalone/rly-qualification.json out/standalone/artifacts.json --clobber
