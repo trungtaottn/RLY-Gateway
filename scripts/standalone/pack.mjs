@@ -497,8 +497,14 @@ export function buildTarBytes(entries, sourceDateEpoch) {
     const size = entry.type === "dir" || entry.type === "symlink" ? 0 : entry.size;
     const linkname = entry.type === "symlink" ? (entry.linkname ?? "") : "";
     const truncated = Buffer.from(path, "utf8").subarray(0, 100).toString("utf8");
-    if (Buffer.byteLength(path, "utf8") > 100 || truncated !== path) {
-      const pax = Buffer.from(paxRecord("path", path), "utf8");
+    const truncatedLink = Buffer.from(linkname, "utf8").subarray(0, 100).toString("utf8");
+    if (Buffer.byteLength(path, "utf8") > 100 || truncated !== path ||
+        (linkname !== "" && (Buffer.byteLength(linkname, "utf8") > 100 || truncatedLink !== linkname))) {
+      let paxBody = paxRecord("path", path);
+      if (linkname !== "" && (Buffer.byteLength(linkname, "utf8") > 100 || truncatedLink !== linkname)) {
+        paxBody += paxRecord("linkpath", linkname);
+      }
+      const pax = Buffer.from(paxBody, "utf8");
       pushHeader(makeHeader({
         name: "PaxHeader",
         mode: 0o644,
@@ -520,7 +526,7 @@ export function buildTarBytes(entries, sourceDateEpoch) {
     }
     pushHeader(makeHeader({
       name: truncated,
-      mode: entry.type === "dir" ? 0o755 : 0o644,
+      mode: entry.type === "dir" ? 0o755 : (entry.mode ?? 0o644),
       uid: 0,
       gid: 0,
       size,
@@ -600,7 +606,9 @@ export async function tarballForTree(root, sourceDateEpoch) {
       entries.push({ path: `${entry.path}/`, type: "dir", size: 0, content: Buffer.alloc(0) });
     } else {
       const content = await readFile(join(root, entry.path));
-      entries.push({ path: entry.path, type: "file", size: content.length, content });
+      // Executable artifacts: the launcher and the bundled node binary.
+      const executable = entry.path === "rly" || entry.path === "bin/node";
+      entries.push({ path: entry.path, type: "file", size: content.length, content, mode: executable ? 0o755 : 0o644 });
     }
   }
   return gzipDeterministic(buildTarBytes(entries, sourceDateEpoch));

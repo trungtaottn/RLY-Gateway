@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -470,6 +470,35 @@ describe("pnpm dependency layout preservation (#35)", () => {
     const violations = await checkAllowlist(root);
     expect(violations.some((violation) => violation.includes("unsafe symlink target"))).toBe(true);
     expect(violations.some((violation) => violation.includes("unsafe symlink target"))).toBe(true);
+  });
+
+  it("tar round-trip preserves long symlink targets and executable modes", async () => {
+    const { symlink, lstat: lstatFile } = await import("node:fs/promises");
+    const root = await fixtureRuntimeRoot();
+    // A pnpm-style symlink whose target exceeds the 100-byte ustar field.
+    const longTarget = `.pnpm/@fastify+fast-json-stringify-compiler@5.1.0/node_modules/@fastify/fast-json-stringify-compiler/index.js`;
+    expect(longTarget.length).toBeGreaterThan(100);
+    await symlink(longTarget, join(root, "node_modules", "long-link"));
+    const assembled = await assembleStandaloneArtifact({
+      runtimeRoot: root,
+      outDir: await directory(),
+      target: "linux-x64",
+      node: await fakeNode(),
+      identityMeta: IDENTITY,
+      releaseVersion: "1.2.3",
+      sourceDateEpoch: 0,
+    });
+    const tar = await tarballForTree(assembled.artifactDir, 0);
+    const scratch = await directory();
+    const extract = join(scratch, "x");
+    await mkdir(extract);
+    await writeFile(join(scratch, "a.tar.gz"), tar);
+    execFileSync("tar", ["-xzf", join(scratch, "a.tar.gz"), "-C", extract]);
+    expect(await readlink(join(extract, "node_modules", "long-link"))).toBe(longTarget);
+    expect((await lstatFile(join(extract, "rly"))).mode & 0o111).toBe(0o111);
+    expect((await lstatFile(join(extract, "bin", "node"))).mode & 0o111).toBe(0o111);
+    // The extracted tree digests identically to the assembled tree.
+    expect(await treeDigest(extract, { exclude: ["rly-artifact.json"] })).toBe(assembled.digest);
   });
 });
 

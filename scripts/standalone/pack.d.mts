@@ -97,7 +97,7 @@ export function buildArtifactMetadata(args: {
 }): ArtifactMetadata;
 export function copyEntryDeref(source: string, target: string, visited?: Set<string>): Promise<void>;
 export function buildTarBytes(
-  entries: Array<{ path: string; type: "file" | "dir" | "symlink"; size: number; content: Uint8Array; linkname?: string }>,
+  entries: Array<{ path: string; type: "file" | "dir" | "symlink"; size: number; content: Uint8Array; linkname?: string; mode?: number }>,
   sourceDateEpoch: number,
 ): Uint8Array;
 export function gzipDeterministic(buffer: Uint8Array): Uint8Array;

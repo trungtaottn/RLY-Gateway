@@ -12,7 +12,8 @@
 //     [--expected-version <v>] [--smoke] [--verbose]
 
 import process from "node:process";
-import { verifyArtifactDirectory, smokeRun, hostTarget } from "./pack.mjs";
+import { join } from "node:path";
+import { verifyArtifactDirectory, smokeRun, hostTarget, readJsonSafe } from "./pack.mjs";
 
 function parseArgs(argv) {
   const options = { artifact: undefined, target: undefined, expectedVersion: undefined, smoke: false, verbose: false };
@@ -49,8 +50,12 @@ async function main() {
   }
   if (options.verbose) process.stdout.write(`artifact verification passed (${verification.errors.length} errors)\n`);
   if (options.smoke) {
-    if (options.target !== undefined && hostTarget() !== options.target) {
-      process.stdout.write(`smoke skipped: host ${hostTarget()} cannot execute ${options.target} binaries\n`);
+    // Infer the artifact's target from its metadata when --target is absent;
+    // never attempt to execute a foreign-arch binary.
+    const metadata = await readJsonSafe(join(options.artifact, "rly-artifact.json"));
+    const target = options.target ?? (metadata !== undefined && typeof metadata.targetPlatform === "string" ? metadata.targetPlatform : undefined);
+    if (target !== undefined && hostTarget() !== target) {
+      process.stdout.write(`smoke skipped: host ${hostTarget()} cannot execute ${target} binaries\n`);
       return;
     }
     const identity = await smokeRun(options.artifact);

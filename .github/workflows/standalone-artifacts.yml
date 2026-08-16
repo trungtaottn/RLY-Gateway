@@ -61,13 +61,19 @@ jobs:
         run: |
           ARGS=(--build --targets "${TARGETS:-all}")
           node scripts/standalone/build-standalone.mjs "${ARGS[@]}"
-      - name: Verify artifact matrix (allowlist, identity, digest)
+      - name: Verify artifact matrix (allowlist, identity, digest, smoke from unpacked tarball)
         env:
           RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           VERSION="${RLY_RELEASE_VERSION}"
-          for dir in out/standalone/rly-${VERSION}-*/; do
-            node scripts/standalone/verify-artifact.mjs --artifact "$dir" --expected-version "${VERSION}"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          for tarball in out/standalone/rly-${VERSION}-*.tar.gz; do
+            target_dir="$(basename "$tarball" .tar.gz)"
+            mkdir -p "$TMP/$target_dir"
+            tar -xzf "$tarball" -C "$TMP/$target_dir"
+            node scripts/standalone/verify-artifact.mjs --artifact "$TMP/$target_dir" --expected-version "${VERSION}" --smoke
           done
       - name: Upload artifact matrix
         uses: actions/upload-artifact@v4
