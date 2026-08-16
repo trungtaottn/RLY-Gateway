@@ -51,6 +51,15 @@ export function runQualificationGates(args: {
   macTools?: { codesign?: string; stapler?: string };
   controlPlaneHome?: string;
   repoRoot?: string;
+  verifyLocalAcquisitionImpl?: (options: {
+    metadataDirectory: string;
+    tarballPath: string;
+    channel: "beta" | "stable";
+    target: string;
+    publicKeyPem?: string;
+    now?: string;
+    highestObservedVersion?: number;
+  }) => Promise<{ version: string; artifactDigest: string }>;
 }): Promise<{
   qualifiedBytes: { filename: string; sha256: string | undefined; artifactDigest: string };
   target: string;

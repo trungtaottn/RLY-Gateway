@@ -533,6 +533,11 @@ describe("exact-byte qualification (#128)", () => {
     const digest = sha256Of(tarball);
     await writeFile(`${artifactDir}.tar.gz`, tarball);
     await writeFile(`${artifactDir}.tar.gz.sig`, `${JSON.stringify(signDigestStatement(pair.privateKey, digest), null, 2)}\n`);
+    // The verified-install gate runs against the SAME acquisition code rly
+    // install consumes, injected from source: `dist/` is not built while
+    // `pnpm test` runs (tests precede `pnpm build` in `pnpm verify`), so the
+    // compiled-module default would skip the gate on a fresh CI checkout.
+    const { verifyLocalAcquisition } = await import("../../src/installer/acquire.js");
 
     // Executable gates use a fake executor; static gates run for real.
     const executor = (_command: string, args: string[]): { ok: boolean; output: string } => {
@@ -552,6 +557,15 @@ describe("exact-byte qualification (#128)", () => {
       target: "linux-x64",
       host: { platform: "linux", arch: "x64", os: "local" },
       executor,
+      verifyLocalAcquisitionImpl: verifyLocalAcquisition as (options: {
+        metadataDirectory: string;
+        tarballPath: string;
+        channel: "beta" | "stable";
+        target: string;
+        publicKeyPem?: string;
+        now?: string;
+        highestObservedVersion?: number;
+      }) => Promise<{ version: string; artifactDigest: string }>,
     });
     expect(result.qualifiedBytes).toEqual({ filename: RELEASE.filename, sha256: digest, artifactDigest: assembled.metadata.artifactDigest });
     expect(result.gates.map((gate) => gate.id)).toEqual([

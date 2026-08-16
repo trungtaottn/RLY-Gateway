@@ -33,7 +33,7 @@ A clean per-user install needs no source checkout, npm, pnpm, or a
 user-provisioned Node, and never requires sudo. Two equivalent paths:
 
 ```bash
-# 1. documented bootstrap installer (curl/shasum/tar/openssl only)
+# 1. documented bootstrap installer (curl/tar/sha256sum|shasum/OpenSSL 3 only)
 sh <(curl -fsSL https://github.com/trungtaottn/RLY-Gateway/releases/latest/download/install.sh)
 #   or, after a release:  sh install.sh --channel stable
 

@@ -105,7 +105,7 @@ describe("bootstrap installer scripts/install.sh (#129)", () => {
     const keyFile = join(work, "fixture-pub.pem");
     const { writeFile } = await import("node:fs/promises");
     await writeFile(keyFile, fixture.publicKeyPem, { mode: 0o600 });
-    const result = await runInstaller("scripts/install.sh", ["--channel", "beta", "--origin", origin], work, {
+    const result = await runInstaller("scripts/install.sh", ["--channel", "beta", "--origin", origin, "--target", "linux-x64"], work, {
       ...process.env,
       RLY_VERBOSE: "1",
       RLY_RELEASE_PUBLIC_KEY_FILE: keyFile,
@@ -124,7 +124,7 @@ describe("bootstrap installer scripts/install.sh (#129)", () => {
     const work = await directory("rly-work-");
     const fixture = await buildReleaseFixture({ releaseDir, version: "1.0.0-beta.5", channel: "beta", launcherContent: FAKE_RLY });
     const { origin } = await serveFixture(fixture, { tamperTarball: true });
-    const result = await runInstaller("scripts/install.sh", ["--channel", "beta", "--origin", origin], work, { ...process.env });
+    const result = await runInstaller("scripts/install.sh", ["--channel", "beta", "--origin", origin, "--target", "linux-x64"], work, { ...process.env });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("digest mismatch");
     expect(result.stdout).not.toContain("fake-rly-install");
@@ -145,7 +145,7 @@ describe("bootstrap installer scripts/install.sh (#129)", () => {
     const work = await directory("rly-work-");
     const fixture = await buildReleaseFixture({ releaseDir, version: "1.0.0-beta.5", channel: "beta", launcherContent: FAKE_RLY });
     const { origin } = await serveFixture(fixture);
-    const result = await runInstaller("scripts/install.sh", ["--channel", "prod", "--origin", origin], work, { ...process.env });
+    const result = await runInstaller("scripts/install.sh", ["--channel", "prod", "--origin", origin, "--target", "linux-x64"], work, { ...process.env });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("channel must be beta or stable");
   });
@@ -161,7 +161,7 @@ describe("bootstrap installer scripts/install.sh (#129)", () => {
     const wrongKey = await directory("rly-wrongkey-");
     const { generateSigningKeyPair } = await import("../../scripts/release/signing.mjs");
     await writeFile(join(wrongKey, "wrong.pem"), generateSigningKeyPair().publicKey, { mode: 0o600 });
-    const result = await runInstaller("scripts/install.sh", ["--channel", "beta", "--origin", origin], work, {
+    const result = await runInstaller("scripts/install.sh", ["--channel", "beta", "--origin", origin, "--target", "linux-x64"], work, {
       ...process.env,
       RLY_RELEASE_PUBLIC_KEY_FILE: join(wrongKey, "wrong.pem"),
     });

@@ -144,6 +144,7 @@ export async function runQualificationGates({
   macTools = undefined,
   controlPlaneHome,
   repoRoot = ROOT,
+  verifyLocalAcquisitionImpl,
 }) {
   const gates = [];
   const qualifiedBytes = { filename, sha256: tarballSha256, artifactDigest };
@@ -344,6 +345,7 @@ export async function runQualificationGates({
     releaseManifest,
     publicKeyPem,
     repoRoot,
+    verifyLocalAcquisitionImpl,
   }));
 
   const result = deriveQualificationResult(gates);

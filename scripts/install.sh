@@ -37,7 +37,8 @@
 # Usage:
 #   sh install.sh [--channel beta|stable] [--version <v>] [--target <t>]
 #                 [--origin <url>]
-#   env: RLY_CHANNEL, RLY_VERSION, RLY_TARGET, RLY_ORIGIN, RLY_VERBOSE
+#   env: RLY_CHANNEL, RLY_VERSION, RLY_TARGET, RLY_ORIGIN, RLY_VERBOSE,
+#        RLY_OPENSSL_BIN (explicit OpenSSL 3 binary for Ed25519 verification)
 #
 # Exit codes: 0 ok; 1 verification/install failure; 2 usage; 78 unverified.
 
@@ -112,20 +113,53 @@ case "$TARGET" in
 esac
 
 # --- required tools (all standard on clean macOS/Linux; no Node/npm/pnpm) --
-for tool in curl shasum tar; do
+for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool '$tool' is missing; install it and re-run"
 done
-# Ed25519 verification requires an OpenSSL 3.x/1.1.1 `pkeyutl -rawin` (macOS
-# LibreSSL does not support it): FAIL CLOSED with an actionable message rather
-# than executing unverified content.
-if ! openssl pkeyutl -help >/dev/null 2>&1; then
-  fail "openssl is missing; install OpenSSL 3.x (macOS: brew install openssl@3) to verify the artifact signature"
+# sha256: prefer GNU sha256sum, fall back to macOS/Perl shasum -a 256.
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256_TOOL="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  SHA256_TOOL="shasum -a 256"
+else
+  fail "required tool 'sha256sum' (or macOS 'shasum') is missing; install coreutils/perl-Digest-SHA and re-run"
 fi
 
 # --- staging (private) -----------------------------------------------------
 STAGING="$(mktemp -d "${TMPDIR:-/tmp}/rly-install.XXXXXX")" || fail "cannot create staging directory"
 chmod 700 "$STAGING"
 trap 'rm -rf "$STAGING"' EXIT
+
+# --- Ed25519 verification tooling -------------------------------------------
+# OpenSSL 1.1.1+/3.x `pkeyutl -rawin` is required (macOS ships LibreSSL, which
+# does not support it): resolve a WORKING binary via an end-to-end Ed25519
+# sign/verify self-test and FAIL CLOSED with an actionable message rather than
+# executing unverified content. RLY_OPENSSL_BIN overrides; otherwise the PATH
+# `openssl` is probed, then the Homebrew OpenSSL 3 kegs (macOS).
+openssl_selftest() { # openssl_selftest <bin>; exit 0 when rawin Ed25519 works
+  OSSL_TEST_DIR="$STAGING/openssl-selftest"
+  rm -rf "$OSSL_TEST_DIR"
+  mkdir -p "$OSSL_TEST_DIR"
+  "$1" genpkey -algorithm ED25519 -out "$OSSL_TEST_DIR/key.pem" 2>/dev/null || return 1
+  "$1" pkey -in "$OSSL_TEST_DIR/key.pem" -pubout -out "$OSSL_TEST_DIR/pub.pem" 2>/dev/null || return 1
+  printf 'sha256:selftest\n' > "$OSSL_TEST_DIR/digest.txt"
+  "$1" pkeyutl -sign -inkey "$OSSL_TEST_DIR/key.pem" -rawin -in "$OSSL_TEST_DIR/digest.txt" -out "$OSSL_TEST_DIR/sig.bin" 2>/dev/null || return 1
+  "$1" pkeyutl -verify -pubin -inkey "$OSSL_TEST_DIR/pub.pem" -rawin -in "$OSSL_TEST_DIR/digest.txt" -sigfile "$OSSL_TEST_DIR/sig.bin" >/dev/null 2>&1 || return 1
+  rm -rf "$OSSL_TEST_DIR"
+  return 0
+}
+OPENSSL_BIN="${RLY_OPENSSL_BIN:-}"
+if [ -n "$OPENSSL_BIN" ] && command -v "$OPENSSL_BIN" >/dev/null 2>&1 && openssl_selftest "$OPENSSL_BIN"; then
+  :
+elif command -v openssl >/dev/null 2>&1 && openssl_selftest openssl; then
+  OPENSSL_BIN="openssl"
+elif [ -x /opt/homebrew/opt/openssl@3/bin/openssl ] && openssl_selftest /opt/homebrew/opt/openssl@3/bin/openssl; then
+  OPENSSL_BIN="/opt/homebrew/opt/openssl@3/bin/openssl"
+elif [ -x /usr/local/opt/openssl@3/bin/openssl ] && openssl_selftest /usr/local/opt/openssl@3/bin/openssl; then
+  OPENSSL_BIN="/usr/local/opt/openssl@3/bin/openssl"
+else
+  fail "an OpenSSL with Ed25519 'pkeyutl -rawin' support is required to verify the artifact signature (macOS ships LibreSSL: run 'brew install openssl@3' or set RLY_OPENSSL_BIN); refusing to install unverified content"
+fi
 
 KEY_FILE="$STAGING/rly-public-key.pem"
 if [ -n "${RLY_RELEASE_PUBLIC_KEY_FILE:-}" ]; then
@@ -143,8 +177,11 @@ chmod 600 "$KEY_FILE"
 if [ -n "$VERSION" ]; then
   RELEASE_VERSION="$VERSION"
 else
-  # Newest release for the channel: GitHub API listing is ONLY a discovery
-  # hint; trust comes from the signed metadata + evaluation inside rly.
+  # Newest release for the channel. The GitHub API listing is ONLY a
+  # discovery hint; trust comes from the signed metadata + evaluation inside
+  # rly. The listing is written to a file first (bash 3.2 on macOS cannot
+  # parse a nested `case` inside a command substitution, so the channel
+  # filter must be a plain loop).
   say "RLY install: resolving newest $CHANNEL release..."
   case "$ORIGIN" in
     https://github.com/*)
@@ -157,14 +194,24 @@ else
       API_URL="$ORIGIN/releases?per_page=100"
       ;;
   esac
-  RELEASE_VERSION="$(curl -fsSL -H 'Accept: application/vnd.github+json' "$API_URL" 2>/dev/null \
-    | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"v[^"]*"' | sed -E 's/.*"v//; s/"$//' \
-    | { while read -r tag; do
-        case "$CHANNEL" in
-          beta) case "$tag" in *-beta.*) printf '%s\n' "$tag"; break ;; esac ;;
-          stable) case "$tag" in *-beta.*) : ;; *) printf '%s\n' "$tag"; break ;; esac ;;
-        esac
-      done; } )" || true
+  # The listing is written to a file first (see above), then filtered for
+  # the channel's newest matching tag.
+  TAGS_FILE="$STAGING/release-tags.txt"
+  curl -fsSL -H 'Accept: application/vnd.github+json' "$API_URL" 2>/dev/null \
+    | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"v[^"]*"' \
+    | sed -E 's/.*"v//; s/"$//' > "$TAGS_FILE" || true
+  RELEASE_VERSION=""
+  while read -r tag; do
+    [ -n "$tag" ] || continue
+    case "$tag" in
+      *-beta.*)
+        if [ "$CHANNEL" = "beta" ]; then RELEASE_VERSION="$tag"; break; fi
+        ;;
+      *)
+        if [ "$CHANNEL" = "stable" ]; then RELEASE_VERSION="$tag"; break; fi
+        ;;
+    esac
+  done < "$TAGS_FILE"
   [ -n "$RELEASE_VERSION" ] || fail "no $CHANNEL release found on $ORIGIN"
 fi
 say "RLY install: release $RELEASE_VERSION ($CHANNEL, target $TARGET)"
@@ -205,7 +252,7 @@ fetch "$ARTIFACT.sig"
 
 # --- verification BEFORE executing/installing ------------------------------
 SHA256_FILE="$(awk '{print $1}' "$STAGING/$ARTIFACT.sha256" 2>/dev/null | head -n 1)"
-ACTUAL_SHA256="$(shasum -a 256 "$STAGING/$ARTIFACT" | awk '{print $1}')"
+ACTUAL_SHA256="$($SHA256_TOOL "$STAGING/$ARTIFACT" | awk '{print $1}')"
 [ -n "$SHA256_FILE" ] || fail "published sha256 file for $ARTIFACT is missing/empty"
 [ "$ACTUAL_SHA256" = "$SHA256_FILE" ] || fail "artifact digest mismatch: downloaded $ARTIFACT sha256=$ACTUAL_SHA256 != published $SHA256_FILE; refusing to install"
 
@@ -261,7 +308,7 @@ SIG_B64="$(awk '
 [ -n "$SIG_B64" ] || fail "artifact signature envelope $ARTIFACT.sig carries no signature; refusing"
 printf 'sha256:%s\n' "$ACTUAL_SHA256" > "$STAGING/digest.txt"
 # Single-line base64 decode (OpenSSL needs -A; base64 -d/-D are the macOS/GNU CLIs).
-if ! printf '%s' "$SIG_B64" | openssl base64 -d -A > "$STAGING/sig.bin" 2>/dev/null \
+if ! printf '%s' "$SIG_B64" | "$OPENSSL_BIN" base64 -d -A > "$STAGING/sig.bin" 2>/dev/null \
   && ! printf '%s' "$SIG_B64" | base64 -d > "$STAGING/sig.bin" 2>/dev/null \
   && ! printf '%s' "$SIG_B64" | base64 -D > "$STAGING/sig.bin" 2>/dev/null; then
   fail "artifact signature is not valid base64"
@@ -269,7 +316,7 @@ fi
 if [ ! -s "$STAGING/sig.bin" ]; then
   fail "artifact signature decoded to zero bytes; refusing"
 fi
-if ! openssl pkeyutl -verify -pubin -inkey "$KEY_FILE" -rawin -in "$STAGING/digest.txt" -sigfile "$STAGING/sig.bin" >/dev/null 2>&1; then
+if ! "$OPENSSL_BIN" pkeyutl -verify -pubin -inkey "$KEY_FILE" -rawin -in "$STAGING/digest.txt" -sigfile "$STAGING/sig.bin" >/dev/null 2>&1; then
   fail "artifact Ed25519 signature does NOT verify against the RLY release public key; refusing to execute/install unverified content"
 fi
 say "RLY install: artifact verified (sha256 $ACTUAL_SHA256, signature ok)"
