@@ -42,7 +42,7 @@ export type StreamPumpOptions<Wire> = Readonly<{
  * terminal path (completion, error, timeout, disconnect, teardown) cleans up
  * exactly once in `finally`.
  */
-export async function* pumpStream<Wire>(source: AsyncIterable<CanonicalEvent>, options: StreamPumpOptions<Wire>): AsyncIterable<string> {
+export async function* pumpStream<Wire>(source: Iterable<CanonicalEvent> | AsyncIterable<CanonicalEvent>, options: StreamPumpOptions<Wire>): AsyncIterable<string> {
   const { lifecycle, encoder } = options;
   let cleanEnd = false;
   try {

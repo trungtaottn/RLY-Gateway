@@ -69,11 +69,11 @@ export function registerOpenAiResponsesRoute(app: FastifyInstance, dependencies:
         // and the client abort binding is released by the pump's onFinished.
         // Continuation persistence runs on a clean, complete stream and reads
         // the encoder's bounded aggregate state (never the event history).
-        const source = upstream.invoke(continued, controller.signal);
         const lifecycle = createStreamLifecycle({
           clientSignal: controller.signal,
           ...(dependencies.streamTimeouts === undefined ? {} : { policy: dependencies.streamTimeouts }),
         });
+        const source = upstream.invoke(continued, lifecycle.signal);
         const encoder = createResponsesIncrementalEncoder();
         const onDrain = (): void => lifecycle.noteBackpressure();
         reply.raw.on("drain", onDrain);

@@ -9,9 +9,10 @@ describe("stream lifecycle timeouts (#120)", () => {
     const lifecycle = createStreamLifecycle({ clientSignal: client.signal, policy: { setupTimeoutMs: 10, idleTimeoutMs: 60_000 } });
     const start = Date.now();
     await after(40);
+    const terminal = lifecycle.terminal;
     expect(lifecycle.isTerminated()).toBe(true);
-    expect(lifecycle.terminal?.kind).toBe("timeout");
-    expect(lifecycle.terminal?.timeoutCategory).toBe("setup");
+    expect(terminal?.kind).toBe("timeout");
+    expect(terminal?.kind === "timeout" ? terminal.timeoutCategory : undefined).toBe("setup");
     expect(lifecycle.signal.aborted).toBe(true);
     expect(lifecycle.metrics().terminalKind).toBe("timeout");
     expect(lifecycle.metrics().timeoutCategory).toBe("setup");
@@ -27,8 +28,8 @@ describe("stream lifecycle timeouts (#120)", () => {
     expect(lifecycle.isTerminated()).toBe(false);
     lifecycle.noteEventDone(); // back to consuming upstream: idle clock starts
     await after(30);
-    expect(lifecycle.terminal?.kind).toBe("timeout");
-    expect(lifecycle.terminal?.timeoutCategory).toBe("idle");
+    const terminal = lifecycle.terminal;
+    expect(terminal?.kind === "timeout" ? terminal.timeoutCategory : undefined).toBe("idle");
   });
 
   it("ongoing progress resets the idle clock; a healthy long stream is never killed", async () => {
@@ -53,11 +54,11 @@ describe("stream lifecycle timeouts (#120)", () => {
     expect(lifecycle.isTerminated()).toBe(false); // suspended at yield must not time out
     lifecycle.noteEventDone(); // consumer drained; back to upstream
     await after(40);
-    expect(lifecycle.terminal?.kind).toBe("timeout");
-    expect(lifecycle.terminal?.timeoutCategory).toBe("idle");
+    const terminal = lifecycle.terminal;
+    expect(terminal?.kind === "timeout" ? terminal.timeoutCategory : undefined).toBe("idle");
   });
 
-  it("client disconnect cancels promptly and propagates through the merged signal", async () => {
+  it("client disconnect cancels promptly and propagates through the merged signal", () => {
     const client = new AbortController();
     const lifecycle = createStreamLifecycle({ clientSignal: client.signal, policy: { setupTimeoutMs: 60_000, idleTimeoutMs: 60_000 } });
     client.abort();
@@ -111,7 +112,7 @@ describe("stream lifecycle exactly-once finish (#120)", () => {
     expect(metrics.terminalKind).toBe("completed");
   });
 
-  it("removes the client abort listener exactly once on finish", async () => {
+  it("removes the client abort listener exactly once on finish", () => {
     const client = new AbortController();
     const lifecycle = createStreamLifecycle({ clientSignal: client.signal });
     const metrics = lifecycle.finish("completed", true);

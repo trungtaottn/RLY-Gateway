@@ -95,11 +95,11 @@ export function registerAnthropicMessagesRoute(app: FastifyInstance, dependencie
         // and cleans up exactly once when the stream terminates. The client
         // abort binding is released by the pump's onFinished (the handler
         // returns before the stream ends), not by the handler's finally.
-        const source = upstream.invoke(decoded.request, controller.signal);
         const lifecycle = createStreamLifecycle({
           clientSignal: controller.signal,
           ...(dependencies.streamTimeouts === undefined ? {} : { policy: dependencies.streamTimeouts }),
         });
+        const source = upstream.invoke(decoded.request, lifecycle.signal);
         const encoder = createAnthropicIncrementalEncoder();
         const onDrain = (): void => lifecycle.noteBackpressure();
         reply.raw.on("drain", onDrain);

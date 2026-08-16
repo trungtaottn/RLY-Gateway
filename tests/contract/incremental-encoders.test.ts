@@ -16,10 +16,10 @@ function textStream(deltas: number): CanonicalEvent[] {
     [1, "content-started", { index: 0, contentType: "text" }],
   ];
   let sequence = 2;
-  for (let i = 0; i < deltas; i += 1) items.push([sequence++, "text-delta", { index: 0, text: `t${i}` }]);
-  items.push([sequence++, "content-completed", { index: 0 }]);
-  items.push([sequence++, "usage-updated", { inputTokens: 10, outputTokens: deltas }]);
-  items.push([sequence++, "response-completed", { stopReason: "end_turn" }]);
+  for (let i = 0; i < deltas; i += 1) items.push([sequence++, "text-delta", { index: 0, text: `t${String(i)}` }]);
+  items.push([sequence, "content-completed", { index: 0 }]);
+  items.push([sequence + 1, "usage-updated", { inputTokens: 10, outputTokens: deltas }]);
+  items.push([sequence + 2, "response-completed", { stopReason: "end_turn" }]);
   return events(items);
 }
 
@@ -32,12 +32,12 @@ function toolStream(deltas: number): CanonicalEvent[] {
   let sequence = 2;
   // Concatenation stays valid JSON: `{"k0":0,"k1":1,...}`.
   for (let i = 0; i < deltas; i += 1) {
-    items.push([sequence++, "tool-arguments-delta", { index: 0, toolCallId: "tool_fixture", partialJson: `${i === 0 ? "{" : ","}"k${i}":${i}` }]);
+    items.push([sequence++, "tool-arguments-delta", { index: 0, toolCallId: "tool_fixture", partialJson: `${i === 0 ? "{" : ","}"k${String(i)}":${String(i)}` }]);
   }
-  items.push([sequence++, "tool-arguments-delta", { index: 0, toolCallId: "tool_fixture", partialJson: "}" }]);
-  items.push([sequence++, "content-completed", { index: 0 }]);
-  items.push([sequence++, "usage-updated", { inputTokens: 5, outputTokens: 8 }]);
-  items.push([sequence++, "response-completed", { stopReason: "tool_use" }]);
+  items.push([sequence, "tool-arguments-delta", { index: 0, toolCallId: "tool_fixture", partialJson: "}" }]);
+  items.push([sequence + 1, "content-completed", { index: 0 }]);
+  items.push([sequence + 2, "usage-updated", { inputTokens: 5, outputTokens: 8 }]);
+  items.push([sequence + 3, "response-completed", { stopReason: "tool_use" }]);
   return events(items);
 }
 
@@ -84,7 +84,7 @@ describe("incremental encoders stay wire-equivalent to batch encoders (#120)", (
     ["anthropic-tool", toolStream(30), true],
     ["anthropic-reasoning-tool-interleave", reasoningToolInterleave(), true],
     ["anthropic-redacted-reasoning", redactedReasoning(), true],
-  ])("Anthropic %s", (_name, stream, _) => {
+  ])("Anthropic %s", (_name, stream) => {
     const incremental = incrementalSse(stream, createAnthropicIncrementalEncoder(), anthropicFrame);
     // Byte-identical to the current re-encode-then-slice output on the same
     // canonical stream.
@@ -96,7 +96,7 @@ describe("incremental encoders stay wire-equivalent to batch encoders (#120)", (
     ["responses-tool", toolStream(30), true],
     ["responses-reasoning-tool-interleave", reasoningToolInterleave(), true],
     ["responses-redacted-reasoning", redactedReasoning(), true],
-  ])("Responses %s", (_name, stream, _) => {
+  ])("Responses %s", (_name, stream) => {
     const incremental = incrementalSse(stream, createResponsesIncrementalEncoder(), responsesFrame);
     expect(incremental).toBe(encodeResponsesSse(stream));
   });

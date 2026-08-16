@@ -11,7 +11,7 @@ function textEvents(count: number): CanonicalEvent[] {
     { ...base, sequence: 0, type: "response-started", responseId: "msg_pump" },
     { ...base, sequence: 1, type: "content-started", index: 0, contentType: "text" },
   ];
-  for (let i = 0; i < count; i += 1) out.push({ ...base, sequence: 2 + i, type: "text-delta", index: 0, text: `chunk${i}` });
+  for (let i = 0; i < count; i += 1) out.push({ ...base, sequence: 2 + i, type: "text-delta", index: 0, text: `chunk${String(i)}` });
   out.push({ ...base, sequence: 2 + count, type: "content-completed", index: 0 });
   out.push({ ...base, sequence: 3 + count, type: "response-completed", stopReason: "end_turn" });
   return out;
@@ -52,7 +52,7 @@ describe("single-pass stream pump (#120)", () => {
     let onFinishedCalls = 0;
     let finishedMetrics: unknown;
     const chunks = await collect(pumpStream(textEvents(50), {
-      ...pumpOptions({ lifecycle, onComplete: async () => { onCompleteCalls += 1; }, onFinished: (m) => { onFinishedCalls += 1; finishedMetrics = m; } }),
+      ...pumpOptions({ lifecycle, onComplete: () => { onCompleteCalls += 1; }, onFinished: (m) => { onFinishedCalls += 1; finishedMetrics = m; } }),
     }));
     expect(onCompleteCalls).toBe(1);
     expect(onFinishedCalls).toBe(1);
@@ -83,7 +83,7 @@ describe("single-pass stream pump (#120)", () => {
     const lifecycle = createStreamLifecycle({ clientSignal: new AbortController().signal });
     const chunks = await collect(pumpStream(textEvents(2), pumpOptions({
       lifecycle,
-      onComplete: async () => { throw new Error("continuation store failed"); },
+      onComplete: () => { throw new Error("continuation store failed"); },
     })));
     const last = chunks[chunks.length - 1];
     expect(last).toContain("continuation store failed");
@@ -95,6 +95,7 @@ describe("single-pass stream pump (#120)", () => {
     const lifecycle = createStreamLifecycle({ clientSignal: client.signal });
     const aborting: AsyncIterable<CanonicalEvent> = {
       async *[Symbol.asyncIterator]() {
+        await Promise.resolve();
         for (const item of textEvents(100)) {
           yield item;
           if (client.signal.aborted) throw client.signal.reason instanceof Error ? client.signal.reason : new Error("aborted");
@@ -108,7 +109,7 @@ describe("single-pass stream pump (#120)", () => {
     for (let i = 0; i < 3; i += 1) { const next = await iterator.next(); if (next.done) break; received += 1; }
     client.abort();
     const rest: string[] = [];
-    for (let next = await iterator.next(); !next.done; next = await iterator.next()) rest.push(next.value as string);
+    for (let next = await iterator.next(); !next.done; next = await iterator.next()) rest.push(next.value);
     // No error frames after cancellation and no partial frames.
     expect(rest.every((chunk) => !chunk.includes('"error"'))).toBe(true);
     expect(lifecycle.metrics().terminalKind).toBe("cancelled");
@@ -120,6 +121,7 @@ describe("single-pass stream pump (#120)", () => {
     const lifecycle = createStreamLifecycle({ clientSignal: client.signal });
     const ignoresAbort: AsyncIterable<CanonicalEvent> = {
       async *[Symbol.asyncIterator]() {
+        await Promise.resolve();
         for (const item of textEvents(1_000)) yield item; // never checks the signal
       },
     };
@@ -144,6 +146,8 @@ describe("single-pass stream pump (#120)", () => {
           const timer = setTimeout(resolve, 5_000);
           lifecycle.signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("aborted")); }, { once: true });
         });
+        // Never reached on abort; satisfies the sync yield lint rule.
+        yield 0 as unknown as CanonicalEvent;
       },
     };
     const chunks = await collect(pumpStream(hanging, pumpOptions({ lifecycle })));
@@ -156,10 +160,11 @@ describe("single-pass stream pump (#120)", () => {
   it("idle timeout fires on upstream stall and reports the idle category", async () => {
     const lifecycle = createStreamLifecycle({ clientSignal: new AbortController().signal, policy: { setupTimeoutMs: 60_000, idleTimeoutMs: 10 } });
     const events = textEvents(2);
+    const [firstEvent, secondEvent] = events as [CanonicalEvent, CanonicalEvent, ...CanonicalEvent[]];
     const stalling: AsyncIterable<CanonicalEvent> = {
       async *[Symbol.asyncIterator]() {
-        yield events[0];
-        yield events[1];
+        yield firstEvent;
+        yield secondEvent;
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, 5_000);
           lifecycle.signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("aborted")); }, { once: true });
