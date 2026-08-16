@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, cp, lstat, readFile, readdir, readlink, rename, rm } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import {
   currentUid,
@@ -558,9 +558,11 @@ async function validateCandidateLayout(sourceDirectory: string): Promise<void> {
 
 /**
  * Computes the immutable artifact identity of a candidate tree: SHA-256 over
- * sorted relative paths + file contents. Symlinks and special files fail
- * closed (deployments are private and must be self-contained, and the digest
- * must be deterministic).
+ * sorted relative paths + file contents. Relative in-tree symlinks (the pnpm
+ * `node_modules/.pnpm` layout MUST be preserved for transitive resolution)
+ * digest deterministically as `link:<target>`; absolute or escaping links and
+ * special files fail closed so deployments stay private, self-contained, and
+ * the digest stays deterministic.
  */
 export async function computeArtifactId(sourceDirectory: string): Promise<string> {
   const entries = await treeFileDigests(sourceDirectory);
@@ -578,7 +580,15 @@ async function treeFileDigests(root: string, relative = ""): Promise<ReadonlyArr
   for (const name of names.sort((left, right) => left.name.localeCompare(right.name))) {
     const entryRelative = relative ? join(relative, name.name) : name.name;
     if (name.isSymbolicLink()) {
-      throw new DeploymentStoreError(`candidate contains a symlink; refusing non-self-contained deployment: ${entryRelative}`);
+      const linkPath = join(directory, name.name);
+      const linkTarget = await readlink(linkPath);
+      if (!isSelfContainedLink(linkPath, linkTarget, root)) {
+        throw new DeploymentStoreError(
+          `candidate contains an unsafe symlink (${entryRelative} -> ${linkTarget}); refusing non-self-contained deployment`,
+        );
+      }
+      entries.push({ path: entryRelative, sha256: `link:${linkTarget}` });
+      continue;
     }
     if (name.isDirectory()) {
       entries.push(...await treeFileDigests(root, entryRelative));
@@ -593,8 +603,21 @@ async function treeFileDigests(root: string, relative = ""): Promise<ReadonlyArr
   return entries;
 }
 
+/** A link is store-safe when its target is relative and resolves inside the candidate tree. */
+function isSelfContainedLink(linkPath: string, linkTarget: string, root: string): boolean {
+  if (linkTarget === "" || linkTarget.startsWith("/") || /^[A-Za-z]:/.test(linkTarget)) return false;
+  const resolved = resolve(dirname(linkPath), linkTarget);
+  const rootAbs = resolve(root);
+  return resolved === rootAbs || resolved.startsWith(`${rootAbs}${sep}`);
+}
+
 async function copyTree(source: string, target: string): Promise<void> {
-  await cp(source, target, { recursive: true, force: true });
+  // Preserve pnpm's relative in-tree symlink layout (dereferencing collapses
+  // `node_modules/.pnpm` sibling links and breaks transitive resolution, e.g.
+  // fastify→avvio). Candidates are pre-vetted by computeArtifactId, which
+  // refuses absolute/escaping links, so only safe relative links can reach
+  // the immutable store.
+  await cp(source, target, { recursive: true, force: true, verbatimSymlinks: true });
 }
 
 function refTarget(artifactId: string): string {

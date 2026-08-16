@@ -147,7 +147,7 @@ describe("stable RLY-owned bootstrap (#94)", () => {
     await expect(resolveActiveDeployment(controlPlane)).rejects.toThrow(/does not match its directory/);
   });
 
-  it("materializes the runtime tree with symlinks dereferenced and allowlisted entries only", async () => {
+  it("materializes the runtime tree preserving pnpm symlinks with allowlisted entries only", async () => {
     const source = await directory("rly-bootstrap-src-");
     const target = await directory("rly-bootstrap-out-");
     await mkdir(join(source, "dist", "cli"), { recursive: true });
@@ -168,13 +168,93 @@ describe("stable RLY-owned bootstrap (#94)", () => {
 
     const mainJs = await readFile(join(target, "dist", "cli", "main.js"), "utf8");
     expect(mainJs).toContain("export const x = 1");
-    // The symlink was dereferenced into a real file.
+    // The pnpm symlink is PRESERVED (dereferencing it would collapse the
+    // virtual-store layout and break transitive resolution); reads through
+    // the link still work.
     const fastify = await readFile(join(target, "node_modules", "fastify", "index.js"), "utf8");
     expect(fastify).toContain("// fastify");
     const details = await import("node:fs/promises").then((m) => m.lstat(join(target, "node_modules", "fastify")));
-    expect(details.isSymbolicLink()).toBe(false);
+    expect(details.isSymbolicLink()).toBe(true);
+    expect(await readlink(join(target, "node_modules", "fastify"))).toBe(".pnpm/fastify@5/node_modules");
     await expect(readFile(join(target, "secret-local.txt"), "utf8")).rejects.toThrow();
     await expect(readFile(join(target, ".git", "config"), "utf8")).rejects.toThrow();
+  });
+
+  it("materializes a tree preserving pnpm symlinks so transitive dependencies resolve", async () => {
+    const source = await directory("rly-bootstrap-src-");
+    const target = await directory("rly-bootstrap-out-");
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "rly-gateway" }), "utf8");
+    // Two-level pnpm layout mirroring fastify→avvio: the top-level `app`
+    // link resolves into the virtual store, whose SIBLING links resolve the
+    // transitive `dep` (level 1) and `sub` (level 2) packages. Node walks up
+    // from the realpath'd module and finds each dep in the same
+    // `.pnpm/<pkg>@<ver>/node_modules` directory.
+    await mkdir(join(source, "node_modules", ".pnpm", "app@1", "node_modules", "app"), { recursive: true });
+    await mkdir(join(source, "node_modules", ".pnpm", "dep@1", "node_modules", "dep"), { recursive: true });
+    await mkdir(join(source, "node_modules", ".pnpm", "sub@1", "node_modules", "sub"), { recursive: true });
+    await writeFile(
+      join(source, "node_modules", ".pnpm", "app@1", "node_modules", "app", "index.js"),
+      "module.exports = { via: require('dep').chain };\n",
+      "utf8",
+    );
+    await writeFile(
+      join(source, "node_modules", ".pnpm", "dep@1", "node_modules", "dep", "index.js"),
+      "module.exports = { chain: require('sub').value };\n",
+      "utf8",
+    );
+    await writeFile(
+      join(source, "node_modules", ".pnpm", "sub@1", "node_modules", "sub", "index.js"),
+      "module.exports = { value: 'resolved-through-virtual-store' };\n",
+      "utf8",
+    );
+    await symlink(".pnpm/app@1/node_modules/app", join(source, "node_modules", "app"));
+    await symlink("../../dep@1/node_modules/dep", join(source, "node_modules", ".pnpm", "app@1", "node_modules", "dep"));
+    await symlink("../../sub@1/node_modules/sub", join(source, "node_modules", ".pnpm", "dep@1", "node_modules", "sub"));
+
+    await materializeRuntimeTree(source, target);
+
+    // The pnpm layout is preserved: links stay links with their original
+    // relative targets.
+    expect((await import("node:fs/promises").then((m) => m.lstat(join(target, "node_modules", "app")))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(target, "node_modules", "app"))).toBe(".pnpm/app@1/node_modules/app");
+    expect((await import("node:fs/promises").then((m) => m.lstat(join(target, "node_modules", ".pnpm", "app@1", "node_modules", "dep")))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(target, "node_modules", ".pnpm", "app@1", "node_modules", "dep"))).toBe("../../dep@1/node_modules/dep");
+
+    // Real Node resolution walks the preserved virtual store: app → dep → sub.
+    const result = await execFileAsync(process.execPath, ["-e", "process.stdout.write(require(process.argv[1]).via)", join(target, "node_modules", "app", "index.js")]);
+    expect(result.stdout).toBe("resolved-through-virtual-store");
+  });
+
+  it("refuses absolute or escaping symlinks when materializing (self-contained deployments)", async () => {
+    for (const linkTarget of ["/etc/passwd", "../../../../etc/passwd"]) {
+      const source = await directory("rly-bootstrap-src-");
+      const target = await directory("rly-bootstrap-out-");
+      await writeFile(join(source, "package.json"), JSON.stringify({ name: "rly-gateway" }), "utf8");
+      await mkdir(join(source, "node_modules"), { recursive: true });
+      await symlink(linkTarget, join(source, "node_modules", "unsafe"));
+      await expect(materializeRuntimeTree(source, target)).rejects.toThrow(/unsafe symlink/);
+    }
+  });
+
+  it("prunes pnpm metadata, .bin shims, and dependency test artifacts from node_modules", async () => {
+    const source = await directory("rly-bootstrap-src-");
+    const target = await directory("rly-bootstrap-out-");
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "rly-gateway" }), "utf8");
+    await mkdir(join(source, "node_modules", ".pnpm", "pkg@1", "node_modules", "pkg", "lib"), { recursive: true });
+    await writeFile(join(source, "node_modules", ".pnpm", "pkg@1", "node_modules", "pkg", "index.js"), "module.exports = 1;\n", "utf8");
+    // pnpm metadata, .bin shims, and dependency test artifacts are pruned.
+    await writeFile(join(source, "node_modules", ".modules.yaml"), "storeDir: /abs/path\n", "utf8");
+    await mkdir(join(source, "node_modules", ".bin"), { recursive: true });
+    await symlink("../pkg/bin/cli.js", join(source, "node_modules", ".bin", "pkg"));
+    await writeFile(join(source, "node_modules", ".pnpm", "pkg@1", "node_modules", "pkg", "lib", "index.test.js"), "// test\n", "utf8");
+
+    await materializeRuntimeTree(source, target);
+
+    await expect(readFile(join(target, "node_modules", ".modules.yaml"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(target, "node_modules", ".bin", "pkg"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(target, "node_modules", ".pnpm", "pkg@1", "node_modules", "pkg", "lib", "index.test.js"), "utf8")).rejects.toThrow();
+    // Real package bytes are still copied.
+    expect(await readFile(join(target, "node_modules", ".pnpm", "pkg@1", "node_modules", "pkg", "index.js"), "utf8")).toContain("module.exports = 1");
   });
 
   it("establishes the initial committed active deployment idempotently from the runtime tree", async () => {

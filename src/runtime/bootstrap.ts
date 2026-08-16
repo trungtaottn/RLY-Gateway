@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, symlink } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BuildIdentity } from "./build-identity.js";
 import { currentBuildIdentity } from "./build-identity.js";
@@ -224,10 +224,14 @@ export async function readDeploymentMetadata(directory: string): Promise<Deploym
 /**
  * Establishes the INITIAL committed `active` deployment from the installed
  * RLY runtime tree (package.json + dist + node_modules + LICENSE + rly.json),
- * materialized with symlinks dereferenced so the tree is self-contained and
- * digest-deterministic. Idempotent: a valid committed active deployment is
- * left untouched (re-init/doctor never re-copies or rewrites immutable bytes).
- * Returns `{ created: false }` when a committed deployment already exists.
+ * materialized with pnpm's relative in-tree symlink layout PRESERVED so the
+ * deployed runtime resolves transitive dependencies exactly like the source
+ * tree (dereferencing `node_modules/.pnpm` sibling links breaks e.g.
+ * fastify→avvio). Only safe relative in-tree links are kept, so the
+ * deployment stays self-contained and digest-deterministic. Idempotent: a
+ * valid committed active deployment is left untouched (re-init/doctor never
+ * re-copies or rewrites immutable bytes). Returns `{ created: false }` when a
+ * committed deployment already exists.
  */
 export type EnsureInitialDeploymentOptions = Readonly<{
   packageRoot?: string;
@@ -298,13 +302,40 @@ export function runtimePackageRoot(): string | undefined {
   return join(dirname(path), "..", "..");
 }
 
+/** pnpm metadata that may carry store/absolute paths; never shipped (mirror of the #35 pack rules). */
+const PNPM_METADATA_FILES = [".modules.yaml", ".package-map.json", ".pnpm-workspace-state-v1.json", "lock.yaml"] as const;
+
+/** Dependency test artifacts never required at runtime (#35 pack parity). */
+function isTestArtifactPath(name: string): boolean {
+  return /(^|\/)(tests|__tests__|__snapshots__)($|\/)/.test(name) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(name);
+}
+
+/** True when the path is (inside) a `node_modules` tree (pruning scope). */
+function isWithinNodeModules(path: string): boolean {
+  return path.split(sep).includes("node_modules");
+}
+
+/**
+ * A link is deployment-safe when its target is relative and resolves INSIDE
+ * the source tree (self-contained; no absolute/escaping link attacks).
+ */
+function isSafeSelfContainedLink(linkPath: string, linkTarget: string, sourceRoot: string): boolean {
+  if (linkTarget === "" || linkTarget.startsWith("/") || /^[A-Za-z]:/.test(linkTarget)) return false;
+  const resolved = resolve(dirname(linkPath), linkTarget);
+  const root = resolve(sourceRoot);
+  return resolved === root || resolved.startsWith(`${root}${sep}`);
+}
+
 /**
  * Copies the allowlisted runtime tree (package.json, dist, node_modules,
- * LICENSE, rly.json) with symlinks dereferenced (pnpm node_modules uses
- * symlinks; deployments must be self-contained real files so the artifact
- * digest is deterministic and the deployed runtime never depends on the
- * source tree). Cycle-safe via a visited-realpath set; private 0700 dirs /
- * 0600 files.
+ * LICENSE, rly.json) PRESERVING pnpm's relative in-tree symlink layout — a
+ * dereferenced copy collapses the `node_modules/.pnpm` sibling links that
+ * transitive resolution depends on (e.g. fastify→avvio) and breaks the
+ * deployed runtime. Absolute or escaping symlinks are refused so the
+ * deployment stays self-contained; pnpm metadata files (which may carry
+ * build-machine store paths), `.bin` shims, and dependency test artifacts
+ * are never shipped (mirror of the #35 pack rules). Cycle-safe via a
+ * visited-realpath set; private 0700 dirs / 0600 files.
  */
 const INITIAL_DEPLOYMENT_ALLOWLIST = ["package.json", "dist", "node_modules", "LICENSE", "rly.json"] as const;
 
@@ -313,23 +344,30 @@ export async function materializeRuntimeTree(source: string, target: string): Pr
   await chmod(target, PRIVATE_DIRECTORY_MODE);
   const visited = new Set<string>();
   for (const name of INITIAL_DEPLOYMENT_ALLOWLIST) {
-    await copyEntry(join(source, name), join(target, name), visited);
+    await copyEntry(join(source, name), join(target, name), visited, source);
   }
   await chmod(target, PRIVATE_DIRECTORY_MODE);
 }
 
-async function copyEntry(source: string, target: string, visited: Set<string>): Promise<void> {
+async function copyEntry(source: string, target: string, visited: Set<string>, sourceRoot: string): Promise<void> {
   const details = await lstat(source).catch((error: unknown) => {
     if (isNotFound(error)) return undefined;
     throw error;
   });
   if (details === undefined) return;
   if (details.isSymbolicLink()) {
+    const linkTarget = await readlink(source);
+    if (!isSafeSelfContainedLink(source, linkTarget, sourceRoot)) {
+      throw new BootstrapResolutionError(
+        `runtime tree contains an unsafe symlink (${source} -> ${linkTarget}); refusing to bootstrap a deployment`,
+      );
+    }
     const resolved = await realpath(source);
     const key = `${source}\0${resolved}`;
     if (visited.has(key)) return; // cycle guard
     visited.add(key);
-    await copyEntry(resolved, target, visited);
+    await mkdir(dirname(target), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+    await symlink(linkTarget, target);
     return;
   }
   if (details.isDirectory()) {
@@ -337,7 +375,10 @@ async function copyEntry(source: string, target: string, visited: Set<string>): 
     await chmod(target, PRIVATE_DIRECTORY_MODE);
     const children = await readdir(source);
     for (const child of children.sort()) {
-      await copyEntry(join(source, child), join(target, child), visited);
+      if (isWithinNodeModules(source) && (PNPM_METADATA_FILES.includes(child as (typeof PNPM_METADATA_FILES)[number]) || child === ".bin" || isTestArtifactPath(child))) {
+        continue;
+      }
+      await copyEntry(join(source, child), join(target, child), visited, sourceRoot);
     }
     return;
   }

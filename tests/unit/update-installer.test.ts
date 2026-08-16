@@ -311,6 +311,73 @@ describe("immutable deployment store (#92)", () => {
   });
 });
 
+describe("content-addressed identity with preserved pnpm symlinks (#144)", () => {
+  let sourceSerial = 0;
+
+  /** Builds a two-level pnpm-style source tree (fastify→avvio structure). */
+  async function pnpmSource(root: string, bytes = "// v1\n"): Promise<string> {
+    sourceSerial += 1;
+    const source = join(root, `candidate-symlink-${sourceSerial}`);
+    await mkdir(join(source, "dist", "cli"), { recursive: true });
+    await writeFile(join(source, "dist", "cli", "main.js"), bytes, "utf8");
+    await writeFile(join(source, "rly.json"), `${JSON.stringify({ product: "rly-gateway", version: "1.0.0", stateVersion: 2, migrationForwardOnly: false })}\n`, "utf8");
+    await mkdir(join(source, "node_modules", ".pnpm", "app@1", "node_modules", "app"), { recursive: true });
+    await mkdir(join(source, "node_modules", ".pnpm", "dep@1", "node_modules", "dep"), { recursive: true });
+    await writeFile(join(source, "node_modules", ".pnpm", "app@1", "node_modules", "app", "index.js"), "module.exports = { dep: require('dep') };\n", "utf8");
+    await writeFile(join(source, "node_modules", ".pnpm", "dep@1", "node_modules", "dep", "index.js"), "module.exports = {};\n", "utf8");
+    await symlink(".pnpm/app@1/node_modules/app", join(source, "node_modules", "app"));
+    await symlink("../../dep@1/node_modules/dep", join(source, "node_modules", ".pnpm", "app@1", "node_modules", "dep"));
+    return source;
+  }
+
+  it("digests relative in-tree symlinks deterministically (pnpm layout identity)", async () => {
+    const root = await directory();
+    const source = await pnpmSource(root);
+    const first = await computeArtifactId(source);
+    const second = await computeArtifactId(source);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).toBe(first);
+    // A layout-only change (the link target string participates) changes the identity.
+    const other = await pnpmSource(root, "// v1\n");
+    const { unlink } = await import("node:fs/promises");
+    await unlink(join(other, "node_modules", ".pnpm", "app@1", "node_modules", "dep"));
+    await symlink("../../dep@2/node_modules/dep", join(other, "node_modules", ".pnpm", "app@1", "node_modules", "dep"));
+    expect(await computeArtifactId(other)).not.toBe(first);
+  });
+
+  it("refuses absolute or escaping symlinks (self-contained deployments)", async () => {
+    const root = await directory();
+    const source = await pnpmSource(root);
+    await symlink("/etc/passwd", join(source, "node_modules", "absolute"));
+    await expect(computeArtifactId(source)).rejects.toThrow(/unsafe symlink/);
+
+    const escaping = await pnpmSource(root);
+    await symlink("../../../../etc/passwd", join(escaping, "node_modules", "escape"));
+    await expect(computeArtifactId(escaping)).rejects.toThrow(/unsafe symlink/);
+  });
+
+  it("stages a symlinked candidate preserving the pnpm layout in the immutable store", async () => {
+    const root = await directory();
+    const stateRoot = join(root, "state");
+    const installer = new LocalCandidateInstaller({ directory: stateRoot });
+    const source = await pnpmSource(root);
+    const installed = await installer.installCandidate({ version: "1.0.0", sourceDirectory: source });
+    expect(installed.artifactId).toBe(await computeArtifactId(source));
+    const deployed = join(installer.versionsDirectory, installed.artifactId);
+    // The deployed tree keeps the symlink layout (dereferencing it would break
+    // transitive resolution).
+    expect((await import("node:fs/promises").then((m) => m.lstat(join(deployed, "node_modules", "app")))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(deployed, "node_modules", "app"))).toBe(".pnpm/app@1/node_modules/app");
+    expect(await readlink(join(deployed, "node_modules", ".pnpm", "app@1", "node_modules", "dep"))).toBe("../../dep@1/node_modules/dep");
+    // Real Node resolution walks the preserved virtual store through the store copy.
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    const result = await execFileAsync(process.execPath, ["-e", "process.stdout.write(require(process.argv[1]).dep ? 'ok' : 'missing')", join(deployed, "node_modules", "app", "index.js")]);
+    expect(result.stdout).toBe("ok");
+  });
+});
+
 describe("legacy semver/current/previous migration (#92)", () => {
   it("migrates a legacy layout without deleting the last known-good serving runtime", async () => {
     const root = await directory();
