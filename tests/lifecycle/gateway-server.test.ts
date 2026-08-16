@@ -68,6 +68,34 @@ describe("gateway server", () => {
     expect(identity.json()).toMatchObject({ resident: true, runtimeVersion: "0.1.0" });
   });
 
+  it("reports the exact build identity on /identity (#94)", async () => {
+    const buildIdentity = {
+      identitySchemaVersion: 1,
+      product: "rly-gateway",
+      semanticVersion: "1.2.3",
+      commitRevision: "deadbeef",
+      buildId: "b-7",
+      releaseChannel: "beta",
+      controlProtocolVersion: 1,
+      dataProtocolVersion: 1,
+      stateSchemaVersion: 2,
+      artifactId: "c".repeat(64),
+    } as const;
+    app = createGatewayServer({
+      host: "127.0.0.1",
+      port: 17871,
+      authToken: "test-only-token",
+      instanceId: "00000000-0000-4000-8000-000000000003",
+      configFingerprint: "a".repeat(64),
+      buildIdentity,
+    });
+    const identity = await app.inject({
+      method: "GET",
+      url: `/identity?challenge=${"c".repeat(32)}`,
+    });
+    expect(identity.json()).toMatchObject({ build: buildIdentity });
+  });
+
   it("rejects unauthenticated shutdown and exposes shutdown only when wired", async () => {
     app = createGatewayServer({
       host: "127.0.0.1",

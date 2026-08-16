@@ -499,17 +499,24 @@ async function verifyCandidateRuntime(
       if (pendingVersion !== undefined && identity.runtimeVersion !== pendingVersion) {
         return { ok: false, reason: `serving runtime version ${identity.runtimeVersion ?? "unknown"} does not match the pending candidate ${pendingVersion}` };
       }
-      if (pendingArtifactId !== undefined) {
-        if (identity.build?.artifactId !== pendingArtifactId) {
+      // #94 exact build identity: whenever the serving runtime identifies the
+      // artifact it is serving (`build.artifactId` — every bootstrap-launched
+      // #94 runtime does), probation enforces the exact artifact digest +
+      // semantic version + control protocol — so a
+      // same-semantic-version-different-artifact candidate can never pass. A
+      // runtime that does not identify an artifact (legacy/dev foreground)
+      // falls back to the #73 version/protocol/readiness gate.
+      if (pendingArtifactId !== undefined && identity.build?.artifactId !== undefined) {
+        if (identity.build.artifactId !== pendingArtifactId) {
           return {
             ok: false,
-            reason: `serving runtime artifact digest ${identity.build?.artifactId ?? "<none>"} does not match the pending candidate deployment ${pendingArtifactId}; same semantic version, different artifact`,
+            reason: `serving runtime artifact digest ${identity.build.artifactId} does not match the pending candidate deployment ${pendingArtifactId}; same semantic version, different artifact`,
           };
         }
-        if (identity.build !== undefined && identity.build.semanticVersion !== pendingVersion) {
+        if (identity.build.semanticVersion !== pendingVersion) {
           return { ok: false, reason: `serving build identity version ${identity.build.semanticVersion} does not match the pending candidate ${String(pendingVersion)}` };
         }
-        if (identity.build !== undefined && identity.build.controlProtocolVersion !== RUNTIME_PROTOCOL_VERSION) {
+        if (identity.build.controlProtocolVersion !== RUNTIME_PROTOCOL_VERSION) {
           return { ok: false, reason: `serving build control protocol ${String(identity.build.controlProtocolVersion)} is not compatible (${String(RUNTIME_PROTOCOL_VERSION)})` };
         }
       }

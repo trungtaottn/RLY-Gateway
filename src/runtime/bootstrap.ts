@@ -118,7 +118,7 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ] || ! "$NODE_BIN" --version >/dev/n
   exit 78
 fi
 
-export RLY_SERVING_ARTIFACT
+export RLY_SERVING_ARTIFACT="$SERVING_ARTIFACT"
 exec "$NODE_BIN" "$DEPLOY/dist/cli/main.js" "$@"
 `;
 }

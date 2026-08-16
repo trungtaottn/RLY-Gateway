@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { childExitCode, parseCliArgs, runCli } from "../../src/cli/main.js";
 import { ProfileActivationError } from "../../src/profiles/errors.js";
+import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
 import type { ClaudeOverlayResolution } from "../../src/runtime/claude-overlay.js";
 
 const cliOverlayDirectory = join(tmpdir(), "rly-gateway-cli-overlay");
@@ -24,6 +25,12 @@ function overlayDependency(): { prepareClaudeOverlay: (controlPlaneDirectory: st
 }
 
 describe("CLI parsing", () => {
+  it("parses version and --version as the version command", () => {
+    expect(parseCliArgs(["version"])).toEqual({ command: "version" });
+    expect(parseCliArgs(["--version"])).toEqual({ command: "version" });
+    expect(() => parseCliArgs(["--version", "extra"])).toThrow("version accepts no arguments");
+  });
+
   it("parses quota and route-trace diagnostic commands", () => {
     expect(parseCliArgs(["quota", "--config", "custom.toml"], "/work")).toEqual({
       command: "quota",
@@ -241,6 +248,25 @@ describe("CLI parsing", () => {
     await expect(runCli([], { environment: {} })).resolves.toBe(2);
     expect(output).toHaveBeenCalledWith(expect.stringContaining("Usage: rly "));
     output.mockRestore();
+  });
+
+  it("prints the exact build identity for --version", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(runCli(["--version"], { environment: {} })).resolves.toBe(0);
+      const payload = JSON.parse(String(output.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+      expect(payload.product).toBe("rly-gateway");
+      expect(payload.version).toBe(RUNTIME_VERSION);
+      expect(typeof payload.commitRevision).toBe("string");
+      expect(typeof payload.buildId).toBe("string");
+      expect(payload.releaseChannel).toBe("dev");
+      expect(payload.controlProtocolVersion).toBe(1);
+      expect(payload.dataProtocolVersion).toBe(1);
+      expect(payload.stateSchemaVersion).toBe(2);
+      expect(payload.identitySchemaVersion).toBe(1);
+    } finally {
+      output.mockRestore();
+    }
   });
 
   it("preserves regular child exits and converts signal exits", () => {
