@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   eslint.configs.recommended,
-  { ignores: ["dist/**", "coverage/**", "plans/**", "test-results/**", "playwright-report/**", "blob-report/**"] },
+  { ignores: ["dist/**", "coverage/**", "out/**", "plans/**", "test-results/**", "playwright-report/**", "blob-report/**"] },
   ...tseslint.configs.strictTypeChecked.map((config) => ({
     ...config,
     files: ["src/**/*.ts", "tests/**/*.ts"],

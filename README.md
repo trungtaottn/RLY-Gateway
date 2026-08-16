@@ -6,10 +6,22 @@ Personal, protocol-preserving gateway and local multi-provider control plane. Cl
 
 The foundation, Anthropic Messages boundary, direct-provider Claude route,
 authenticated control-plane/management contract, project-owned credential
-broker, deterministic account pools, Claude Code profile integration, and
-the Codex CLI Responses harness are implemented. Remaining next-focus work
-is Codex OAuth and ClinePass through Claude Code; see
+broker, deterministic account pools, Claude Code profile integration, the
+Codex CLI Responses harness, the resident runtime service/bootstrap, and the
+standalone runtime artifact pipeline are implemented. Remaining next-focus
+work is Codex OAuth and ClinePass through Claude Code; see
 [BACKLOG.md](./docs/BACKLOG.md) and [TASKLIST](./docs/TASKLIST.md).
+
+## Distribution
+
+Standalone RLY-owned runtime artifacts are the **primary production
+distribution** (#35): self-contained packages that bundle the exact pinned
+Node runtime and install/run without a user-provisioned Node/npm/pnpm
+toolchain or a source checkout. GitHub Releases is the artifact origin
+(`rly-<version>-<target>.tar.gz` + sha256 + `artifacts.json`); npm/Homebrew,
+if introduced, are secondary convenience channels pointing at the same
+canonical artifact lineage. External Node is a development concern only. See
+`scripts/standalone/` and `docs/ARCHITECTURE.md`.
 
 ## Start here
 
@@ -56,7 +68,9 @@ direct / OAuth / interoperability / bridge adapter
 
 ## Local setup
 
-Requirements: Node.js 24 and pnpm 11.16.
+Requirements: Node.js 24 and pnpm 11.16. **These are development requirements
+only** — released standalone artifacts bundle their own pinned Node runtime and
+need neither.
 
 ```bash
 pnpm install --frozen-lockfile
