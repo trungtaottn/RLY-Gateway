@@ -159,7 +159,7 @@ function assess(
     ...(reasoningFail === undefined ? {} : { reasoningFailure: reasoningFail }),
     compatibilityPass: compatFail === undefined,
     ...(compatFail === undefined ? {} : { compatibilityFailure: compatFail }),
-    ...(effective === undefined ? {} : { authority: "ecr" as const }),
+    ...(effective === undefined || effective.get(model.logicalId) === undefined ? {} : { authority: "ecr" as const }),
     ...(ecr?.effectiveLabel === undefined ? {} : { effectiveLabel: ecr.effectiveLabel }),
     ...(ecr?.enforcementReason === undefined ? {} : { enforcementReason: ecr.enforcementReason }),
     selected: false,
