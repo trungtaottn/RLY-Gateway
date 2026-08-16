@@ -14,6 +14,7 @@ import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
 import { ReasoningTranslationError, resolveReasoning } from "../providers/reasoning.js";
 import { directProviderRegistry, modelsForProvider, type RegistryDocument } from "../registry/model-registry.js";
 import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
+import type { EffectiveCompatibilityLabel, EffectiveEnforcement } from "../compatibility/types.js";
 import { requiredFeaturesForCapabilities } from "../compatibility/features.js";
 import type { EffectiveSelectionSnapshot } from "../routing/model-selection/types.js";
 import { createModelProjectionTrace, resolveProjection } from "../routing/model-projection/project.js";
@@ -31,6 +32,12 @@ import { LOGICAL_TIERS, type LogicalTier, type TierResolutionTrace } from "../ro
 import { isModelIntentError } from "../routing/model-intent/errors.js";
 import { classifyModelIntent } from "../routing/model-intent/classify.js";
 import type { ClientNativeAlias, ModelIntent, ModelIntentTrace } from "../routing/model-intent/types.js";
+// #127: EffectiveModelDecision — the FINAL model-control output before account
+// selection. The assembler only records the existing stage outputs (#68/#69/
+// #70/#71/#72/#124/#125/#126); it never re-resolves a model/tier/projection
+// and never touches accounts or credentials.
+import { assembleEffectiveModelDecision, environmentOwnershipSummary, readPersistedViewModel } from "../routing/model-decision/assemble.js";
+import type { EffectiveModelDecision } from "../routing/model-decision/types.js";
 import { activateProfile, findProfileById, inspectLaunchableProfile, type ActivatedRole } from "./activate.js";
 import type { AgentExecutionContextRegistry, ExecutionContext, ParentExecutionReference } from "./agent-contexts.js";
 import { ProfileActivationError } from "./errors.js";
@@ -56,7 +63,12 @@ export type ProfileRouteDependencies = Readonly<{
 /** Profile-route dependencies plus an optional trusted registry override (#72). */
 export type ProjectedRouteDependencies = ProfileRouteDependencies & Readonly<{ registry?: RegistryDocument }>;
 
-export type ResolvedProfileRoute = Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }>;
+export type ResolvedProfileRoute = Readonly<{
+  route: RouteRecord;
+  upstream: CanonicalUpstream;
+  /** #127: one typed EffectiveModelDecision produced before account selection. */
+  decision: EffectiveModelDecision;
+}>;
 
 export async function resolveProfileRoute(
   canonical: CanonicalRequest,
@@ -170,6 +182,53 @@ export async function resolveProfileRoute(
     configFingerprint: dependencies.configFingerprint,
     resolvedReasoning,
   });
+  // #127: assemble the FINAL model-control output BEFORE account selection. The
+  // physical provider/model + reasoning policy are frozen here; the pool/
+  // account RouteSelector runs downstream against this exact target and
+  // account retry/failover can never change it. Persisted-view state (#126)
+  // and child env ownership are consumed as decision inputs (never settings
+  // content, never credentials/account identity).
+  const persistedViewModel = await readPersistedViewModel(dependencies.store.directory, session.viewId);
+  const environmentOwnership = environmentOwnershipSummary(dependencies.environment ?? process.env);
+  const decision = assembleEffectiveModelDecision({
+    requestId: canonical.id,
+    profileId: session.profileId,
+    profileName: session.profileName,
+    viewId: session.viewId,
+    intent: intentTrace,
+    resolvedModelId: activated.modelId,
+    logicalId: modelEvidence.logicalId,
+    accessProviderId: provider.name,
+    adapterId,
+    ...(modelEvidence.identity.modelFamily === undefined ? {} : { modelFamily: modelEvidence.identity.modelFamily }),
+    poolId: activated.poolId,
+    policyRevision: policy.revision,
+    policyHash: policy.hash,
+    ...(tierResolution === undefined
+      ? { registryRevision: directProviderRegistry.registryRevision }
+      : {
+          registryRevision: tierResolution.trace.registryRevision,
+          mappingRevision: tierResolution.trace.mappingRevision,
+        }),
+    sessionUniverseRevision: session.modelUniverse.policyRevision,
+    experimentalModels: session.modelUniverse.experimentalModels,
+    reasoning: resolvedReasoning,
+    selection: selection.decision,
+    ...(tierResolution === undefined ? {} : { tier: tierResolution.trace }),
+    ...(intent.kind === "CLIENT_NATIVE_ALIAS" ? { clientAlias: { alias: intent.alias, mappedTier: intent.mappedTier } } : {}),
+    ...(parentReference === undefined ? {} : {
+      parent: {
+        parentModelId: parentReference.context.resolvedModelId,
+        ...(parentReference.context.modelFamily === undefined ? {} : { parentModelFamily: parentReference.context.modelFamily }),
+        contextSource: parentReference.source,
+      },
+    }),
+    profileRole: activated.role,
+    ...(activated.launchPolicy.model === undefined ? {} : { launchPolicyModel: activated.launchPolicy.model }),
+    ...(persistedViewModel === undefined ? {} : { persistedViewModel }),
+    environmentOwnership,
+    ...(effectiveSnapshot === undefined ? {} : { effectiveFeatures: effectiveFeatureAnswers(effectiveSnapshot, modelEvidence.logicalId) }),
+  });
   // #71: record the resolved execution context for this agent so nested and
   // subsequent subagents inherit the correct provider/family affinity. The
   // physical model is frozen at this point; credentials/account ids are never
@@ -203,6 +262,7 @@ export async function resolveProfileRoute(
   });
   return {
     route,
+    decision,
     upstream: {
       invoke: (_ignored: CanonicalRequest, signal: AbortSignal): AsyncIterable<CanonicalEvent> => {
         return streamPoolRequest({
@@ -231,7 +291,7 @@ export async function resolveProfileRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace, agentLinkage, undefined, intentTrace),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, tierResolution?.trace, agentLinkage, undefined, intentTrace, decision),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -348,8 +408,41 @@ export async function resolveProjectedModelRoute(
     modelId: modelEvidence.identity.upstreamModelId,
     role: "unknown",
   });
+  // #127: assemble the FINAL model-control output BEFORE account selection for
+  // the exact projected target. The projection reverse-mapping is the only
+  // bridge from the selection handle to the frozen physical target (#72); a
+  // persisted/foreign projection id is recorded as visible state and the
+  // pinned session universe stays authoritative (stale/foreign ids fail
+  // closed in `resolveProjection` — never silently remapped).
+  const persistedViewModel = await readPersistedViewModel(dependencies.store.directory, session.viewId);
+  const environmentOwnership = environmentOwnershipSummary(dependencies.environment ?? process.env);
+  const decision = assembleEffectiveModelDecision({
+    requestId: canonical.id,
+    profileId: session.profileId,
+    profileName: session.profileName,
+    viewId: session.viewId,
+    intent: intentTrace,
+    resolvedModelId: modelEvidence.identity.upstreamModelId,
+    logicalId: modelEvidence.logicalId,
+    accessProviderId: provider.name,
+    adapterId,
+    ...(modelEvidence.identity.modelFamily === undefined ? {} : { modelFamily: modelEvidence.identity.modelFamily }),
+    poolId: resolved.binding.poolId,
+    policyRevision: policy.revision,
+    policyHash: policy.hash,
+    registryRevision: universe.registryRevision,
+    sessionUniverseRevision: universe.policyRevision,
+    experimentalModels: universe.experimentalModels,
+    reasoning: resolvedReasoning,
+    selection: selection.decision,
+    projection: projectionTrace,
+    ...(persistedViewModel === undefined ? {} : { persistedViewModel }),
+    environmentOwnership,
+    ...(effectiveSnapshot === undefined ? {} : { effectiveFeatures: effectiveFeatureAnswers(effectiveSnapshot, modelEvidence.logicalId) }),
+  });
   return {
     route,
+    decision,
     upstream: {
       invoke: (_ignored: CanonicalRequest, signal: AbortSignal): AsyncIterable<CanonicalEvent> => {
         return streamPoolRequest({
@@ -378,7 +471,7 @@ export async function resolveProjectedModelRoute(
             invokeSignal,
           ),
           signal,
-          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, undefined, undefined, projectionTrace, intentTrace),
+          onTrace: (trace) => dependencies.traces.push(trace, session.profileName, selection.decision, resolvedReasoning, undefined, undefined, projectionTrace, intentTrace, decision),
         });
       },
       countTokens: () => Promise.resolve(conservativeTokenCount(effectiveRequest)),
@@ -684,6 +777,29 @@ async function effectiveSnapshotFor(
   const rows = modelsForProvider(registry, providerId);
   const features = requiredFeaturesForCapabilities(required, reasoningRequirementFrom(request, required));
   return compatibility.snapshotForModels(rows, () => features, { required: false });
+}
+
+/**
+ * #124: per-feature effective answers for the SELECTED model, extracted from
+ * the request's ECR snapshot (logicalId → per-feature EffectiveCompatibility).
+ * The decision records only the summary label + enforcement per feature —
+ * never the claim stores' internal records.
+ */
+function effectiveFeatureAnswers(
+  snapshot: EffectiveSelectionSnapshot,
+  logicalId: string,
+): Readonly<Record<string, Readonly<{ effective: EffectiveCompatibilityLabel; enforcement: EffectiveEnforcement }>>> | undefined {
+  const perModel = snapshot.get(logicalId);
+  if (perModel === undefined || perModel.size === 0) return undefined;
+  const entries: [string, Readonly<{ effective: EffectiveCompatibilityLabel; enforcement: EffectiveEnforcement }>][] = [];
+  for (const [feature, value] of perModel) {
+    const answer: Readonly<{ effective: EffectiveCompatibilityLabel; enforcement: EffectiveEnforcement }> = Object.freeze({
+      effective: value.effective,
+      enforcement: value.enforcement,
+    });
+    entries.push([feature, answer]);
+  }
+  return Object.freeze(Object.fromEntries(entries));
 }
 
 async function credentialSnapshots(

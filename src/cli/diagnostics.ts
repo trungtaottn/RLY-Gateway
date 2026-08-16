@@ -26,6 +26,8 @@ import { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
 import { ReviewDecisionStore, QuarantineStore } from "../compatibility/stores.js";
 import { runtimeCompatibilityPolicy } from "../compatibility/policy.js";
 import { INSTALLED_CLIENT_RUNNER_VERSION, LIVE_ACCESS_PATH_RUNNER_VERSION } from "../canary/runner-types.js";
+import { describeModelDecision } from "../routing/model-decision/describe.js";
+import { PRECEDENCE_ORDER, MODEL_DECISION_SCHEMA_VERSION } from "../routing/model-decision/types.js";
 
 const EMPTY_PROFILES = { total: 0, missingPool: 0 };
 
@@ -234,6 +236,14 @@ export async function runDoctor(path: string): Promise<number> {
         versionSource: codex.found ? (codexProbe?.source ?? "unknown") : "unknown",
       },
       effectiveCompatibility: await compatibility.summary(),
+      // #127: the EffectiveModelDecision control plane — the FINAL model-control
+      // output before account selection. Doctor reports the control-plane
+      // contract statically; per-request explanations live on route traces.
+      modelDecision: {
+        schemaVersion: MODEL_DECISION_SCHEMA_VERSION,
+        precedenceOrder: PRECEDENCE_ORDER,
+        finalAuthority: "ecr",
+      },
       canary: {
         testedBaseline: CLAUDE_CODE_FIXTURE_BASELINE,
         liveGateEnv: RLY_LIVE_CANARY_ENV,
@@ -407,10 +417,17 @@ function projectRouteTraces(value: unknown): readonly Record<string, unknown>[] 
     const record = item as Record<string, unknown>;
     const selected = record["selected"];
     const selectedRecord = selected !== null && typeof selected === "object" ? selected as Record<string, unknown> : undefined;
+    const decision = record["effectiveModelDecision"];
     return [{
       profileName: record["profileName"],
       sourceRule: record["sourceRule"],
       selectedPseudonym: selectedRecord?.["accountPseudonym"],
+      // #127: secret-free model-control explanation (selector, precedence,
+      // target, compatibility, reasoning, pool, revisions, blocked
+      // alternatives). Never prompts/credentials/account identity.
+      ...(decision === null || typeof decision !== "object"
+        ? {}
+        : { effectiveModelDecision: describeModelDecision(decision as Parameters<typeof describeModelDecision>[0]) }),
     }];
   });
 }

@@ -5,6 +5,7 @@ import type { ModelProjectionTrace } from "../routing/model-projection/types.js"
 import type { ModelIntentTrace } from "../routing/model-intent/types.js";
 import type { TierResolutionTrace } from "../routing/model-tiers/types.js";
 import type { DecisionTrace } from "../routing/eligibility/trace.js";
+import type { EffectiveModelDecision } from "../routing/model-decision/types.js";
 
 /**
  * Allowlisted Claude Code agent linkage for one decision (#71). Pseudonyms
@@ -24,9 +25,10 @@ export type AgentTraceLinkage = Readonly<{
 /**
  * Secret-free account decision trace, optionally carrying the #68 model
  * selection trace, the #69 tier resolution trace, the #70 reasoning
- * translation result, the #71 agent linkage, the #72 projection decision, and
- * the #125 model-intent classification (control metadata only — never
- * reasoning text, prompts, responses, credentials, or account identity).
+ * translation result, the #71 agent linkage, the #72 projection decision, the
+ * #125 model-intent classification, and the #127 EffectiveModelDecision
+ * (control metadata only — never reasoning text, prompts, responses,
+ * credentials, or account identity).
  */
 export type ProfileDecisionTrace = DecisionTrace & Readonly<{
   profileName: string;
@@ -36,6 +38,8 @@ export type ProfileDecisionTrace = DecisionTrace & Readonly<{
   agentLinkage?: AgentTraceLinkage;
   projection?: ModelProjectionTrace;
   intent?: ModelIntentTrace;
+  /** #127: final model-control output produced before account selection. */
+  effectiveModelDecision?: EffectiveModelDecision;
 }>;
 
 /** Last-N secret-free traces for the running gateway instance. */
@@ -53,6 +57,7 @@ export class RouteTraceRing {
     agentLinkage?: AgentTraceLinkage,
     projection?: ModelProjectionTrace,
     intent?: ModelIntentTrace,
+    decision?: EffectiveModelDecision,
   ): void {
     const stored: ProfileDecisionTrace = Object.freeze({
       ...trace,
@@ -63,6 +68,7 @@ export class RouteTraceRing {
       ...(agentLinkage === undefined ? {} : { agentLinkage }),
       ...(projection === undefined ? {} : { projection }),
       ...(intent === undefined ? {} : { intent }),
+      ...(decision === undefined ? {} : { effectiveModelDecision: decision }),
     });
     assertSecretFree(stored);
     this.items.push(stored);
