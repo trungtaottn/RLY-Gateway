@@ -210,7 +210,7 @@ describe("immutable deployment store (#92)", () => {
   // timeout change — NOT caused by this PR's source changes). The invariant
   // still runs on Linux CI and on every bare-metal developer machine; tracked
   // for re-enable when the runner image recovers.
-  it.skipIf(process.platform === "darwin", "readers observe only the old or the new valid reference during rapid replacement, never a gap", async () => {
+  it.skipIf(process.platform === "darwin")("readers observe only the old or the new valid reference during rapid replacement, never a gap", async () => {
     const root = await directory();
     const stateRoot = join(root, "state");
     const installer = new LocalCandidateInstaller({ directory: stateRoot });
