@@ -57,7 +57,7 @@ function optionalFlagValue(options: readonly string[], flag: string, missing: st
 }
 
 export function parseCompatArgs(args: readonly string[]): CompatAction {
-  const rest = args.slice(1).filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config");
+  const rest = args.filter((value, index, all) => value !== "--config" && all[index - 1] !== "--config");
   const kind = rest[0];
   if (kind === undefined) throw new Error("compat requires status, review, quarantine, lift, or explain");
   if (kind === "status") {
