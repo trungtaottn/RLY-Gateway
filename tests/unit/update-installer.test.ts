@@ -317,7 +317,7 @@ describe("content-addressed identity with preserved pnpm symlinks (#144)", () =>
   /** Builds a two-level pnpm-style source tree (fastify→avvio structure). */
   async function pnpmSource(root: string, bytes = "// v1\n"): Promise<string> {
     sourceSerial += 1;
-    const source = join(root, `candidate-symlink-${sourceSerial}`);
+    const source = join(root, `candidate-symlink-${String(sourceSerial)}`);
     await mkdir(join(source, "dist", "cli"), { recursive: true });
     await writeFile(join(source, "dist", "cli", "main.js"), bytes, "utf8");
     await writeFile(join(source, "rly.json"), `${JSON.stringify({ product: "rly-gateway", version: "1.0.0", stateVersion: 2, migrationForwardOnly: false })}\n`, "utf8");
