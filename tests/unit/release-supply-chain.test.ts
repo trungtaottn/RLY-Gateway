@@ -168,6 +168,48 @@ async function assembleFixtureArtifact(): Promise<{ artifactDir: string; digest:
   });
 }
 
+  async function buildReleaseDir(): Promise<string> {
+    const releaseDir = await directory();
+    const nodeDir = await directory();
+    const nodeBin = join(nodeDir, "node");
+    await writeFile(nodeBin, "#!/bin/sh\nexec \"$(command -v node)\" \"$@\"\n");
+    await chmod(nodeBin, 0o755);
+    const assembled = await assembleStandaloneArtifact({
+      runtimeRoot: await fixtureArtifactRoot(),
+      outDir: releaseDir,
+      target: "linux-x64",
+      node: { bin: nodeBin, license: undefined, version: "99.0.0", source: "fixture" },
+      identityMeta: IDENTITY,
+      releaseVersion: IDENTITY.semanticVersion,
+      sourceDateEpoch: 0,
+    });
+    const tar = await tarballForTree(assembled.artifactDir, 0);
+    await writeFile(join(releaseDir, RELEASE.filename), tar);
+    await writeFile(join(releaseDir, `${RELEASE.filename}.sha256`), `${sha256Of(tar)}  ${RELEASE.filename}\n`);
+    const artifacts = {
+      artifactSchemaVersion: 1,
+      releaseVersion: IDENTITY.semanticVersion,
+      commitRevision: IDENTITY.commitRevision,
+      buildId: IDENTITY.buildId,
+      releaseChannel: "beta",
+      sourceDateEpoch: 0,
+      allowlistVersion: 1,
+      artifacts: [{
+        name: RELEASE.filename,
+        sha256: sha256Of(tar),
+        targetPlatform: "linux-x64",
+        targetStatus: "supported",
+        targetStatusReason: "reason",
+        bundledNodeVersion: "99.0.0",
+        bundledNodeVersionSource: "fixture",
+        artifactDigest: assembled.digest,
+        fileCount: assembled.fileCount,
+      }],
+    };
+    await writeFile(join(releaseDir, "artifacts.json"), `${JSON.stringify(artifacts, null, 2)}\n`);
+    return releaseDir;
+  }
+
 describe("release signing (#128)", () => {
   it("signs and verifies JSON payloads with canonical bytes", () => {
     const pair = generateSigningKeyPair();
@@ -511,7 +553,7 @@ describe("exact-byte qualification (#128)", () => {
     });
     expect(result.qualifiedBytes).toEqual({ filename: RELEASE.filename, sha256: digest, artifactDigest: assembled.metadata.artifactDigest });
     expect(result.gates.map((gate) => gate.id)).toEqual([
-      "clean-install", "identity", "permissions", "platform-signing", "runtime-readiness", "update-handoff", "init-service-registration", "uninstall",
+      "clean-install", "identity", "permissions", "platform-signing", "runtime-readiness", "update-handoff", "init-service-registration", "uninstall", "verified-install",
     ]);
     expect(result.result).toBe("experimental-gaps");
     expect(qualificationBlocksStable(result).some((blocker) => blocker.includes("init-service-registration"))).toBe(true);
@@ -555,47 +597,7 @@ describe("release immutability (#128)", () => {
 });
 
 describe("publish + verify pipeline integration (#128)", () => {
-  async function buildReleaseDir(): Promise<string> {
-    const releaseDir = await directory();
-    const nodeDir = await directory();
-    const nodeBin = join(nodeDir, "node");
-    await writeFile(nodeBin, "#!/bin/sh\nexec \"$(command -v node)\" \"$@\"\n");
-    await chmod(nodeBin, 0o755);
-    const assembled = await assembleStandaloneArtifact({
-      runtimeRoot: await fixtureArtifactRoot(),
-      outDir: releaseDir,
-      target: "linux-x64",
-      node: { bin: nodeBin, license: undefined, version: "99.0.0", source: "fixture" },
-      identityMeta: IDENTITY,
-      releaseVersion: IDENTITY.semanticVersion,
-      sourceDateEpoch: 0,
-    });
-    const tar = await tarballForTree(assembled.artifactDir, 0);
-    await writeFile(join(releaseDir, RELEASE.filename), tar);
-    await writeFile(join(releaseDir, `${RELEASE.filename}.sha256`), `${sha256Of(tar)}  ${RELEASE.filename}\n`);
-    const artifacts = {
-      artifactSchemaVersion: 1,
-      releaseVersion: IDENTITY.semanticVersion,
-      commitRevision: IDENTITY.commitRevision,
-      buildId: IDENTITY.buildId,
-      releaseChannel: "beta",
-      sourceDateEpoch: 0,
-      allowlistVersion: 1,
-      artifacts: [{
-        name: RELEASE.filename,
-        sha256: sha256Of(tar),
-        targetPlatform: "linux-x64",
-        targetStatus: "supported",
-        targetStatusReason: "reason",
-        bundledNodeVersion: "99.0.0",
-        bundledNodeVersionSource: "fixture",
-        artifactDigest: assembled.digest,
-        fileCount: assembled.fileCount,
-      }],
-    };
-    await writeFile(join(releaseDir, "artifacts.json"), `${JSON.stringify(artifacts, null, 2)}\n`);
-    return releaseDir;
-  }
+
 
   function run(nodeArgs: string[]): { status: number; stdout: string; stderr: string } {
     try {
@@ -681,3 +683,56 @@ describe("publish + verify pipeline integration (#128)", () => {
     expect(second.stderr).toMatch(/immutability violation/);
   });
 });
+
+describe("verified-install qualification gate (#129)", () => {
+  it("verifies the exact artifact bytes and refuses tampered bytes", async () => {
+    const releaseDir = await buildReleaseDir();
+    const { runVerifiedInstallGate } = await import("../../scripts/release/qualification.mjs");
+    const { verifyLocalAcquisition } = await import("../../src/installer/acquire.js");
+    const tarballPath = join(releaseDir, RELEASE.filename);
+    const tarballBytes = readFileSync(tarballPath);
+    const sha256 = sha256Of(tarballBytes);
+    const artifactDir = join(releaseDir, `rly-${IDENTITY.semanticVersion}-linux-x64`);
+    const { treeDigest } = await import("../../scripts/standalone/pack.mjs");
+    const artifactDigest = await treeDigest(artifactDir, { exclude: ["rly-artifact.json"] });
+    const gate = await runVerifiedInstallGate({
+      artifactRoot: artifactDir,
+      tarballPath,
+      tarballSha256: sha256,
+      artifactDigest,
+      filename: RELEASE.filename,
+      channel: "beta",
+      target: "linux-x64",
+      releaseManifest: makeManifest(),
+      publicKeyPem: "unused",
+      repoRoot: join(process.cwd(), "..", "missing-dist-sentinel"), // force injectable verifier path
+      verifyLocalAcquisitionImpl: verifyLocalAcquisition as (options: {
+        metadataDirectory: string;
+        tarballPath: string;
+        channel: "beta" | "stable";
+        target: string;
+        publicKeyPem?: string;
+        now?: string;
+        highestObservedVersion?: number;
+      }) => Promise<{ version: string; artifactDigest: string }>,
+    });
+    expect(gate.id).toBe("verified-install");
+    expect(gate.status).toBe("passed");
+    expect(gate.detail).toContain("tampered artifact refused");
+  });
+
+  it("records a skipped gate when the compiled installer module is unavailable", async () => {
+    const { runVerifiedInstallGate } = await import("../../scripts/release/qualification.mjs");
+    const gate = await runVerifiedInstallGate({
+      artifactRoot: "/tmp/nonexistent",
+      tarballPath: "/tmp/nonexistent.tgz",
+      channel: "beta",
+      target: "linux-x64",
+      releaseManifest: makeManifest(),
+      repoRoot: join(process.cwd(), "missing-dist"),
+    });
+    expect(gate.id).toBe("verified-install");
+    expect(gate.status).toBe("skipped");
+  });
+});
+
