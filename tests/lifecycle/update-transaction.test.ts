@@ -784,6 +784,144 @@ describe("transactional activation gates (#93)", () => {
 });
 
 /**
+ * #J7 fail-closed drain gate: the fence must actually ENGAGE and the session
+ * count must be VERIFIED before the serving ref switch. Fault injection — a
+ * failing `/drain` fence and an unreadable `/identity` — must keep activation
+ * pending instead of silently switching while the old runtime may still
+ * accept new launch sessions.
+ */
+describe("drain gate fail-closed (#J7)", () => {
+  /** Passes everything through except the injected failure. */
+  const passthrough = (): typeof fetch => (input, init) => globalThis.fetch(input, init);
+
+  /** Fault-injects the new-launch fence: POST /drain always fails. */
+  const fenceFailing = (): typeof fetch => async (input, init) => {
+    const method = init?.method ?? (typeof input === "string" || input instanceof URL ? undefined : input.method);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (method === "POST" && url.includes("/drain")) {
+      return new Response("fence unavailable", { status: 500 });
+    }
+    return globalThis.fetch(input, init);
+  };
+
+  /** Fault-injects the drain session-count read: /identity loses activeSessions. */
+  const identityWithoutActiveSessions = (): typeof fetch => async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const response = await globalThis.fetch(input, init);
+    if (url.includes("/identity") && response.ok) {
+      const payload = await response.json() as Record<string, unknown>;
+      delete payload["activeSessions"];
+      return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return response;
+  };
+
+  async function stagedHarness(): Promise<{
+    port: number; managementPort: number; runtimeDir: string; controlPlaneDir: string; root: string;
+    harness: RuntimeHarness; installer: LocalCandidateInstaller; manager: FakeServiceManager; store: UpdateStateStore;
+    id1: string; id2: string; src2: string;
+  }> {
+    const port = await availablePort();
+    const managementPort = await availablePort();
+    const runtimeDir = await temporaryDirectory("rly-j7-runtime-");
+    const controlPlaneDir = await temporaryDirectory("rly-j7-plane-");
+    const root = await temporaryDirectory("rly-j7-candidates-");
+    await seedControlPlane(controlPlaneDir);
+    const harness = await startHarness(port, managementPort, runtimeDir, controlPlaneDir);
+    const installer = new LocalCandidateInstaller({ directory: controlPlaneDir });
+    const src1 = await candidateDir(root, "0.1.0");
+    await installer.installCandidate({ version: "0.1.0", sourceDirectory: src1 });
+    await installer.activateStaged();
+    const id1 = await computeArtifactId(src1);
+    const src2 = await candidateDir(root, "2.0.0");
+    await installer.installCandidate({ version: "2.0.0", sourceDirectory: src2 });
+    const id2 = await computeArtifactId(src2);
+    const manager = new FakeServiceManager(async () => { await harness.restartTo("2.0.0"); });
+    const store = new UpdateStateStore(controlPlaneDir);
+    return { port, managementPort, runtimeDir, controlPlaneDir, root, harness, installer, manager, store, id1, id2, src2 };
+  }
+
+  function baseDeps(h: Awaited<ReturnType<typeof stagedHarness>>, overrides: Partial<Parameters<typeof runUpdate>[0]> = {}): Parameters<typeof runUpdate>[0] {
+    return {
+      config: config(h.port, h.managementPort, h.controlPlaneDir),
+      controlPlaneDirectory: h.controlPlaneDir,
+      runtimeDirectory: h.runtimeDir,
+      installer: h.installer,
+      serviceManager: h.manager,
+      updateStore: h.store,
+      cliRuntimeVersion: RUNTIME_VERSION,
+      cliStateVersion: SCHEMA_V2_VERSION,
+      ...overrides,
+    };
+  }
+
+  it("fails closed when the drain fence cannot be established; a healthy retry activates", async () => {
+    const h = await stagedHarness();
+    // Fence fault-injected: the old runtime is attested-compatible but POST
+    // /drain fails, so the new-launch fence never engages. Activation must
+    // stay pending — never switch/restart while the old runtime can still
+    // accept new launch sessions.
+    const pending = await runUpdate(baseDeps(h, {
+      candidate: { version: "2.0.0", sourceDirectory: h.src2 },
+      fetch: fenceFailing(),
+      drainTimeoutMs: 300,
+      drainPollMs: 50,
+    }));
+    expect(pending.outcome).toBe("pending");
+    expect(pending.state).toBe("pending-activation");
+    expect(pending.phase).toBe("draining");
+    expect(pending.message).toContain("drain fence could not be established");
+    expect(h.manager.restarts).toBe(0);
+    // Refs untouched: the known-good is still serving, the candidate stays staged.
+    expect(await readlink(h.installer.activePath)).toBe(`../versions/${h.id1}`);
+    expect(await readlink(h.installer.stagedPath)).toBe(`../versions/${h.id2}`);
+    expect(await h.harness.versionOf()).toBe(RUNTIME_VERSION);
+    // Healthy retry (no sessions, fence reachable) completes the activation.
+    const activated = await runUpdate(baseDeps(h));
+    expect(activated.outcome).toBe("activated");
+    expect(activated.phase).toBe("committed");
+    expect(h.manager.restarts).toBe(1);
+    expect(await h.harness.versionOf()).toBe("2.0.0");
+    await h.harness.current.shutdown();
+  });
+
+  it("keeps activation pending when the runtime session count cannot be verified", async () => {
+    const h = await stagedHarness();
+    // The fence engages, but /identity drops activeSessions: the drain gate
+    // must treat the session count as UNKNOWN — never as zero — so activation
+    // stays pending instead of silently switching.
+    const pending = await runUpdate(baseDeps(h, {
+      candidate: { version: "2.0.0", sourceDirectory: h.src2 },
+      fetch: identityWithoutActiveSessions(),
+      drainTimeoutMs: 300,
+      drainPollMs: 50,
+    }));
+    expect(pending.outcome).toBe("pending");
+    expect(pending.state).toBe("pending-activation");
+    expect(pending.phase).toBe("draining");
+    expect(pending.message).toContain("could not be verified");
+    expect(h.manager.restarts).toBe(0);
+    expect(await readlink(h.installer.activePath)).toBe(`../versions/${h.id1}`);
+    await h.harness.current.shutdown();
+  });
+
+  it("control: a verified zero session count drains and activates", async () => {
+    const h = await stagedHarness();
+    const activated = await runUpdate(baseDeps(h, {
+      candidate: { version: "2.0.0", sourceDirectory: h.src2 },
+      fetch: passthrough(),
+      drainTimeoutMs: 300,
+      drainPollMs: 50,
+    }));
+    expect(activated.outcome).toBe("activated");
+    expect(activated.phase).toBe("committed");
+    expect(h.manager.restarts).toBe(1);
+    expect(await h.harness.versionOf()).toBe("2.0.0");
+    await h.harness.current.shutdown();
+  });
+});
+
+/**
  * #93: a second live updater can never reclaim a lock held by a live process
  * with the same real OS process-start identity; only a proven stale/dead owner
  * is reclaimed — never from PID or wall-clock evidence alone.
