@@ -18,6 +18,7 @@
 import { readFile } from "node:fs/promises";
 import type { ModelIntentKind } from "../model-intent/types.js";
 import type { ModelSelectionTrace } from "../model-selection/types.js";
+import type { CompatibilityState } from "../../registry/model-registry.js";
 import type { SettingsOwnershipSummary } from "../../runtime/claude-overlay.js";
 import { GATEWAY_CONTRACT_ENV_KEYS, claudeOverlayPaths, rlyOwnedModel } from "../../runtime/claude-overlay.js";
 import { PRECEDENCE_ORDER, MODEL_DECISION_SCHEMA_VERSION } from "./types.js";
@@ -207,6 +208,52 @@ export function blockedAlternativesFor(selection: ModelSelectionTrace): readonly
   return Object.freeze(blocked);
 }
 
+/**
+ * Merges blocked alternatives from the #68 selection trace AND the #69 tier
+ * resolver's derived/fallback candidate assessments (deduped by logicalId,
+ * deterministic order). The tier assessments are #68 output carried on the
+ * tier trace — never a second selector.
+ */
+export function blockedAlternativesForInput(input: EffectiveModelDecisionInput): readonly ModelDecisionBlockedAlternative[] {
+  const merged = new Map<string, ModelDecisionBlockedAlternative>();
+  const add = (candidate: Readonly<{
+    logicalId: string;
+    modelId: string;
+    modelFamily?: string;
+    compatibilityState: string;
+    capabilityPass: boolean;
+    missingCapabilities?: readonly unknown[];
+    reasoningPass: boolean;
+    reasoningFailure?: string;
+    compatibilityPass: boolean;
+    compatibilityFailure?: string;
+    effectiveLabel?: string;
+    enforcementReason?: string;
+    selected: boolean;
+  }>): void => {
+    if (candidate.selected) return;
+    const blockedBy: string[] = [];
+    if (candidate.missingCapabilities !== undefined && candidate.missingCapabilities.length > 0) blockedBy.push("capability-unsupported");
+    if (candidate.reasoningFailure !== undefined) blockedBy.push("reasoning-unsupported");
+    if (candidate.compatibilityFailure !== undefined) blockedBy.push("compatibility-rejected");
+    if (blockedBy.length === 0) return;
+    const existing = merged.get(candidate.logicalId);
+    if (existing !== undefined && existing.blockedBy.length > blockedBy.length) return;
+    merged.set(candidate.logicalId, Object.freeze({
+      logicalId: candidate.logicalId,
+      physicalModelId: candidate.modelId,
+      ...(candidate.modelFamily === undefined ? {} : { modelFamily: candidate.modelFamily }),
+      compatibilityState: candidate.compatibilityState as CompatibilityState,
+      blockedBy: Object.freeze(blockedBy),
+      ...(candidate.effectiveLabel === undefined ? {} : { effectiveLabel: candidate.effectiveLabel }),
+      ...(candidate.enforcementReason === undefined ? {} : { enforcementReason: candidate.enforcementReason }),
+    }));
+  };
+  for (const candidate of input.selection.candidates) add(candidate);
+  for (const candidate of input.tierAssessments ?? []) add(candidate);
+  return Object.freeze([...merged.values()].sort((left, right) => left.logicalId.localeCompare(right.logicalId)));
+}
+
 /** Stable, documented decision reasons (actionable, secret-free). */
 export function reasonsFor(input: EffectiveModelDecisionInput): readonly ModelDecisionReason[] {
   const reasons: ModelDecisionReason[] = [];
@@ -262,6 +309,12 @@ export function reasonsFor(input: EffectiveModelDecisionInput): readonly ModelDe
     reasons.push({
       code: "env-ownership",
       detail: `child environment: ${String(input.environmentOwnership.rlyOwned)} RLY-owned gateway keys, ${String(input.environmentOwnership.safePassThrough)} pass-through`,
+    });
+  }
+  if ((input.tierAssessments ?? []).some((candidate) => !candidate.selected && (candidate.compatibilityFailure !== undefined || candidate.reasoningFailure !== undefined || (candidate.missingCapabilities ?? []).length > 0))) {
+    reasons.push({
+      code: "blocked-alternatives-considered",
+      detail: `${String((input.tierAssessments ?? []).filter((candidate) => !candidate.selected).length)} alternative tier candidates evaluated and blocked by #68 eligibility`,
     });
   }
   return Object.freeze(reasons);
@@ -348,7 +401,7 @@ export function assembleEffectiveModelDecision(input: EffectiveModelDecisionInpu
       sessionUniverseRevision: input.sessionUniverseRevision,
     }),
     reasons: reasonsFor(input),
-    blockedAlternatives: blockedAlternativesFor(input.selection),
+    blockedAlternatives: blockedAlternativesForInput(input),
     decidedAt: input.decidedAt ?? new Date().toISOString(),
   });
   return decision;

@@ -249,6 +249,16 @@ describe("EffectiveModelDecision runtime lifecycle (#127)", () => {
     expect(trace.effectiveModelDecision?.provenance?.clientAlias?.alias).toBe("fable");
     expect(trace.effectiveModelDecision?.revisions?.mappingRevision).toBeDefined();
 
+    // Explicit RLY logical tier route.
+    const tier = await sendModel(token, "rly-tier:fable");
+    expect(tier.statusCode).toBe(200);
+    trace = await latestTrace(token);
+    expect(trace.effectiveModelDecision?.intent?.kind).toBe("RLY_LOGICAL_TIER");
+    expect(trace.effectiveModelDecision?.precedence?.winner).toBe("explicit-rly-tier");
+    expect(trace.effectiveModelDecision?.provenance?.tier?.requestedTier).toBe("fable");
+    expect(trace.effectiveModelDecision?.reasons?.map((reason) => reason.code)).toContain("tier-resolved");
+    expect(trace.effectiveModelDecision?.target?.physicalModelId).toBe("gpt-5.6-sol");
+
     // default route resolves through the profile primary role.
     const byDefault = await sendModel(token, "default");
     expect(byDefault.statusCode).toBe(200);

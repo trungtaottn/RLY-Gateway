@@ -215,6 +215,7 @@ export async function resolveProfileRoute(
     reasoning: resolvedReasoning,
     selection: selection.decision,
     ...(tierResolution === undefined ? {} : { tier: tierResolution.trace }),
+    ...(tierResolution === undefined ? {} : { tierAssessments: tierResolution.trace.assessments }),
     ...(intent.kind === "CLIENT_NATIVE_ALIAS" ? { clientAlias: { alias: intent.alias, mappedTier: intent.mappedTier } } : {}),
     ...(parentReference === undefined ? {} : {
       parent: {

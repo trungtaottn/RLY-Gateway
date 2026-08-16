@@ -244,7 +244,8 @@ describe("EffectiveModelDecision assembly (#127)", () => {
 
     const decision = assembleEffectiveModelDecision(input({ selection: selection as unknown as EffectiveModelDecisionInput["selection"] }));
     expect(decision.blockedAlternatives).toHaveLength(3);
-    expect(decision.blockedAlternatives[0]?.blockedBy[0]).toBe("compatibility-rejected");
+    expect(decision.blockedAlternatives.find((item) => item.logicalId === "cline/gpt-5.6-sol")?.blockedBy).toEqual(["compatibility-rejected"]);
+    expect(decision.blockedAlternatives.find((item) => item.logicalId === "cline/gpt-5.6-flash")?.blockedBy).toEqual(["capability-unsupported"]);
   });
 
   it("records per-feature ECR answers for the selected model", () => {
@@ -315,6 +316,28 @@ describe("EffectiveModelDecision assembly (#127)", () => {
     expect(serialized).not.toMatch(/fixture-token/);
     // Decision output is metadata: no prompts, reasoning text, or credentials.
     expect(JSON.stringify(decision)).not.toMatch(/prompt|response|reasoning text|authorization/i);
+  });
+
+  it("merges #69 tier candidate assessments into blocked alternatives (no second selector)", () => {
+    const decision = assembleEffectiveModelDecision(input({
+      tierAssessments: [
+        { logicalId: "cline/gpt-5.6-terra", accessProviderId: "cline", modelId: "gpt-5.6-terra", compatibilityState: "EXPERIMENTAL" as const, capabilityPass: true, reasoningPass: true, compatibilityPass: true, selected: true },
+        { logicalId: "cline/gpt-5.6-sol", accessProviderId: "cline", modelId: "gpt-5.6-sol", modelFamily: "openai/codex", compatibilityState: "BROKEN" as const, capabilityPass: true, reasoningPass: true, compatibilityPass: false, compatibilityFailure: "broken", selected: false },
+        { logicalId: "cline/gpt-5.6-flash", accessProviderId: "cline", modelId: "gpt-5.6-flash", compatibilityState: "VERIFIED" as const, capabilityPass: false, missingCapabilities: ["streaming"], reasoningPass: true, compatibilityPass: true, selected: false },
+      ],
+    }));
+    expect(decision.blockedAlternatives).toHaveLength(2);
+    expect(decision.blockedAlternatives.find((item) => item.logicalId === "cline/gpt-5.6-sol")?.blockedBy).toEqual(["compatibility-rejected"]);
+    expect(decision.blockedAlternatives.find((item) => item.logicalId === "cline/gpt-5.6-flash")?.blockedBy).toEqual(["capability-unsupported"]);
+    expect(decision.reasons.map((reason) => reason.code)).toContain("blocked-alternatives-considered");
+    // The same decision is deterministic and secret-free.
+    expect(assembleEffectiveModelDecision(input({ tierAssessments: [
+      { logicalId: "cline/gpt-5.6-terra", accessProviderId: "cline", modelId: "gpt-5.6-terra", compatibilityState: "EXPERIMENTAL" as const, capabilityPass: true, reasoningPass: true, compatibilityPass: true, selected: true },
+      { logicalId: "cline/gpt-5.6-sol", accessProviderId: "cline", modelId: "gpt-5.6-sol", compatibilityState: "BROKEN" as const, capabilityPass: true, reasoningPass: true, compatibilityPass: false, compatibilityFailure: "broken", selected: false },
+    ] }))).toEqual(assembleEffectiveModelDecision(input({ tierAssessments: [
+      { logicalId: "cline/gpt-5.6-terra", accessProviderId: "cline", modelId: "gpt-5.6-terra", compatibilityState: "EXPERIMENTAL" as const, capabilityPass: true, reasoningPass: true, compatibilityPass: true, selected: true },
+      { logicalId: "cline/gpt-5.6-sol", accessProviderId: "cline", modelId: "gpt-5.6-sol", compatibilityState: "BROKEN" as const, capabilityPass: true, reasoningPass: true, compatibilityPass: false, compatibilityFailure: "broken", selected: false },
+    ] })));
   });
 
   it("records stable reasons for every stage consumed", () => {

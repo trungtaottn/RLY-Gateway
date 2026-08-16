@@ -216,6 +216,28 @@ export type EffectiveModelDecision = Readonly<{
 }>;
 
 /**
+ * Structural #68 candidate assessment view consumed by the assembler
+ * (secret-free; the same shape as `ModelCandidateAssessment`).
+ */
+export type ModelDecisionCandidate = Readonly<{
+  logicalId: string;
+  accessProviderId: string;
+  modelId: string;
+  modelFamily?: string;
+  compatibilityState: CompatibilityState;
+  capabilityPass: boolean;
+  missingCapabilities?: readonly CapabilityRequirement[];
+  reasoningPass: boolean;
+  reasoningFailure?: string;
+  compatibilityPass: boolean;
+  compatibilityFailure?: string;
+  authority?: "ecr" | "seed";
+  effectiveLabel?: string;
+  enforcementReason?: string;
+  selected: boolean;
+}>;
+
+/**
  * Data-only input to the pure decision assembler. All stage outputs are
  * computed by the existing components (#68/#69/#70/#71/#72/#124/#125/#126);
  * the assembler only records them — it never re-resolves anything.
@@ -241,23 +263,7 @@ export type EffectiveModelDecisionInput = Readonly<{
   /** #70 result. */
   reasoning: ResolvedReasoning;
   /** #68 selection trace (includes candidate assessments + ECR authority). */
-  selection: Readonly<{ source: "exact" | "candidates"; selectedLogicalId: string; reason: string; candidates: readonly Readonly<{
-    logicalId: string;
-    accessProviderId: string;
-    modelId: string;
-    modelFamily?: string;
-    compatibilityState: CompatibilityState;
-    capabilityPass: boolean;
-    missingCapabilities?: readonly CapabilityRequirement[];
-    reasoningPass: boolean;
-    reasoningFailure?: string;
-    compatibilityPass: boolean;
-    compatibilityFailure?: string;
-    authority?: "ecr" | "seed";
-    effectiveLabel?: string;
-    enforcementReason?: string;
-    selected: boolean;
-  }>[] }>;
+  selection: Readonly<{ source: "exact" | "candidates"; selectedLogicalId: string; reason: string; candidates: readonly ModelDecisionCandidate[] }>;
   tier?: TierResolutionTrace;
   projection?: ModelProjectionTrace;
   /** #125 client-native alias → mapped RLY tier (when the intent is an alias). */
@@ -269,5 +275,7 @@ export type EffectiveModelDecisionInput = Readonly<{
   environmentOwnership?: SettingsOwnershipSummary;
   /** #124: per-feature effective answers for the selected model (optional). */
   effectiveFeatures?: Readonly<Record<string, Readonly<{ effective: EffectiveCompatibilityLabel; enforcement: EffectiveEnforcement }>>> | undefined;
+  /** #69: #68 candidate assessments from the tier's derived/fallback evaluation. */
+  tierAssessments?: readonly ModelDecisionCandidate[];
   decidedAt?: string;
 }>;

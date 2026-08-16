@@ -1,4 +1,5 @@
 import type { CapabilityRequirement } from "../../core/capabilities.js";
+import type { ModelCandidateAssessment } from "../model-selection/types.js";
 import { assertSecretFree } from "../../control-plane/secret-free.js";
 import {
   directProviderRegistry,
@@ -118,7 +119,7 @@ export function resolveTier(
   // Stage 3: deterministic #68 candidate evaluation inside the same provider+family.
   try {
     const selection = selectModel({ ...baseSelection, preferredFamily: family }, registry, selectionDeps(dependencies));
-    return settled(context, family, selection.model, "derived", "deterministic-family-candidate", mapping, registry);
+    return settled(context, family, selection.model, "derived", "deterministic-family-candidate", mapping, registry, undefined, selection.decision.candidates);
   } catch (error) {
     if (!isModelSelectionError(error)) throw error;
     return fallbackOrFail(context, dependencies, baseSelection, registry, mapping, family, error.code);
@@ -193,6 +194,7 @@ function fallbackOrFail(
         mapping,
         registry,
         "cross-family (explicitly enabled)",
+        selection.decision.candidates,
       );
     } catch (error) {
       if (!isModelSelectionError(error)) throw error;
@@ -249,6 +251,7 @@ function settled(
   mapping: TierMappingPolicy,
   registry: RegistryDocument,
   fallbackReason?: string,
+  assessments?: readonly ModelCandidateAssessment[],
 ): TierResolutionResult {
   const trace: TierResolutionTrace = Object.freeze({
     requestedTier: context.requestedTier,
@@ -261,6 +264,7 @@ function settled(
     mappingRevision: mapping.revision,
     registryRevision: registry.registryRevision,
     ...(fallbackReason === undefined ? {} : { fallbackReason }),
+    ...(assessments === undefined ? {} : { assessments }),
   });
   assertSecretFree(trace);
   return Object.freeze({ model, trace });
