@@ -42,6 +42,7 @@ Required behavior:
 - Text, images, tool use, tool results, tool choice, thinking, and redacted thinking.
 - Incremental text, reasoning, and tool-argument deltas.
 - Usage and stop-reason fidelity.
+- Incremental streaming transport (#120): each canonical event encoded exactly once with bounded per-stream state (no full-history re-encode); downstream backpressure pauses upstream iteration; client disconnect aborts upstream work with no frames after close; a setup (first-frame) timeout is separate from an idle/progress timeout between frames — no generic whole-request timer, so healthy long agent streams survive; stream resources terminate exactly once on every terminal path.
 - Cancellation, backpressure, structured errors, and safe retry boundaries.
 - Explicit `primary`, `fast`, and `reasoning` model roles.
 - Authenticated `GET /v1/models` gateway model discovery on the gateway listener: RLY-launched Claude sessions (child-only `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`) discover the configured, trusted RLY model universe through the supported Claude Code wire contract; every discoverable id uses the Claude-compatible `claude-rly-...` namespace and maps through an explicit reverse mapping to one exact access-provider/model target and provider pool.
@@ -52,7 +53,7 @@ Required behavior:
 Required for the explicit Codex CLI launch path, not as a peer coding UX:
 
 - OpenAI Responses request/item/event lifecycle.
-- Streaming, function-call argument deltas, reasoning, usage, errors, and cancellation.
+- Streaming, function-call argument deltas, reasoning, usage, errors, and cancellation, executed through the same incremental transport (#120) as the Anthropic Messages path.
 - Transient launch configuration; global Codex configuration remains unchanged.
 - Fake-upstream E2E before subscription bridge integration.
 
@@ -151,7 +152,8 @@ Allowed by default:
 - request ID;
 - provider/model/route identifiers;
 - capability and readiness states;
-- version, timing, and status metadata.
+- version, timing, and status metadata;
+- stream transport metadata only (#120): event count, frame count, backpressure count, duration, and terminal kind (completed/error/cancelled/timeout with setup/idle category).
 
 Forbidden by default:
 
