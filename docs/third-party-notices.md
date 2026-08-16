@@ -149,3 +149,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Bundled Node.js runtime (standalone artifacts, #35)
+
+Standalone runtime artifacts bundle the official Node.js runtime binary
+(version pinned in `scripts/standalone/node-version.json`, e.g. v24.19.0)
+from https://nodejs.org/dist without modification. Node.js is distributed
+under the MIT License (https://github.com/nodejs/node/blob/main/LICENSE);
+the artifact carries the license text at `bin/node.LICENSE` and the exact
+bundled version in `rly-artifact.json`.
