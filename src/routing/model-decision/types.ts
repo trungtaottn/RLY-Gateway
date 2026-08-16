@@ -25,7 +25,6 @@
  * `authorization` keys).
  */
 
-import type { ClaimFeature } from "../../canary/claim.js";
 import type { CapabilityRequirement } from "../../core/capabilities.js";
 import type { CompatibilityState } from "../../registry/model-registry.js";
 import type { ResolvedReasoning } from "../../core/reasoning.js";
@@ -269,6 +268,6 @@ export type EffectiveModelDecisionInput = Readonly<{
   persistedViewModel?: string;
   environmentOwnership?: SettingsOwnershipSummary;
   /** #124: per-feature effective answers for the selected model (optional). */
-  effectiveFeatures?: Readonly<Record<ClaimFeature, Readonly<{ effective: EffectiveCompatibilityLabel; enforcement: EffectiveEnforcement }>>> | undefined;
+  effectiveFeatures?: Readonly<Record<string, Readonly<{ effective: EffectiveCompatibilityLabel; enforcement: EffectiveEnforcement }>>> | undefined;
   decidedAt?: string;
 }>;
