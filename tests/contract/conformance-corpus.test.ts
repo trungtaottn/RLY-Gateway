@@ -10,7 +10,6 @@ import { encodeResponsesEvents } from "../../src/protocols/openai-responses/enco
 import { OpenRouterAdapter } from "../../src/providers/direct/openrouter-adapter.js";
 import { parseProviderError } from "../../src/providers/provider-error.js";
 import { ProviderAdapterError } from "../../src/providers/provider-adapter.js";
-import type { ProviderErrorInfo } from "../../src/providers/provider-error.js";
 import { emptyFidelityEnvelope, withArtifacts, type FidelityEnvelope } from "../../src/core/fidelity.js";
 
 const capabilities = { streaming: true, tools: true, parallelTools: false, images: false, reasoning: true, redactedReasoning: false, structuredOutput: false, tokenCounting: "conservative-estimate" as const };
@@ -20,20 +19,6 @@ const FIXTURES = "tests/fixtures/protocol";
 
 async function readFixture<T>(name: string): Promise<T> {
   return JSON.parse(await readFile(`${FIXTURES}/${name}`, "utf8")) as T;
-}
-
-function framesOf(sse: string): Array<{ event: string; data: unknown }> {
-  const frames: Array<{ event: string; data: unknown }> = [];
-  for (const record of sse.split(/\r?\n\r?\n/).filter(Boolean)) {
-    let event = "";
-    const dataLines: string[] = [];
-    for (const line of record.split(/\r?\n/)) {
-      if (line.startsWith("event:")) event = line.slice(6).trim();
-      if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
-    }
-    frames.push({ event, data: JSON.parse(dataLines.join("\n")) as unknown });
-  }
-  return frames;
 }
 
 function providerSse(frames: readonly { event: string; data: unknown }[]): string {
@@ -116,7 +101,7 @@ describe("Wave 1 conformance corpus (#121)", () => {
       expectedOutboundBody: Record<string, unknown>;
     }>("responses-native-rail-request.json");
     let fidelity: FidelityEnvelope | undefined = emptyFidelityEnvelope("openai-responses");
-    fidelity = withArtifacts(fidelity, fixture.fidelityArtifacts);
+    fidelity = withArtifacts(fidelity, fixture.fidelityArtifacts as { kind: "openai-reasoning-encrypted-content"; association: string; value: string }[]);
     const request = {
       id: "req_continuation",
       source: { protocol: "openai-responses" as const },
@@ -136,7 +121,7 @@ describe("Wave 1 conformance corpus (#121)", () => {
     const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
     for await (const _ of adapter.invoke(request as never, decisionFor(request.id), new AbortController().signal)) { void _; }
     const outbound = fetch.mock.calls[0]?.[1]?.body;
-    expect(typeof outbound === "string" ? JSON.parse(outbound) as unknown : undefined).toEqual(fixture.expectedOutboundBody);
+    expect(typeof outbound === "string" ? JSON.parse(outbound) : undefined).toEqual(fixture.expectedOutboundBody);
   });
 
   it("Anthropic supported translation path: text/tool/stop/reasoning wire semantics (non-streaming aggregate)", async () => {

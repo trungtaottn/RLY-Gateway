@@ -59,10 +59,6 @@ function boundedString(value: unknown, max: number): string | undefined {
   return trimmed.slice(0, max);
 }
 
-function boundedNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 function headerNumber(headers: Headers, name: string): number | undefined {
   const raw = headers.get(name);
   if (raw === null) return undefined;
