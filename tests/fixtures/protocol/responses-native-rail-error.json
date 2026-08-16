@@ -1,0 +1,37 @@
+{
+  "purpose": "Conformance corpus fixture (#121): provider-native error fidelity for the native Responses rail — a 429 with retry-after and rate-limit headers plus a protocol-shaped error body. Records the expected safe structured ProviderErrorInfo, the deterministic client error payload (openai-responses target), and the commitment classification (deterministic 4xx rejection = not-sent, rotation-safe). All values synthetic.",
+  "protocol": "openai-responses",
+  "rail": "native",
+  "scenario": "rate-limit-error",
+  "response": {
+    "status": 429,
+    "headers": {
+      "retry-after": "37",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "0"
+    },
+    "body": {
+      "error": {
+        "code": "rate_limit_error",
+        "message": "You are sending requests too quickly (synthetic).",
+        "param": null,
+        "type": "rate_limit_error"
+      }
+    }
+  },
+  "expectedInfo": {
+    "statusCode": 429,
+    "code": "rate_limit_error",
+    "type": "rate_limit_error",
+    "message": "You are sending requests too quickly (synthetic).",
+    "retryAfterSeconds": 37,
+    "rateLimit": { "limit": 1000, "remaining": 0, "resetSeconds": 37 }
+  },
+  "expectedClientPayload": {
+    "type": "rate_limit_error",
+    "code": "rate_limit_error",
+    "message": "You are sending requests too quickly (synthetic)."
+  },
+  "expectedCommitment": "not-sent",
+  "expectedClientStatus": 429
+}

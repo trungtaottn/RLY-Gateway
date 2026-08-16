@@ -3,6 +3,9 @@ import type { CanonicalRequest } from "../../core/canonical-request.js";
 import { classifyProviderFailure, cooldownUntilFor, nextQuotaClass } from "../../control-plane/health/outcomes.js";
 import type { RouteOutcomeClass } from "../../control-plane/health/types.js";
 import type { ControlPlaneStore } from "../../control-plane/store.js";
+import type { CommitmentState } from "../../providers/commitment.js";
+import { commitmentOf } from "../../providers/provider-error.js";
+import { ProviderAdapterError } from "../../providers/provider-adapter.js";
 import { parseAffinity } from "./affinity.js";
 import type { EffectiveRoute } from "../effective-route.js";
 import { markOutputStarted } from "../effective-route.js";
@@ -79,12 +82,19 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
     const buffered: CanonicalEvent[] = [];
     let route = selected.route;
     let live = false;
+    // #121: provider-owned commitment evidence for THIS attempt. Starts
+    // `not-sent`; advances on provider acknowledgement (response-started),
+    // client output, and tool boundaries. Rotation consumes it.
+    let commitment: CommitmentState = "not-sent";
     const flush = function* (): Generator<CanonicalEvent> {
       input.onRoute?.(route);
       yield* buffered;
     };
     try {
       for await (const event of input.invoke(route, input.signal)) {
+        if (event.type === "response-started" && commitment === "not-sent") commitment = "provider-accepted";
+        if (event.type === "content-started" && event.contentType === "tool-call") commitment = "tool-boundary";
+        if (event.type === "text-delta" || event.type === "reasoning-delta") commitment = "client-output-started";
         if (!route.outputStarted && isOutputOrToolEvent(event)) route = markOutputStarted(route);
         if (live) {
           yield event;
@@ -99,8 +109,12 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
         if (event.type !== "response-failed") continue;
         const outcome = classifyProviderFailure(event.code);
         recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
-        lastError = new RouteFailure(outcome, event.code);
-        if (canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome })) {
+        // A provider-emitted failed event is a deterministic rejection only
+        // when no acceptance preceded it; after provider acceptance the
+        // attempt is committed and must never rotate.
+        const failedCommitment: CommitmentState = commitment === "provider-accepted" || commitment === "client-output-started" || commitment === "tool-boundary" ? "provider-accepted" : "not-sent";
+        lastError = new RouteFailure(outcome, event.code, event.message, failedCommitment);
+        if (canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome, commitment: failedCommitment })) {
           tried.push(route.accountId);
           continue attempt;
         }
@@ -117,8 +131,12 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
       if (isAbortError(error)) throw error;
       const outcome = classifyThrown(error);
       recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
+      // #121: the adapter owns commitment evidence of the failure point;
+      // anything without explicit `not-sent` evidence is conservatively
+      // `unknown` (no replay).
+      const thrownCommitment = commitmentOf(error);
       lastError = error instanceof Error ? error : new Error("provider invoke failed");
-      if (!canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome })) {
+      if (!canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome, commitment: thrownCommitment })) {
         yield* flush();
         throw lastError;
       }
@@ -128,13 +146,15 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
   throw lastError ?? new NoEligibleAccountError(input.request.id);
 }
 
-export class RouteFailure extends Error {
+export class RouteFailure extends ProviderAdapterError {
   override name = "RouteFailure";
   public constructor(
     readonly outcome: RouteOutcomeClass,
-    readonly code: string,
+    code: string,
+    message = "Provider request failed",
+    commitment: CommitmentState = "not-sent",
   ) {
-    super("Provider request failed");
+    super(code, message, undefined, commitment);
   }
 }
 

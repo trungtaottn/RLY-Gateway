@@ -177,9 +177,13 @@ describe("bounded retry", () => {
     expect(isOutputOrToolEvent(event("text-delta", { index: 0, text: "x" }))).toBe(true);
     expect(isOutputOrToolEvent(event("tool-arguments-delta", { index: 0, toolCallId: "t", partialJson: "{}" }))).toBe(true);
     expect(isOutputOrToolEvent(event("response-started", { responseId: "r" }))).toBe(false);
-    expect(canRotate({ outputStarted: false, rotationsUsed: 0, retryBudget: 1, outcome: "auth" })).toBe(true);
-    expect(canRotate({ outputStarted: true, rotationsUsed: 0, retryBudget: 1, outcome: "auth" })).toBe(false);
-    expect(canRotate({ outputStarted: false, rotationsUsed: 1, retryBudget: 1, outcome: "transient" })).toBe(false);
+    expect(canRotate({ outputStarted: false, rotationsUsed: 0, retryBudget: 1, outcome: "auth", commitment: "not-sent" })).toBe(true);
+    expect(canRotate({ outputStarted: true, rotationsUsed: 0, retryBudget: 1, outcome: "auth", commitment: "not-sent" })).toBe(false);
+    expect(canRotate({ outputStarted: false, rotationsUsed: 1, retryBudget: 1, outcome: "transient", commitment: "not-sent" })).toBe(false);
+    // #121: commitment past not-sent (unknown / provider-accepted) never rotates.
+    expect(canRotate({ outputStarted: false, rotationsUsed: 0, retryBudget: 1, outcome: "auth", commitment: "unknown" })).toBe(false);
+    expect(canRotate({ outputStarted: false, rotationsUsed: 0, retryBudget: 1, outcome: "quota", commitment: "provider-accepted" })).toBe(false);
+    expect(canRotate({ outputStarted: false, rotationsUsed: 0, retryBudget: 1, outcome: "transient", commitment: "sent-unacknowledged" })).toBe(false);
     expect(RouteFailure).toBeTypeOf("function");
   });
 });

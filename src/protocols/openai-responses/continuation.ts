@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CanonicalContent, CanonicalMessage, CanonicalRequest } from "../../core/canonical-request.js";
-import { artifactValue, fidelityEnvelopeSchema, mergeFidelity, type FidelityEnvelope } from "../../core/fidelity.js";
+import { artifactValue, emptyFidelityEnvelope, fidelityEnvelopeSchema, mergeFidelity, withArtifacts, type FidelityEnvelope } from "../../core/fidelity.js";
 import { controlPlanePaths } from "../../storage/paths.js";
 import {
   ensurePrivateDirectory,
@@ -77,6 +77,33 @@ function messagesFromOutput(output: readonly unknown[]): CanonicalMessage[] {
   return messages;
 }
 
+/**
+ * #121: extracts provider-returned opaque artifacts (reasoning
+ * `encrypted_content`) from an aggregated Responses output so they survive
+ * into the stored fidelity envelope for continuation. Values are protocol
+ * state, never interpreted, never logged.
+ */
+function artifactsFromAggregated(output: readonly unknown[]): Readonly<{ kind: "openai-reasoning-encrypted-content"; association: string; value: string }>[] {
+  const artifacts: Readonly<{ kind: "openai-reasoning-encrypted-content"; association: string; value: string }>[] = [];
+  for (const item of output) {
+    if (typeof item !== "object" || item === null || !("type" in item)) continue;
+    const record = item as Record<string, unknown>;
+    if (record.type !== "reasoning") continue;
+    const itemId = typeof record.id === "string" ? record.id : undefined;
+    const encrypted = typeof record.encrypted_content === "string" && record.encrypted_content.length > 0 ? record.encrypted_content : undefined;
+    if (itemId === undefined || encrypted === undefined) continue;
+    artifacts.push({ kind: "openai-reasoning-encrypted-content", association: itemId, value: encrypted });
+  }
+  return artifacts;
+}
+
+function fidelityForStorage(request: CanonicalRequest, output: readonly unknown[]): FidelityEnvelope | undefined {
+  const providerArtifacts = artifactsFromAggregated(output);
+  if (providerArtifacts.length === 0) return request.fidelity;
+  const envelope = withArtifacts(emptyFidelityEnvelope("openai-responses"), providerArtifacts);
+  return mergeFidelity(request.fidelity, envelope);
+}
+
 function fileFor(directory: string, id: string): string {
   if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new ResponsesProtocolError("invalid_request_error", "previous_response_id is not a stored response id");
   return join(controlPlanePaths(directory).responses, `${id}.json`);
@@ -128,12 +155,13 @@ export class ResponseContinuationStore {
 
   public async rememberAggregated(request: CanonicalRequest, aggregated: Readonly<{ id: string; model: string; output: readonly unknown[] }>): Promise<StoredResponse | undefined> {
     const output = Array.isArray(aggregated.output) ? aggregated.output : [];
+    const fidelity = fidelityForStorage(request, output);
     const stored: StoredResponse = {
       id: aggregated.id,
       createdAt: new Date().toISOString(),
       model: aggregated.model,
       messages: [...request.messages, ...messagesFromOutput(output)],
-      ...(request.fidelity === undefined ? {} : { fidelity: request.fidelity }),
+      ...(fidelity === undefined ? {} : { fidelity }),
     };
     await this.put(stored);
     return stored;

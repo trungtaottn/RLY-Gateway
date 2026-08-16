@@ -93,6 +93,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 - The model intelligence registry (`src/registry/model-registry.ts`) is the canonical evidence source for provider/model identity, capability, limits, reasoning controls, and compatibility state (#67); discovery proposes, it never silently rewrites reviewed evidence (#23). `rly admin models refresh` queries or imports a provider catalogue, normalizes it into candidate evidence, diffs it against reviewed evidence, and emits/persists a deterministic propose-only drift report; it never activates or mutates trusted evidence, and promotion requires a separate reviewed control-plane operation (#69/#72).
 - Provider-specific behavior remains in its adapter even when transport is OpenAI-compatible.
 - Runtime probes never silently rewrite the committed registry.
+- Since #121: same-protocol OpenAI Responses requests use a TRUE native Responses upstream rail whenever the adapter declares the exact Responses endpoint contract (`POST {endpoint}/responses` — OpenRouter direct today). The rail preserves Responses item identity, continuation fields, tool/reasoning item ordering, and #119 opaque artifacts through provider invocation. `OpenAI-compatible` is NOT a sufficient compatibility class: every claimed Responses path identifies its exact endpoint/adapter contract. Provider failures carry safe structured metadata (status/code/type/message/param/retry-after/rate-limit) through `ProviderAdapterError.info`; both routes translate it onto protocol-correct client errors and surface `retry-after`, so generic normalization is the fallback, never the only path.
 
 ### 6.3 Credentials and accounts
 
@@ -108,6 +109,7 @@ Additional providers remain outside V1 until promoted through the provider contr
 - Initial selection supports manual pinning, `round-robin`, and `fill-first`; quota-aware selection follows only with evidence-backed quota state.
 - One request binds one account pseudonym and credential generation in an immutable `EffectiveRoute`.
 - Retry or account rotation is allowed only before the first response byte or tool event and within a bounded, auditable budget.
+- Since #121: rotation additionally requires an explicit provider commitment state of `not-sent` — the policy must prove the previous attempt never crossed a provider/client/tool commitment boundary. A deterministic 4xx rejection is rotation-safe; a 5xx or post-send network failure is `unknown` (conservative no-replay); failure after provider acceptance, during streaming, or at a tool boundary never rotates or replays. Account failover never changes the frozen physical model (#127).
 - Control plane publishes versioned policy/configuration. The data plane creates `EffectiveRoute` only after deriving request capabilities and selecting an eligible account.
 
 ### 6.5 Managed bridges
@@ -246,6 +248,14 @@ Forbidden by default:
 - Every enabled adapter passes its declared contract and opt-in smoke.
 - Bridge mismatch and auth-expiry tests fail safely.
 - Clean install/package, provenance, dependency-license, and privacy gates pass.
+
+### Wave 1 transport completion gate (#121)
+
+- At least one supported provider/access path exercises a true native OpenAI Responses upstream rail with Responses item identity, continuation fields, tool/reasoning item ordering, and #119 opaque artifacts preserved through provider invocation; same-protocol Responses fixtures never route through a lossy Chat-Completions approximation when the upstream supports Responses.
+- Safe provider error status/code/type/retry-after/rate-limit metadata survives to the appropriate client/error policy; error redaction proves credentials, auth headers, secret-bearing bodies, prompts, responses, and reasoning text are excluded from logs/traces.
+- Retry/failover decisions consume an explicit provider commitment state; a network failure with unknown provider outcome defaults to no replay/failover; failure after tool/client/provider commitment never rotates the account or replays the request.
+- The conformance corpus (Anthropic + Responses native/supported paths: text, stream, tool, reasoning, continuation, stop, error, cancellation, retry metadata, disconnect ambiguity) records expected WIRE semantics; chaos tests cover failures at each commitment stage and prove no duplicate tool side effects; long-session soak combines #120 incremental transport with retry/error handling without state leakage or unbounded resource growth.
+- Protocol compatibility docs distinguish exact native rails from weaker provider-specific compatibility surfaces, and Wave 1 completion evidence is sufficient for Wave 2 claim keying to exact protocol/adapter/access-path contracts.
 
 ## 10. Sources and precedence
 

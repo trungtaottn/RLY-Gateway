@@ -9,6 +9,7 @@ import { FakeCanonicalUpstream } from "../../src/protocols/anthropic/fake-upstre
 import { decodeResponsesRequest } from "../../src/protocols/openai-responses/decoder.js";
 import { ResponseContinuationStore } from "../../src/protocols/openai-responses/continuation.js";
 import { OpenRouterAdapter } from "../../src/providers/direct/openrouter-adapter.js";
+import { DeepSeekAdapter } from "../../src/providers/direct/deepseek-adapter.js";
 import { decideRoute, type RouteRecord } from "../../src/core/router.js";
 import { artifactValue, describeFidelity } from "../../src/core/fidelity.js";
 import type { CanonicalEvent } from "../../src/core/canonical-event.js";
@@ -178,9 +179,50 @@ describe("OpenAI Responses reasoning fidelity (#119)", () => {
     }
   });
 
-  it("fails closed on a cross-protocol path that cannot represent required encrypted content", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>();
+  it("keeps same-protocol Responses encrypted content on the native rail (#121)", async () => {
+    // #121: OpenRouter implements the Responses API, so a same-protocol
+    // Responses request with required encrypted content routes to the NATIVE
+    // rail — the artifact is preserved through invocation, never failed closed
+    // on the Chat-Completions approximation.
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      id: "resp_native",
+      object: "response",
+      status: "completed",
+      model: "fixture-model",
+      output: [
+        { type: "reasoning", id: "rs_fixture", summary: [{ type: "summary_text", text: "fixture summary" }], encrypted_content: "provider-returned-encrypted-value" },
+        { type: "message", id: "msg_native", role: "assistant", content: [{ type: "output_text", text: "native text" }] },
+      ],
+      usage: { input_tokens: 5, output_tokens: 3 },
+    }), { status: 200 }));
     const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
+    const decoded = decodeResponsesRequest({
+      model: "fixture-model",
+      input: [{ type: "reasoning", id: "rs_fixture", summary: [{ type: "summary_text", text: "redacted fixture summary" }], encrypted_content: "synthetic-encrypted-content-value" }],
+    });
+    const decision = decideRoute({ requestId: decoded.request.id, route: baseRoute, required: [], configFingerprint: "a".repeat(64) });
+    const events: CanonicalEvent[] = [];
+    for await (const item of adapter.invoke(decoded.request, decision, new AbortController().signal)) events.push(item);
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/responses");
+    const body = fetch.mock.calls[0]?.[1]?.body;
+    const payload = typeof body === "string" ? JSON.parse(body) as Record<string, unknown> : {};
+    // #119 artifacts are preserved through provider invocation on the native rail.
+    expect(payload.input).toContainEqual(expect.objectContaining({ type: "reasoning", id: "rs_fixture", encrypted_content: "synthetic-encrypted-content-value" }));
+    expect(payload.include).toEqual(["reasoning.encrypted_content"]);
+    // Provider-returned item identity and encrypted content survive.
+    const started = events.filter((item) => item.type === "content-started");
+    expect(started.map((item) => (item as { itemId?: string }).itemId)).toEqual(["rs_fixture", "msg_native"]);
+    const artifacts = events.find((item): item is Extract<CanonicalEvent, { type: "fidelity-artifacts" }> => item.type === "fidelity-artifacts");
+    expect(artifacts?.artifacts).toContainEqual({ kind: "openai-reasoning-encrypted-content", association: "rs_fixture", value: "provider-returned-encrypted-value" });
+    expect(events.at(-1)).toMatchObject({ type: "response-completed" });
+  });
+
+  it("fails closed on a cross-protocol path that cannot represent required encrypted content", async () => {
+    // #121: a provider WITHOUT the native Responses rail (DeepSeek Chat
+    // Completions) still fails closed on a required Responses artifact —
+    // nothing is fabricated or silently dropped.
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const adapter = new DeepSeekAdapter(fetch, undefined, { DEEPSEEK_API_KEY: "fixture-secret" });
     const decoded = decodeResponsesRequest({
       model: "fixture-model",
       input: [{ type: "reasoning", id: "rs_fixture", summary: [{ type: "summary_text", text: "redacted fixture summary" }], encrypted_content: "synthetic-encrypted-content-value" }],

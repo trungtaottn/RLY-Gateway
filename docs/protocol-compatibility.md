@@ -17,7 +17,7 @@ helpers with a fake canonical upstream.
 | Streaming | Anthropic SSE message/content start and stop, text/thinking/tool-argument deltas, usage, stop reason, and terminal message stop | Event sequence and request provenance must be monotonic and consistent. The runtime mounts direct routes only with a transient gateway token. |
 | Non-streaming | Canonical text, thinking, tool-call arguments, usage, and stop reason aggregate into an Anthropic message response | Tool argument fragments must form valid JSON. Upstream failures become structured gateway errors. |
 | Token counting | Direct routes use an explicit conservative estimate or `501` when declared unsupported | Quality is sent in `x-rly-gateway-token-count-quality`; no provider tokenizer parity is claimed without adapter evidence. |
-| Retry and cancellation | Non-stream collection retries once only when a transport error occurs before any canonical event. Client abort is propagated to the route upstream signal. | Streaming retry semantics remain provider-owned (#121); streaming cancellation and backpressure are implemented by the incremental transport (#120). |
+| Retry and cancellation | Non-stream collection retries once only when a transport error provably never crossed a commitment boundary (commitment `not-sent`, #121). Client abort is propagated to the route upstream signal. | Streaming retry is owned by the pool (`streamPoolRequest`, #121): rotation requires `commitment === "not-sent"`; streaming cancellation and backpressure are implemented by the incremental transport (#120). |
 | Incremental transport (#120) | Each canonical event is encoded exactly once by a per-stream incremental encoder; downstream backpressure pauses upstream iteration; client disconnect aborts upstream work with no frames after close; setup (first-frame) and idle/progress timeouts bound the stream with no whole-request timer; iterator/encoder/timers/listeners terminate exactly once; diagnostics are metadata-only | Output is byte-identical to the batch encoder on valid text/reasoning/tool fixtures (including #119 fidelity events). Timeout emits one in-band structured error frame (`api_error`, 504). An upstream that ignores abort is stopped at the next pump terminal check. |
 
 ## Model intelligence registry
@@ -33,9 +33,7 @@ Exact `(accessProvider, upstreamModelId)` matching fails closed on missing or cr
 
 ## Explicitly unsupported or not yet operational
 
-- Direct providers currently use Chat Completions transport. OpenRouter probes
-  its models catalog and DeepSeek preserves assistant reasoning content when
-  replaying a tool turn. Probe results never mutate declarative configuration.
+- Direct providers currently use Chat Completions transport **except** where an adapter declares the exact OpenAI Responses endpoint contract (#121): the OpenRouter direct adapter implements `POST https://openrouter.ai/api/v1/responses` as a TRUE native Responses rail, so same-protocol Responses requests never fall back to the Chat-Completions approximation. Other direct providers (DeepSeek, Alibaba, OpenCode Go) keep Chat Completions transport and fail closed on required Responses artifacts (`unsupported-fidelity`). OpenRouter probes its models catalog and DeepSeek preserves assistant reasoning content when replaying a tool turn. Probe results never mutate declarative configuration.
 - Roles are exactly `primary`, `fast`, and `reasoning`. A request may name a
   configured role, its exact configured model ID, or a known Claude helper
   alias (`claude-haiku-4-5` → `fast`, `claude-sonnet-5` / `claude-opus-4-8` →
@@ -44,8 +42,10 @@ Exact `(accessProvider, upstreamModelId)` matching fails closed on missing or cr
   `opus`/`fable`) are resolved contextually by #69, not through the helper map
   (see below).
 - No live provider smoke or real token-count validation has been recorded yet.
-- Direct adapters still speak Chat Completions transport; Responses is a client
-  protocol boundary, not a new upstream wire format.
+- Direct adapters still speak Chat Completions transport except for the exact
+  native Responses rail declared per adapter (#121); Responses is a client
+  protocol boundary AND, for adapters that declare the exact contract, a
+  first-class upstream wire format.
 
 ## OpenAI Responses
 
@@ -62,6 +62,35 @@ ordering.
 | Non-streaming | Canonical text, function-call arguments, reasoning summary, and usage aggregate into a Responses object | Function argument fragments must form valid JSON. |
 | Continuation | Completed responses persist canonical output items; a later `previous_response_id` prepends that output | Missing or expired ids are unready. Retention deletes expired continuation files. |
 | Incremental transport (#120) | Identical incremental/lifecycle semantics to the Anthropic Messages transport: one encode per event, downstream backpressure pauses upstream, disconnect aborts with no frames after close, setup/idle/progress timeouts (no whole-request timer), exactly-once cleanup, metadata-only diagnostics; continuation is persisted from the encoder's bounded aggregate state after a clean `response.completed` | Output is byte-identical to the batch encoder on valid text/reasoning/tool fixtures (including #119 fidelity reasoning + tool interleave). Timeout emits one in-band `timeout_error` frame (504).
+
+### Native Responses upstream rail (#121)
+
+| Area | Supported boundary behavior | Limits and readiness condition |
+| --- | --- | --- |
+| Exact contract | The OpenRouter direct adapter declares the exact Responses endpoint contract: `POST https://openrouter.ai/api/v1/responses` (streaming via `event:`/`data:` SSE). Same-protocol Responses requests route here whenever the adapter declares it (`OpenAiChatAdapter.supportsResponsesNativeRail`). | `OpenAI-compatible` is NOT a sufficient compatibility class — every claimed Responses path identifies the exact endpoint/adapter contract. |
+| Item identity | Provider `item.id` values survive onto the client wire (`content-started.itemId` → `response.output_item.added` item ids) instead of fabricated local ids | Provider ids are passed through uninterpreted; local ids are still fabricated when absent |
+| Continuation fields | `previous_response_id` forwarded on the outbound request; the provider's response id persists for the next turn | A response id not persisted locally fails closed (`not_found`) |
+| Tool/reasoning ordering | Input items are rebuilt in original order (reasoning / function_call / function_call_output / message interleave preserved); output item ordering preserved | Never flattened into Anthropic or Chat-Completions ordering |
+| #119 opaque artifacts | `include: ["reasoning.encrypted_content"]` is requested when the fidelity envelope carries artifacts; artifact values attach to their reasoning items on the outbound request; provider-returned `encrypted_content` flows through a `fidelity-artifacts` canonical event into the terminal aggregate and continuation storage | Artifacts are never interpreted or reconstructed; a required artifact the rail cannot represent fails closed (`unsupported-fidelity`, zero upstream calls) |
+| Error fidelity | Provider status/code/type/allowlisted message/param/retry-after/rate-limit metadata survives via `ProviderAdapterError.info`; the route maps it onto `{type, code, message, param}` and surfaces the `retry-after` header | Raw bodies never propagate; generic normalization is the fallback, never the only path |
+| Commitment & retry | Failures carry the commitment state at the failure point: deterministic 4xx rejections are `not-sent` (rotation-safe); 5xx/timeouts/post-send network failures are `unknown` (no replay); a stream ending after acceptance without a terminal frame is `provider-accepted` (no replay); tool/output boundaries are `tool-boundary`/`client-output-started` (sealed) | Rotation/retry requires `commitment === "not-sent"`; ambiguous outcomes are never replayed |
+| Cancellation | Client abort propagates through the merged signal and stops upstream iteration | No frames after close |
+
+### Conformance corpus (#121)
+
+Deterministic fixtures (`tests/fixtures/protocol/responses-native-rail-*.json` + `tests/contract/conformance-corpus.test.ts`) record expected WIRE semantics — inbound provider frames, expected canonical types, provider item ids, expected client wire frames, error wire (retry-after/rate-limit/commitment), disconnect ambiguity, and the exact continuation outbound body — for the native Responses rail and the Anthropic supported translation path (text, tool, stop, error, cancellation). Wave 2 claim keying can reference each scenario's exact protocol + adapter + access-path contract (aligned with the #122 claim-key vocabulary) without re-deriving it.
+
+### Exact native rails vs provider-specific compatibility surfaces (#121)
+
+Every claimed Responses path is keyed to its EXACT endpoint/adapter contract, never to a generic "OpenAI-compatible" class:
+
+| Claimed surface | Exact contract | Compatibility class |
+| --- | --- | --- |
+| Native Responses rail (OpenRouter direct) | `POST https://openrouter.ai/api/v1/responses` + `GET {base}/models`, Responses SSE item/event semantics, `include: ["reasoning.encrypted_content"]` | EXACT native rail — same-protocol Responses traffic preserves item identity, continuation, ordering, and #119 artifacts |
+| Chat-Completions translation (OpenRouter/DeepSeek/Alibaba/OpenCode Go) | `POST {base}/chat/completions` | CROSS-PROTOCOL translation — canonical projection only; required Responses artifacts fail closed (`unsupported-fidelity`) |
+| Anthropic Messages translation (Claude OAuth / Cline interop) | `POST https://api.anthropic.com/v1/messages` / Cline endpoint | CROSS-PROTOCOL translation with deterministic error vocabulary mapping (`translateProviderError`) |
+
+Wave 2 compatibility claims (per the #122 claim-key vocabulary: client kind/version, source protocol/revision, adapter/integration, access provider, auth mode, endpoint contract, physical model, feature) can key directly to these exact contracts; the conformance corpus and adapter contract tests record the wire evidence for each.
 
 `run codex` launches Codex with `OPENAI_BASE_URL` / `OPENAI_API_KEY` and a
 temporary `CODEX_HOME`. Global `~/.codex` is not mutated.
@@ -384,10 +413,11 @@ adapter/runtime route, not to this protocol boundary.
 
 ## Evidence
 
-- Contract coverage: `tests/contract/anthropic/messages.test.ts`, `tests/contract/openai-responses/responses.test.ts`
+- Contract coverage: `tests/contract/anthropic/messages.test.ts`, `tests/contract/openai-responses/responses.test.ts`, `tests/contract/conformance-corpus.test.ts`, `tests/contract/providers/openai-responses-adapter.test.ts`
 - Compatibility Claim and Evidence v2: `tests/unit/canary-claim.test.ts`, `tests/unit/canary-evidence.test.ts`, `tests/privacy/canary.test.ts`
 - Layer B/C runners: `tests/unit/canary-runners.test.ts`, `tests/unit/cli-canary.test.ts`, `tests/e2e/claude-code/blackbox-runner.e2e.test.ts` (gated `RLY_CLAUDE_E2E=1`), `tests/e2e/codex/blackbox-runner.e2e.test.ts` (gated `RLY_CODEX_E2E=1`; skipped ≠ pass)
-- Fake-upstream route coverage: `tests/integration/fake-upstream/anthropic-route.test.ts`, `tests/integration/fake-upstream/openai-responses-route.test.ts`
+- Fake-upstream route coverage: `tests/integration/fake-upstream/anthropic-route.test.ts`, `tests/integration/fake-upstream/openai-responses-route.test.ts`, `tests/integration/fake-upstream/responses-native-soak.test.ts`, `tests/integration/chaos-retry-commitment.test.ts`
+- Error/retry privacy: `tests/privacy/error-retry.test.ts`
 - Codex launcher E2E: `tests/e2e/codex/fake-upstream.e2e.test.ts`
 - ClinePass Claude profile: `tests/lifecycle/cline-profile-route.test.ts`, `tests/e2e/claude-code/cline-interop.e2e.test.ts` (gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass)
 - Boundary code: `src/protocols/anthropic/`, `src/protocols/openai-responses/`, `src/routes/anthropic-*.ts`, `src/routes/openai-responses-route.ts`

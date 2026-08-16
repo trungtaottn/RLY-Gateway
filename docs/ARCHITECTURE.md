@@ -351,7 +351,7 @@ The broker is the only owner of project-managed credential persistence. It perfo
 
 ### Accounts and pools
 
-Account metadata is separate from credentials. Account identity is unique per `(provider, pseudonym)`. Pool selection always filters paused, expired, authentication-unready, cooling, capability-incompatible, or terms-unaccepted accounts before applying manual pin, `round-robin`, `fill-first`, or an evidence-approved quota strategy. Quota-exhausted accounts are ineligible only while cooling and become recovery probes afterward. A request never changes account after the first response byte or tool event.
+Account metadata is separate from credentials. Account identity is unique per `(provider, pseudonym)`. Pool selection always filters paused, expired, authentication-unready, cooling, capability-incompatible, or terms-unaccepted accounts before applying manual pin, `round-robin`, `fill-first`, or an evidence-approved quota strategy. Quota-exhausted accounts are ineligible only while cooling and become recovery probes afterward. A request never changes account after the first response byte or tool event, and since #121 also never after provider acceptance — rotation requires an explicit commitment state of `not-sent`, so ambiguous network outcomes (unknown) and committed attempts never replay or fail over (see the commitment state model section).
 
 ### Management
 

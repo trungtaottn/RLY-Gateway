@@ -1,0 +1,66 @@
+{
+  "purpose": "Conformance corpus fixture (#121): the EXACT wire semantics of the native OpenAI Responses upstream rail for a streaming response interleaving reasoning, text, and a tool call — item identity, tool/reasoning ordering, #119 encrypted-content artifacts, usage, and stop reason. All values are synthetic placeholders, never real credentials, prompts, responses, or tokens.",
+  "protocol": "openai-responses",
+  "rail": "native",
+  "scenario": "reasoning-tool-interleave-stream",
+  "outboundRequest": {
+    "model": "fixture-model",
+    "input": [
+      { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "redacted fixture instruction" }] }
+    ],
+    "stream": true,
+    "max_output_tokens": 256,
+    "reasoning": { "effort": "medium" }
+  },
+  "inboundFrames": [
+    { "event": "response.created", "data": { "type": "response.created", "response": { "id": "resp_native_1", "object": "response", "status": "in_progress", "model": "fixture-model", "output": [], "usage": {} } } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 0, "item": { "type": "reasoning", "id": "rs_0", "summary": [], "encrypted_content": "synthetic-encrypted-native" } } },
+    { "event": "response.reasoning_summary_text.delta", "data": { "type": "response.reasoning_summary_text.delta", "output_index": 0, "delta": "synthetic reasoning " } },
+    { "event": "response.reasoning_summary_text.delta", "data": { "type": "response.reasoning_summary_text.delta", "output_index": 0, "delta": "summary" } },
+    { "event": "response.output_item.done", "data": { "type": "response.output_item.done", "output_index": 0 } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 1, "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": [] } } },
+    { "event": "response.content_part.added", "data": { "type": "response.content_part.added", "output_index": 1, "content_index": 0, "part": { "type": "output_text", "text": "" } } },
+    { "event": "response.output_text.delta", "data": { "type": "response.output_text.delta", "output_index": 1, "content_index": 0, "delta": "native text" } },
+    { "event": "response.output_item.done", "data": { "type": "response.output_item.done", "output_index": 1 } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 2, "item": { "type": "function_call", "id": "fc_2", "call_id": "call_native", "name": "fixture_tool", "arguments": "{\"value\":1}" } } },
+    { "event": "response.output_item.done", "data": { "type": "response.output_item.done", "output_index": 2 } },
+    { "event": "response.completed", "data": { "type": "response.completed", "response": { "id": "resp_native_1", "object": "response", "status": "completed", "model": "fixture-model", "output": [], "usage": { "input_tokens": 9, "output_tokens": 11 } } } }
+  ],
+  "expectedCanonicalTypes": [
+    "response-started",
+    "content-started",
+    "reasoning-delta",
+    "reasoning-delta",
+    "content-completed",
+    "content-started",
+    "text-delta",
+    "content-completed",
+    "content-started",
+    "tool-arguments-delta",
+    "content-completed",
+    "fidelity-artifacts",
+    "usage-updated",
+    "response-completed"
+  ],
+  "expectedItemIds": ["rs_0", "msg_1", "fc_2"],
+  "expectedClientFrames": [
+    { "event": "response.created", "data": { "type": "response.created", "response": { "id": "resp_native_1", "object": "response", "status": "in_progress", "model": "fixture-model", "output": [], "usage": { "input_tokens": 0, "output_tokens": 0 } } } },
+    { "event": "response.in_progress", "data": { "type": "response.in_progress", "response": { "id": "resp_native_1", "object": "response", "status": "in_progress", "model": "fixture-model", "output": [], "usage": { "input_tokens": 0, "output_tokens": 0 } } } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 0, "item": { "type": "reasoning", "id": "rs_0", "summary": [] } } },
+    { "event": "response.reasoning_summary_text.delta", "data": { "type": "response.reasoning_summary_text.delta", "output_index": 0, "delta": "synthetic reasoning " } },
+    { "event": "response.reasoning_summary_text.delta", "data": { "type": "response.reasoning_summary_text.delta", "output_index": 0, "delta": "summary" } },
+    { "event": "response.output_item.done", "data": { "type": "response.output_item.done", "output_index": 0 } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 1, "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": [] } } },
+    { "event": "response.content_part.added", "data": { "type": "response.content_part.added", "output_index": 1, "content_index": 0, "part": { "type": "output_text", "text": "" } } },
+    { "event": "response.output_text.delta", "data": { "type": "response.output_text.delta", "output_index": 1, "content_index": 0, "delta": "native text" } },
+    { "event": "response.output_item.done", "data": { "type": "response.output_item.done", "output_index": 1 } },
+    { "event": "response.output_item.added", "data": { "type": "response.output_item.added", "output_index": 2, "item": { "type": "function_call", "id": "fc_2", "call_id": "call_native", "name": "fixture_tool", "arguments": "" } } },
+    { "event": "response.function_call_arguments.delta", "data": { "type": "response.function_call_arguments.delta", "output_index": 2, "delta": "{\"value\":1}" } },
+    { "event": "response.output_item.done", "data": { "type": "response.output_item.done", "output_index": 2 } },
+    { "event": "response.completed", "data": { "type": "response.completed", "response": { "id": "resp_native_1", "object": "response", "status": "completed", "model": "fixture-model", "output": [
+      { "type": "reasoning", "id": "rs_0", "summary": [{ "type": "summary_text", "text": "synthetic reasoning summary" }], "encrypted_content": "synthetic-encrypted-native" },
+      { "type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [{ "type": "output_text", "text": "native text" }] },
+      { "type": "function_call", "id": "fc_2", "call_id": "call_native", "name": "fixture_tool", "arguments": "{\"value\":1}" }
+    ], "usage": { "input_tokens": 9, "output_tokens": 11 } } } }
+  ]
+}
