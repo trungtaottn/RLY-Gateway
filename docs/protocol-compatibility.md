@@ -359,6 +359,20 @@ The **Effective Compatibility Registry** is the SOLE runtime compatibility autho
 - **Enforcement** — normal execution requires effective trusted compatibility for required features (fail closed, no silent fallback); the explicit experimental override (exact-pin opt-in / `allowExperimental`) is visible in traces/doctor and can never bypass a hard quarantine.
 - **Runtime consumers** — model selection (#68), logical tier resolution (#69), model projection/discovery (#72), reasoning/tool eligibility, and profile route resolution consume ECR snapshots; `rly compat` (status/review/quarantine/lift/explain) and doctor surface the effective result secret-free.
 
+## EffectiveModelDecision model-control plane (#127)
+
+The **EffectiveModelDecision** (`src/routing/model-decision/`) is the FINAL model-control output before account selection: ONE typed, secret-free object per supported RLY model-routing request, assembled in `resolve-route.ts` from the existing stage outputs (never a second authority — no second registry/tier/selector/compatibility store). It carries:
+
+- the #125 typed selector intent + provenance (`kind`/`sourceSelector`/`source`/resolved target);
+- deterministic precedence bookkeeping: the documented order (explicit exact selection → RLY logical tier → client-native alias/model → subagent inherit/override → profile/session policy → env/settings ownership → persisted RLY-view state → defaults), the winning source, the resolution path, and visible conflicts (persisted-view vs request, launch-policy pin vs request, subagent vs parent, foreign/stale projection, gateway-contract env keys) — no hidden string/env override silently wins;
+- the FROZEN physical access-provider/model/family/logicalId/adapter target plus provenance (#72 projection reverse mapping, #69 tier mapping, #125 client-alias mapping, #71 parent context, #68 exact-model, profile role, #126 persisted-view state, env ownership);
+- the #70 reasoning intent → native control mapping (`canonicalIntent`/`mappingKind`/effective/fallback);
+- the #124 ECR compatibility reference (`authority` `ecr`/`seed`, effective label, enforcement reason, seed state, per-feature answers);
+- the #72 provider→pool binding + session-pinned universe revision and policy/profile/session/registry/mapping revisions;
+- stable safe decision reasons and blocked alternatives with typed failure reasons.
+
+Account/credential identity is NEVER part of the decision — account selection stays downstream in the existing pool/account `RouteSelector`. Physical provider/model/reasoning are frozen before that selector, so account retry/failover cannot change them. Subagent decisions stay isolated (parent never mutated). Persisted/resumed client state is read ONLY from the owning profile view and validated against the current policy/registry revision, ECR state, and the session-pinned selector namespace — stale/foreign projections fail closed (`model-unavailable`), never silently remapped. `rly route-trace` exposes the secret-free decision and `rly doctor` reports the model-control contract.
+
 ## Compatibility maintenance
 
 Protocol drift starts with a redacted reproducing fixture. Any newly observed
