@@ -86,6 +86,13 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
     // `not-sent`; advances on provider acknowledgement (response-started),
     // client output, and tool boundaries. Rotation consumes it.
     let commitment: CommitmentState = "not-sent";
+    // #J6 core terminal-event invariant: a successful pool attempt requires a
+    // provider terminal event (`response-completed`). An iterator that ends
+    // naturally without one is a truncated upstream stream — never success.
+    // Every shipped adapter emits the terminal event on completion; the core
+    // now enforces the invariant itself so a future/regressed adapter can
+    // never silently record success on a cut-off response.
+    let terminal = false;
     const flush = function* (): Generator<CanonicalEvent> {
       input.onRoute?.(route);
       yield* buffered;
@@ -106,6 +113,7 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
             buffered.length = 0;
           }
         }
+        if (event.type === "response-completed") terminal = true;
         if (event.type !== "response-failed") continue;
         const outcome = classifyProviderFailure(event.code);
         recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
@@ -115,6 +123,21 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
         const failedCommitment: CommitmentState = commitment === "provider-accepted" || commitment === "client-output-started" || commitment === "tool-boundary" ? "provider-accepted" : "not-sent";
         lastError = new RouteFailure(outcome, event.code, event.message, failedCommitment);
         if (canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome, commitment: failedCommitment })) {
+          tried.push(route.accountId);
+          continue attempt;
+        }
+        throw route.outputStarted ? new RouteSealedError() : lastError;
+      }
+      // #J6: natural exhaustion without a terminal event is a truncated
+      // stream. Mirror the `response-failed` handling: record a non-success
+      // outcome, rotate only when nothing was accepted/output, and fail closed
+      // once output has started (the client already saw partial content).
+      if (!terminal) {
+        const outcome: RouteOutcomeClass = "transient";
+        const truncatedCommitment: CommitmentState = commitment === "provider-accepted" || commitment === "client-output-started" || commitment === "tool-boundary" ? "provider-accepted" : "not-sent";
+        recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
+        lastError = new RouteFailure(outcome, "incomplete-stream", "Provider stream ended without a terminal response", truncatedCommitment);
+        if (canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome, commitment: truncatedCommitment })) {
           tried.push(route.accountId);
           continue attempt;
         }
