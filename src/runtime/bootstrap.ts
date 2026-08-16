@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
 import type { BuildIdentity } from "./build-identity.js";
 import { currentBuildIdentity } from "./build-identity.js";
 import { RLY_SERVICE_NAME } from "../service-manager/types.js";
@@ -38,7 +37,6 @@ import { DEPLOYMENT_METADATA_FILE_NAME, deploymentMetadataSchema, type Deploymen
 export const BOOTSTRAP_DIRECTORY = "bootstrap";
 export const BOOTSTRAP_SCRIPT_NAME = "rly-gateway";
 export const BOOTSTRAP_NODE_FALLBACK_NAME = "node-path";
-const REF_TARGET_PATTERN = "^../versions/[0-9a-f]{64}$";
 
 export class BootstrapResolutionError extends Error {
   override name = "BootstrapResolutionError";
@@ -371,6 +369,3 @@ async function isFile(path: string): Promise<boolean> {
     throw error;
   }
 }
-
-/** Zod schema used to validate the active ref target shape (unit-test surface). */
-export const activeRefTargetSchema: z.ZodType<string> = z.string().regex(new RegExp(REF_TARGET_PATTERN));
