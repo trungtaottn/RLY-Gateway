@@ -5,7 +5,9 @@ export type AnthropicWireEvent = Readonly<{ event: string; data: Record<string, 
 function wire(event: string, data: Record<string, unknown>): AnthropicWireEvent { return { event, data }; }
 function sse(event: AnthropicWireEvent): string { return `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`; }
 
-function contentBlock(type: "text" | "reasoning" | "redacted-reasoning" | "tool-call", event: Extract<CanonicalEvent, { type: "content-started" }>): Record<string, unknown> {
+type AnthropicBlockKind = "text" | "reasoning" | "redacted-reasoning" | "tool-call";
+
+function contentBlock(type: AnthropicBlockKind, event: Extract<CanonicalEvent, { type: "content-started" }>): Record<string, unknown> {
   if (type === "text") return { type: "text", text: "" };
   if (type === "reasoning") return { type: "thinking", thinking: "" };
   if (type === "redacted-reasoning") return { type: "redacted_thinking", data: "" };
@@ -13,40 +15,86 @@ function contentBlock(type: "text" | "reasoning" | "redacted-reasoning" | "tool-
   return { type: "tool_use", id: event.toolCallId, name: event.toolName, input: {} };
 }
 
+/**
+ * Per-stream encoding state for the Anthropic Messages protocol (#120).
+ *
+ * The only state a stream requires across events is the monotonic sequence/
+ * provenance guard and the map of currently open content blocks (block index
+ * -> content type, needed so `signature_delta` can fail closed on a
+ * non-thinking block). It never retains the canonical event history, so
+ * pushing N events does O(N) total work with O(open blocks) retained state.
+ */
+type AnthropicEncodeContext = {
+  lastSequence: number;
+  requestId: string | undefined;
+  open: Map<number, AnthropicBlockKind>;
+};
+
+function createContext(): AnthropicEncodeContext {
+  return { lastSequence: -1, requestId: undefined, open: new Map() };
+}
+
+/** Encodes exactly one canonical event and returns only its new wire frames. */
+function encodeAnthropicEvent(context: AnthropicEncodeContext, item: CanonicalEvent): AnthropicWireEvent[] {
+  if (item.sequence <= context.lastSequence) throw new AnthropicProtocolError("invalid_event_sequence", "Canonical event sequence is not monotonic", 500);
+  if (context.requestId && item.requestId !== context.requestId) throw new AnthropicProtocolError("invalid_event_provenance", "Canonical events have mixed provenance", 500);
+  context.requestId ??= item.requestId;
+  context.lastSequence = item.sequence;
+  switch (item.type) {
+    case "response-started": return [wire("message_start", { type: "message_start", message: { id: item.responseId, type: "message", role: "assistant", content: [], model: item.modelId, stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } })];
+    case "content-started": context.open.set(item.index, item.contentType); return [wire("content_block_start", { type: "content_block_start", index: item.index, content_block: contentBlock(item.contentType, item) })];
+    case "text-delta": return [wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "text_delta", text: item.text } })];
+    case "reasoning-delta": return [wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "thinking_delta", thinking: item.text } })];
+    case "signature-delta":
+      if (context.open.get(item.index) !== "reasoning") throw new AnthropicProtocolError("invalid_event_order", "Signature delta before content start or on a non-thinking block", 500);
+      return [wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "signature_delta", signature: item.signature } })];
+    case "tool-arguments-delta": return [wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "input_json_delta", partial_json: item.partialJson } })];
+    case "content-completed":
+      if (!context.open.delete(item.index)) throw new AnthropicProtocolError("invalid_event_order", "Content completed before start", 500);
+      return [wire("content_block_stop", { type: "content_block_stop", index: item.index })];
+    case "usage-updated": return [wire("message_delta", { type: "message_delta", delta: {}, usage: { input_tokens: item.inputTokens, output_tokens: item.outputTokens } })];
+    case "response-completed": return [wire("message_delta", { type: "message_delta", delta: { stop_reason: item.stopReason, stop_sequence: null }, usage: {} }), wire("message_stop", { type: "message_stop" })];
+    case "response-failed": return [wire("error", { type: "error", error: { type: item.code, message: "Gateway upstream failed" } })];
+  }
+}
+
+function assertClosed(context: AnthropicEncodeContext): void {
+  if (context.open.size) throw new AnthropicProtocolError("invalid_event_order", "Response ended with open content", 500);
+}
+
 /** Converts the canonical stream without exposing provider-specific events. */
 export function encodeAnthropicEvents(events: readonly CanonicalEvent[], final = true): AnthropicWireEvent[] {
+  const context = createContext();
   const result: AnthropicWireEvent[] = [];
-  let lastSequence = -1;
-  let requestId: string | undefined;
-  // #119: block index -> content type so `signature_delta` can fail closed on
-  // a non-thinking block instead of emitting a signature that the aggregate
-  // would silently drop.
-  const open = new Map<number, "text" | "reasoning" | "redacted-reasoning" | "tool-call">();
-  for (const item of events) {
-    if (item.sequence <= lastSequence) throw new AnthropicProtocolError("invalid_event_sequence", "Canonical event sequence is not monotonic", 500);
-    if (requestId && item.requestId !== requestId) throw new AnthropicProtocolError("invalid_event_provenance", "Canonical events have mixed provenance", 500);
-    requestId ??= item.requestId; lastSequence = item.sequence;
-    switch (item.type) {
-      case "response-started": result.push(wire("message_start", { type: "message_start", message: { id: item.responseId, type: "message", role: "assistant", content: [], model: item.modelId, stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } })); break;
-      case "content-started": open.set(item.index, item.contentType); result.push(wire("content_block_start", { type: "content_block_start", index: item.index, content_block: contentBlock(item.contentType, item) })); break;
-      case "text-delta": result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "text_delta", text: item.text } })); break;
-      case "reasoning-delta": result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "thinking_delta", thinking: item.text } })); break;
-      case "signature-delta":
-        if (open.get(item.index) !== "reasoning") throw new AnthropicProtocolError("invalid_event_order", "Signature delta before content start or on a non-thinking block", 500);
-        result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "signature_delta", signature: item.signature } }));
-        break;
-      case "tool-arguments-delta": result.push(wire("content_block_delta", { type: "content_block_delta", index: item.index, delta: { type: "input_json_delta", partial_json: item.partialJson } })); break;
-      case "content-completed": if (!open.delete(item.index)) throw new AnthropicProtocolError("invalid_event_order", "Content completed before start", 500); result.push(wire("content_block_stop", { type: "content_block_stop", index: item.index })); break;
-      case "usage-updated": result.push(wire("message_delta", { type: "message_delta", delta: {}, usage: { input_tokens: item.inputTokens, output_tokens: item.outputTokens } })); break;
-      case "response-completed": result.push(wire("message_delta", { type: "message_delta", delta: { stop_reason: item.stopReason, stop_sequence: null }, usage: {} })); result.push(wire("message_stop", { type: "message_stop" })); break;
-      case "response-failed": result.push(wire("error", { type: "error", error: { type: item.code, message: "Gateway upstream failed" } })); break;
-    }
-  }
-  if (final && open.size) throw new AnthropicProtocolError("invalid_event_order", "Response ended with open content", 500);
+  for (const item of events) result.push(...encodeAnthropicEvent(context, item));
+  if (final) assertClosed(context);
   return result;
 }
 
 export function encodeAnthropicSse(events: readonly CanonicalEvent[]): string { return encodeAnthropicEvents(events).map(sse).join(""); }
+
+/**
+ * Incremental per-stream encoder (#120): consumes one canonical event at a
+ * time and emits ONLY the wire frames that event produces. `finish()` must be
+ * called on a clean stream end to validate terminal protocol state (no open
+ * content blocks); it throws on a malformed completion, exactly like the
+ * batch encoder with `final = true`.
+ */
+export interface AnthropicIncrementalEncoder {
+  push(event: CanonicalEvent): AnthropicWireEvent[];
+  finish(): void;
+  /** Number of retained protocol-state entries (open blocks). Bounded, never grows with event count. */
+  retainedStateSize(): number;
+}
+
+export function createAnthropicIncrementalEncoder(): AnthropicIncrementalEncoder {
+  const context = createContext();
+  return {
+    push: (event) => encodeAnthropicEvent(context, event),
+    finish: () => assertClosed(context),
+    retainedStateSize: () => context.open.size,
+  };
+}
 
 export function aggregateAnthropicEvents(events: readonly CanonicalEvent[]): Record<string, unknown> {
   encodeAnthropicEvents(events);

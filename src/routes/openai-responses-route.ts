@@ -1,18 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { Readable } from "node:stream";
-import type { CanonicalEvent } from "../core/canonical-event.js";
 import { decideRoute, UnsupportedRouteError } from "../core/router.js";
 import { ProfileActivationError } from "../profiles/errors.js";
 import { collectWithSafeRetry } from "../protocols/anthropic/fake-upstream.js";
 import type { ResponseContinuationStore } from "../protocols/openai-responses/continuation.js";
 import { decodeResponsesRequest, ResponsesProtocolError } from "../protocols/openai-responses/decoder.js";
-import { aggregateResponsesEvents, encodeResponsesEvents } from "../protocols/openai-responses/encoder.js";
+import { aggregateResponsesEvents, createResponsesIncrementalEncoder } from "../protocols/openai-responses/encoder.js";
 import { ProviderAdapterError } from "../providers/provider-adapter.js";
 import { NoEligibleAccountError } from "../routing/errors.js";
 import {
   bindClientAbort,
   type AnthropicRouteDependencies,
 } from "./anthropic-messages-route.js";
+import { createStreamLifecycle } from "./stream-lifecycle.js";
+import { pumpStream } from "./stream-pump.js";
 
 function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string } } {
   if (error instanceof ResponsesProtocolError) return { type: "error", error: { type: error.code, message: error.message } };
@@ -36,6 +37,11 @@ function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+/** #120 in-band timeout frame: the client is still connected, so it gets a structured error. */
+function timeoutError(category: "setup" | "idle"): ResponsesProtocolError {
+  return new ResponsesProtocolError("timeout_error", category === "setup" ? "Gateway stream did not start within the setup window" : "Gateway stream made no progress within the idle window", 504);
+}
+
 function notStored(): ReturnType<typeof errorPayload> {
   return errorPayload(new ResponsesProtocolError("not_found", "Response is not stored", 404));
 }
@@ -57,26 +63,49 @@ export function registerOpenAiResponsesRoute(app: FastifyInstance, dependencies:
       decideRoute({ requestId: continued.id, route, required: decoded.required, configFingerprint: dependencies.configFingerprint });
       const controller = new AbortController();
       const unbindAbort = bindClientAbort(request.raw, reply.raw, controller);
-      try {
-        if (continued.stream) {
-          const source = upstream.invoke(continued, controller.signal);
-          async function* sse(): AsyncIterable<string> {
-            const seen: CanonicalEvent[] = [];
-            let emitted = 0;
-            try {
-              for await (const event of source) {
-                seen.push(event);
-                const encoded = encodeResponsesEvents(seen, false);
-                for (const wire of encoded.slice(emitted)) yield sseFrame(wire.event, wire.data);
-                emitted = encoded.length;
-              }
-              await continuation?.remember(continued, seen);
-            } catch (error) {
-              if (!controller.signal.aborted) yield sseFrame("error", errorPayload(error));
+      if (continued.stream) {
+        // #120 incremental transport (see anthropic-messages-route.ts): each
+        // event is encoded once, downstream backpressure pauses the upstream,
+        // and the client abort binding is released by the pump's onFinished.
+        // Continuation persistence runs on a clean, complete stream and reads
+        // the encoder's bounded aggregate state (never the event history).
+        const source = upstream.invoke(continued, controller.signal);
+        const lifecycle = createStreamLifecycle({
+          clientSignal: controller.signal,
+          ...(dependencies.streamTimeouts === undefined ? {} : { policy: dependencies.streamTimeouts }),
+        });
+        const encoder = createResponsesIncrementalEncoder();
+        const onDrain = (): void => lifecycle.noteBackpressure();
+        reply.raw.on("drain", onDrain);
+        const readable = Readable.from(pumpStream(source, {
+          lifecycle,
+          encoder,
+          frame: (wire) => sseFrame(wire.event, wire.data),
+          errorFrame: (error) => sseFrame("error", errorPayload(error)),
+          timeoutFrame: (category) => sseFrame("error", errorPayload(timeoutError(category))),
+          onComplete: async () => {
+            if (encoder.status() === "completed" && continuation !== undefined) {
+              await continuation.rememberAggregated(continued, encoder.aggregate());
             }
-          }
-          return await reply.header("content-type", "text/event-stream; charset=utf-8").header("cache-control", "no-cache").send(Readable.from(sse()));
+          },
+          onFinished: (metrics) => {
+            reply.raw.removeListener("drain", onDrain);
+            unbindAbort();
+            request.log.info({ streamMetrics: metrics }, "stream finished");
+          },
+        }));
+        try {
+          return await reply.header("content-type", "text/event-stream; charset=utf-8").header("cache-control", "no-cache").send(readable);
+        } catch (error) {
+          // Pre-stream send failure: release the drain listener and the client
+          // abort binding; the outer catch converts the error into a
+          // structured reply.
+          reply.raw.removeListener("drain", onDrain);
+          unbindAbort();
+          throw error;
         }
+      }
+      try {
         const events = await collectWithSafeRetry(upstream, continued, controller.signal);
         await continuation?.remember(continued, events);
         return await reply.send(aggregateResponsesEvents(events));
