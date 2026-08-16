@@ -9,6 +9,8 @@ import { runCanaryCommand, type CanaryAction } from "./canary.js";
 import { parseCompatArgs, runCompatCommand, type CompatAction } from "./compat.js";
 import { runGatewayCommand, type GatewayAction } from "./gateway.js";
 import { runInit } from "./init.js";
+import { parseInstallArgs, runInstallCommand, type InstallCommandOptions } from "./install.js";
+import { parseUninstallArgs, runUninstallCommand, type UninstallCommandOptions } from "./uninstall.js";
 import { parseUpdateArgs, runUpdateCommand, assertUpdateLaunchAllowed } from "./update.js";import { loadConfig } from "../config/load-config.js";
 import { ProfileActivationError } from "../profiles/errors.js";
 import { parseLaunchPolicy, type LaunchPolicy } from "../profiles/schema.js";
@@ -38,7 +40,7 @@ const ACTIVATION_CODES = [
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 
 function usage(): void {
-  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | rly --version | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly compat <status|review promote|reject|quarantine|lift|explain> [--config path] | rly update [--candidate dir] [--version v] [--force] [--wait-timeout ms] [--config path]");
+  console.log("Usage: rly <profile> [--config path] [--] [claude args] | rly <status|doctor|quota|route-trace> [--config path] | rly --version | admin <providers|accounts|pools|profiles|credentials|ui|models> ... [--config path] | run <claude|codex> [--config path] [--profile name | --route provider/model] -- [harness args] | rly init [--config path] | rly install [--channel beta|stable|current] [--origin url] [--target t] [--version v] [--artifact tarball --metadata-dir dir] [--config path] | rly uninstall [--purge --yes] [--config path] | rly gateway <start|stop|status> [--config path] | rly config [status|ui|providers|accounts|pools|profiles ...] [--config path] [--headless] | rly canary <run|status|run-b|run-c> [--config path] | rly compat <status|review promote|reject|quarantine|lift|explain> [--config path] | rly update [--candidate dir] [--version v] [--channel beta|stable|current] [--origin url] [--target t] [--install-only] [--force] [--wait-timeout ms] [--config path]");
 }
 
 export type ParsedCliCommand =
@@ -46,6 +48,8 @@ export type ParsedCliCommand =
   | Readonly<{ command: "status" | "doctor" | "quota" | "route-trace"; configPath: string }>
   | Readonly<{ command: "run-claude" | "run-codex"; configPath: string; claudeArgs: readonly string[]; route?: string; profile?: string }>
   | Readonly<{ command: "init"; configPath: string }>
+  | Readonly<{ command: "install"; options: InstallCommandOptions }>
+  | Readonly<{ command: "uninstall"; options: UninstallCommandOptions }>
   | Readonly<{ command: "gateway"; action: GatewayAction; configPath: string }>
   | Readonly<{ command: "canary"; action: CanaryAction; configPath: string }>
   | Readonly<{ command: "compat"; action: CompatAction; configPath: string }>
@@ -155,6 +159,12 @@ export function parseCliArgs(args: readonly string[], cwd = process.cwd()): Pars
     const rest = args.slice(1);
     if (rest.length > 0 && rest[0] !== "--config") throw new Error("init accepts only --config");
     return { command: "init", configPath: configPath(rest, cwd) };
+  }
+  if (command === "install") {
+    return { command: "install", options: parseInstallArgs(args.slice(1), cwd) };
+  }
+  if (command === "uninstall") {
+    return { command: "uninstall", options: parseUninstallArgs(args.slice(1), cwd) };
   }
   if (command === "gateway") {
     const rest = args.slice(1);
@@ -396,6 +406,8 @@ export async function runCli(
   if (parsed.command === "compat") return runCompatCommand(parsed.action, parsed.configPath);
   if (parsed.command === "update") return runUpdateCommand(parsed.options);
   if (parsed.command === "init") return (dependencies.runInit ?? runInit)(parsed.configPath);
+  if (parsed.command === "install") return runInstallCommand(parsed.options);
+  if (parsed.command === "uninstall") return runUninstallCommand(parsed.options);
   if (parsed.command === "gateway") return (dependencies.runGateway ?? runGatewayCommand)(parsed.action, parsed.configPath);
   if (parsed.command === "admin") return runAdmin(parsed, await loadConfig(parsed.configPath));
   if (parsed.command === "config") return runConfig(parsed);

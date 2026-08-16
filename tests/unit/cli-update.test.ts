@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseUpdateArgs, runUpdateCommand, assertUpdateLaunchAllowed } from "../../src/cli/update.js";
+import { DEFAULT_ORIGIN } from "../../src/installer/metadata.js";
 import { parseCliArgs, runCli } from "../../src/cli/main.js";
 import { gatewayConfigSchema, type GatewayConfig } from "../../src/config/schema.js";
 import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
@@ -34,27 +35,70 @@ function config(controlPlaneDirectory: string): GatewayConfig {
 
 describe("rly update CLI (#73)", () => {
   it("parses update flags and rejects unknown options", () => {
-    expect(parseUpdateArgs([], "/work")).toEqual({ configPath: "/work/gateway.config.toml", force: false, waitTimeoutMs: 60_000 });
+    expect(parseUpdateArgs([], "/work")).toEqual({
+      configPath: "/work/gateway.config.toml",
+      channel: "current",
+      channelExplicit: false,
+      origin: DEFAULT_ORIGIN,
+      installOnly: false,
+      force: false,
+      waitTimeoutMs: 60_000,
+    });
     expect(parseUpdateArgs(["--config", "cfg.toml", "--force", "--wait-timeout", "5000"], "/work")).toEqual({
       configPath: "/work/cfg.toml",
+      channel: "current",
+      channelExplicit: false,
+      origin: DEFAULT_ORIGIN,
+      installOnly: false,
       force: true,
       waitTimeoutMs: 5_000,
     });
     expect(parseUpdateArgs(["--candidate", "dist", "--version", "2.0.0"], "/work")).toEqual({
       configPath: "/work/gateway.config.toml",
+      channel: "current",
+      channelExplicit: false,
+      origin: DEFAULT_ORIGIN,
+      installOnly: false,
       force: false,
       waitTimeoutMs: 60_000,
       candidate: { sourceDirectory: "/work/dist", version: "2.0.0" },
     });
+    expect(parseUpdateArgs(["--channel", "beta"], "/work")).toEqual({
+      configPath: "/work/gateway.config.toml",
+      channel: "beta",
+      channelExplicit: true,
+      origin: DEFAULT_ORIGIN,
+      installOnly: false,
+      force: false,
+      waitTimeoutMs: 60_000,
+    });
+    expect(parseUpdateArgs(["--channel", "stable", "--version", "1.0.0", "--target", "linux-x64", "--install-only"], "/work")).toEqual({
+      configPath: "/work/gateway.config.toml",
+      channel: "stable",
+      channelExplicit: true,
+      origin: DEFAULT_ORIGIN,
+      target: "linux-x64",
+      installOnly: true,
+      version: "1.0.0",
+      force: false,
+      waitTimeoutMs: 60_000,
+    });
     expect(() => parseUpdateArgs(["--bogus"], "/work")).toThrow("unknown option");
-    expect(() => parseUpdateArgs(["--version", "2.0.0"], "/work")).toThrow("--version requires --candidate");
+    // `--version` alone pins the current channel to an exact release (remote acquisition).
+    expect(parseUpdateArgs(["--version", "1.0.0-beta.5"], "/work")).toMatchObject({
+      version: "1.0.0-beta.5",
+      channel: "current",
+      channelExplicit: false,
+      origin: DEFAULT_ORIGIN,
+    });
+    expect(() => parseUpdateArgs(["--channel", "prod"], "/work")).toThrow("--channel requires one of beta|stable|current");
     expect(() => parseUpdateArgs(["--wait-timeout", "abc"], "/work")).toThrow("positive millisecond");
   });
 
   it("dispatches through parseCliArgs and runCli", () => {
-    expect(parseCliArgs(["update"], "/work")).toEqual({
+    expect(parseCliArgs(["update"], "/work")).toMatchObject({
       command: "update",
-      options: { configPath: "/work/gateway.config.toml", force: false, waitTimeoutMs: 60_000 },
+      options: { configPath: "/work/gateway.config.toml", channel: "current", force: false, waitTimeoutMs: 60_000 },
     });
     expect(parseCliArgs(["update", "--force", "--config", "cfg.toml"], "/work")?.command).toBe("update");
   });
@@ -78,7 +122,7 @@ describe("rly update CLI (#73)", () => {
       currentVersion: RUNTIME_VERSION,
       message: "no update candidate provided; nothing to activate",
     });
-    const code = await runUpdateCommand({ configPath: join(homeDir, "gateway.config.toml"), force: false, waitTimeoutMs: 60_000 }, {
+    const code = await runUpdateCommand({ configPath: join(homeDir, "gateway.config.toml"), channel: "current", channelExplicit: false, origin: DEFAULT_ORIGIN, installOnly: false, force: false, waitTimeoutMs: 60_000 }, {
       loadConfig: () => Promise.resolve(config(controlPlaneDirectory)),
       runUpdate,
     });
@@ -94,7 +138,7 @@ describe("rly update CLI (#73)", () => {
     const controlPlaneDirectory = await directory();
     const output = vi.fn();
     vi.spyOn(console, "log").mockImplementation(output);
-    const code = await runUpdateCommand({ configPath: join(homeDir, "gateway.config.toml"), force: false, waitTimeoutMs: 60_000 }, {
+    const code = await runUpdateCommand({ configPath: join(homeDir, "gateway.config.toml"), channel: "current", channelExplicit: false, origin: DEFAULT_ORIGIN, installOnly: false, force: false, waitTimeoutMs: 60_000 }, {
       loadConfig: () => Promise.resolve(config(controlPlaneDirectory)),
     });
     expect(code).toBe(1);
@@ -121,7 +165,7 @@ describe("rly update CLI (#73)", () => {
       pendingVersion: "2.0.0",
       message: "activation and rollback both failed; run rly doctor",
     });
-    const code = await runUpdateCommand({ configPath: join(homeDir, "gateway.config.toml"), force: false, waitTimeoutMs: 60_000 }, {
+    const code = await runUpdateCommand({ configPath: join(homeDir, "gateway.config.toml"), channel: "current", channelExplicit: false, origin: DEFAULT_ORIGIN, installOnly: false, force: false, waitTimeoutMs: 60_000 }, {
       loadConfig: () => Promise.resolve(config(controlPlaneDirectory)),
       runUpdate,
     });
@@ -233,6 +277,10 @@ describe("rly update CLI (#73)", () => {
     });
     const code = await runUpdateCommand({
       configPath: join(homeDir, "gateway.config.toml"),
+      channel: "current",
+      channelExplicit: false,
+      origin: DEFAULT_ORIGIN,
+      installOnly: false,
       force: false,
       waitTimeoutMs: 60_000,
       candidate: { sourceDirectory: candidate },
