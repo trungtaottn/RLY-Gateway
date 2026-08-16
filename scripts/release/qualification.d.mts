@@ -51,6 +51,15 @@ export function runQualificationGates(args: {
   macTools?: { codesign?: string; stapler?: string };
   controlPlaneHome?: string;
   repoRoot?: string;
+  verifyLocalAcquisitionImpl?: (options: {
+    metadataDirectory: string;
+    tarballPath: string;
+    channel: "beta" | "stable";
+    target: string;
+    publicKeyPem?: string;
+    now?: string;
+    highestObservedVersion?: number;
+  }) => Promise<{ version: string; artifactDigest: string }>;
 }): Promise<{
   qualifiedBytes: { filename: string; sha256: string | undefined; artifactDigest: string };
   target: string;
@@ -71,3 +80,27 @@ export function serializeQualification(args: {
   host: { platform: string; arch: string; os: string };
   releaseVersion: string;
 }): QualificationDocument;
+
+export function runVerifiedInstallGate(args: {
+  artifactRoot: string;
+  tarballPath?: string;
+  tarballSha256?: string;
+  artifactDigest?: string;
+  filename?: string;
+  channel: string;
+  target?: string;
+  releaseManifest?: Record<string, unknown>;
+  publicKeyPem?: string;
+  repoRoot?: string;
+  verifyLocalAcquisitionImpl?: (options: {
+    metadataDirectory: string;
+    tarballPath: string;
+    channel: "beta" | "stable";
+    target: string;
+    publicKeyPem?: string;
+    now?: string;
+    highestObservedVersion?: number;
+    now?: string;
+    highestObservedVersion?: number;
+  }) => Promise<{ version: string; artifactDigest: string }>;
+}): Promise<QualificationGateResult>;

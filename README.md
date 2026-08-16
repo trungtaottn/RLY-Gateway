@@ -8,11 +8,12 @@ The foundation, Anthropic Messages boundary, direct-provider Claude route,
 authenticated control-plane/management contract, project-owned credential
 broker, deterministic account pools, Claude Code profile integration, the
 Codex CLI Responses harness, the resident runtime service/bootstrap, the
-standalone runtime artifact pipeline, and the signed release supply chain
+standalone runtime artifact pipeline, the signed release supply chain
 (canonical release manifest, SBOM/provenance, Ed25519 signing, signed channel
-metadata, exact-byte qualification) are implemented. Remaining next-focus
-work is Codex OAuth and ClinePass through Claude Code and the verified
-installer/updater UX (#129); see
+metadata, exact-byte qualification), and the verified installer/updater/
+uninstaller acquisition lifecycle (`rly install`, `rly update --channel`,
+`rly uninstall`, `scripts/install.sh`) are implemented. Remaining next-focus
+work is Codex OAuth and ClinePass through Claude Code; see
 [BACKLOG.md](./docs/BACKLOG.md) and [TASKLIST](./docs/TASKLIST.md).
 
 ## Distribution
@@ -25,6 +26,78 @@ toolchain or a source checkout. GitHub Releases is the artifact origin
 if introduced, are secondary convenience channels pointing at the same
 canonical artifact lineage. External Node is a development concern only. See
 `scripts/standalone/`, `docs/ARCHITECTURE.md`, and `docs/release-governance.md`.
+
+## Install
+
+A clean per-user install needs no source checkout, npm, pnpm, or a
+user-provisioned Node, and never requires sudo. Two equivalent paths:
+
+```bash
+# 1. documented bootstrap installer (curl/tar/sha256sum|shasum/OpenSSL 3 only)
+sh <(curl -fsSL https://github.com/trungtaottn/RLY-Gateway/releases/latest/download/install.sh)
+#   or, after a release:  sh install.sh --channel stable
+
+# 2. from any running RLY (dev checkout or an existing artifact)
+rly install --channel beta      # stable default; beta for prereleases
+rly install --channel stable --target linux-x64 --version 1.0.0
+```
+
+`rly install` resolves the channel through the **signed** release metadata
+(#128): it downloads `rly-channel-<channel>.json` + `rly-release.json` (both
+Ed25519-verified against the committed release public key), evaluates
+rollback/staleness/freeze, selects the exact platform artifact, and verifies
+the sha256 + artifact signature + unpacked-tree digest **before installing
+anything**. A mismatch fails before any mutation. The bootstrap installer
+verifies the artifact digest chain in-shell and lets the verified binary
+re-verify the full signature chain before the install proceeds. Install
+locations are deterministic and user-private:
+
+- control plane: `~/.rly`
+- stable RLY-owned bootstrap (the ONLY service execution identity, never
+  `dist/cli/init.js`): `~/.rly/bootstrap/rly-gateway`
+- user launcher symlink: `~/.local/bin/rly` → the bootstrap (refuses a
+  foreign occupant; add `~/.local/bin` to PATH once)
+
+The first install registers the per-user service (macOS LaunchAgent
+`com.rly.gateway` / Linux `systemd --user`, never root), starts it, and
+guides `rly config` to add providers/accounts/pools/profiles. Re-running
+`rly install` is a repair: it verifies ownership/build identity and repairs
+missing/stale bootstrap + service definitions idempotently without touching
+provider/account configuration.
+
+## Update
+
+```bash
+rly update --channel beta       # acquire + verify + STAGE the newest beta
+rly update                      # activate the staged candidate (Wave 4)
+rly update --channel stable     # explicit auditable channel switch
+rly update --install-only       # stage a local candidate without activating
+```
+
+`rly update` reports the current exact build, the candidate exact
+build/channel, verification state, and pending/activation status.
+**INSTALL != ACTIVATE**: acquisition installs and verifies a candidate and
+hands a `VerifiedCandidate` to Wave 4 — it never changes the serving `active`
+reference and never restarts the resident service. Run plain `rly update` to
+complete the safe zero-downtime activation (drain → restart → verify →
+rollback on failure; #73/#92/#93). Channel switches are explicit
+(`--channel beta|stable|current`) and recorded in
+`~/.rly/installer/acquisition-log.json`; rollback protection refuses channel
+metadata older than the highest observed version.
+
+## Uninstall
+
+```bash
+rly uninstall                  # remove ONLY RLY-owned service + product artifacts
+rly uninstall --purge --yes    # DESTROY the whole RLY control plane (explicit)
+```
+
+Default uninstall stops/disables and removes the RLY-owned launchd/systemd
+definition plus the installed artifacts (`bootstrap/`, `runtime/`,
+`installer/`, installation + update state) and **preserves `~/.rly`
+configuration, accounts, and credential state**. `--purge --yes` is the
+explicit destructive removal of the entire RLY control plane; it never
+removes unrelated native Claude/Codex configuration.
 
 ## Release supply chain
 
@@ -120,7 +193,9 @@ rly config profiles create --name codex --harness claude --provider-id <id> --po
 rly gateway status
 rly gateway stop
 rly gateway start
-rly update [--candidate <dir>] [--version <v>] [--force] [--wait-timeout <ms>]
+rly install [--channel beta|stable|current] [--target <t>] [--version <v>] [--artifact <tarball> --metadata-dir <dir>]
+rly update [--candidate <dir>] [--version <v>] [--channel beta|stable|current] [--origin <url>] [--target <t>] [--install-only] [--force] [--wait-timeout <ms>]
+rly uninstall [--purge --yes]
 rly doctor
 rly status
 rly quota
@@ -140,11 +215,11 @@ rly run codex -- --help
 
 `rly init` bootstraps the per-user installation: it settles the durable `~/.rly` home, validates the control-plane store, registers the per-user service idempotently (macOS LaunchAgent `com.rly.gateway` or Linux `systemd --user`, never root), starts the resident runtime, and waits for an attested compatible instance. The resident runtime stays alive after Claude/Codex sessions close and is reused by `rly <profile>`, config, and diagnostics; the foreground launcher remains the fallback when no service is initialized. On macOS the LaunchAgent starts again at login/reboot, restarts crashes within launchd's bounded throttle policy, and writes its stdout/stderr into `~/.rly/logs/service.log`; on Linux the `systemd --user` unit (`~/.config/systemd/user/rly-gateway.service`) starts again whenever the user's systemd manager starts, restarts crashes under a bounded `StartLimit`/`Restart` policy, and appends its stdout/stderr to `~/.rly/logs/service.log`. A session without a reachable user systemd manager (containers, minimal distros, WSL without systemd) fails actionably and RLY never auto-enables `loginctl enable-linger`. Re-running `rly init` repairs a changed/stale definition without duplicating the service. `rly gateway status` reports runtime readiness plus service label/load state/pid (and enabled state on Linux); `rly gateway stop` shuts the resident runtime down through the attested in-process shutdown. No credential, token, or account identity is ever written into the service definition, logs, or diagnostics.
 
-`rly update` runs the safe zero-downtime update lifecycle: candidate installation and activation are separate durable states. With `--candidate <dir> [--version <v>]` a verified candidate is installed while the current resident runtime keeps serving; existing Claude sessions keep running on the old process until they drain (launch-session count, not TCP), `--force` is the explicit destructive path, and activation restarts only the attested resident runtime through the per-user service manager, verifies the new runtime identity/readiness, and rolls back to the previous known-good version on failure. `rly status`/`rly doctor` expose allowlisted update metadata (state, current/pending/previous version, active sessions, CLI↔runtime compatibility). The signed/verified artifact distribution channel remains a separate backlog item (#35); this command owns the lifecycle once a candidate is obtained.
+`rly update` runs the safe zero-downtime update lifecycle: candidate installation and activation are separate durable states. With `--candidate <dir> [--version <v>]` a verified local candidate is installed while the current resident runtime keeps serving; `--channel beta|stable|current` performs #129 verified remote acquisition (signed channel metadata + release manifest, exact artifact digest/signature/tree verification) and STAGES the verified candidate — INSTALL != ACTIVATE, the serving `active` reference and the resident service are never changed by acquisition. Existing Claude sessions keep running on the old process until they drain (launch-session count, not TCP), `--force` is the explicit destructive path, and activation restarts only the attested resident runtime through the per-user service manager, verifies the new runtime identity/readiness, and rolls back to the previous known-good version on failure. `rly status`/`rly doctor` expose allowlisted update metadata (state, current/pending/previous version, active sessions, CLI↔runtime compatibility).
 
 `rly config` is the primary user-facing control plane after `rly init`: it resolves the durable configuration from the `~/.rly` installation record (no `gateway.config.toml` in the current directory is required), ensures or recovers the resident runtime, and productizes the existing management surface. Bare `rly config` (or `rly config ui`) opens the local loopback config UI — providers, accounts, pools, profiles, health/quota, audit, and route traces — and prints the URL; `--headless` prints the bootstrap URL without opening a browser. `rly config status` prints a secret-free summary (runtime state, policy revision, resource counts, health). Focused shortcuts `rly config providers|accounts|pools|profiles` create/list through the same management API that `rly admin` uses, so both surfaces observe exactly one policy revision. Credential login/import/refresh/revoke reuse the credential broker and persist only handle/generation metadata. Closing the config UI never stops the resident runtime. `rly admin` remains the advanced/operator surface over the same endpoints.
 
-`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` prints pseudonym and quota class only. `route-trace` prints profile name, decision reason, and selected pseudonym only. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, `run`, `init`, `gateway`, and `config`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
+`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` prints pseudonym and quota class only. `route-trace` prints profile name, decision reason, and selected pseudonym only. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, `run`, `init`, `install`, `uninstall`, `update`, `gateway`, and `config`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
 
 With configured direct routes or a selected Codex OAuth account, the lifecycle
 server also exposes authenticated Anthropic Messages and token-count endpoints.

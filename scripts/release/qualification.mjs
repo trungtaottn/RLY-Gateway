@@ -22,7 +22,8 @@
 // module or its outputs.
 
 import { execFileSync } from "node:child_process";
-import { lstat, readFile, readdir, mkdir, rm } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { lstat, readFile, readdir, mkdir, rm, writeFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -44,6 +45,7 @@ export const QUALIFICATION_GATES = Object.freeze([
   { id: "update-handoff", name: "Update handoff contract", description: "Artifact satisfies the #73/#92/#94 candidate contract (rly.json/rly-build.json identity, migration class, immutable layout)" },
   { id: "init-service-registration", name: "Init / service registration", description: "`rly init` registers the per-user service (launchd/systemd) on a qualified host" },
   { id: "uninstall", name: "Uninstall", description: "Removal is self-contained and leaves no files outside the artifact tree" },
+  { id: "verified-install", name: "Verified installer acquisition", description: "The #129 installer/updater verification machinery (signed channel metadata + release manifest + artifact digest statement + unpacked-tree digest) accepts the EXACT bytes and refuses tampered bytes before any install mutation" },
 ]);
 
 /** Gates that MUST pass for a target to be stable-qualified. */
@@ -142,6 +144,7 @@ export async function runQualificationGates({
   macTools = undefined,
   controlPlaneHome,
   repoRoot = ROOT,
+  verifyLocalAcquisitionImpl,
 }) {
   const gates = [];
   const qualifiedBytes = { filename, sha256: tarballSha256, artifactDigest };
@@ -323,8 +326,158 @@ export async function runQualificationGates({
     }));
   }
 
+  // 9. verified-install: the #129 installer/updater verification machinery
+  //    (signed channel metadata + release manifest + artifact digest
+  //    statement + unpacked-tree digest) accepts the EXACT bytes and refuses
+  //    tampered bytes BEFORE any install mutation. A self-consistent signed
+  //    chain is generated in a throwaway directory from the artifact's own
+  //    exact identity + the exact tarball digest, then verified by the SAME
+  //    acquisition code `rly install`/`rly update` consume. The real release
+  //    signatures are separately verified post-publish by verify-release.mjs.
+  gates.push(await runVerifiedInstallGate({
+    artifactRoot,
+    tarballPath,
+    tarballSha256,
+    artifactDigest,
+    filename,
+    channel,
+    target,
+    releaseManifest,
+    publicKeyPem,
+    repoRoot,
+    verifyLocalAcquisitionImpl,
+  }));
+
   const result = deriveQualificationResult(gates);
   return { qualifiedBytes, target, channel, gates, result, host };
+}
+
+/**
+ * The #129 verified-install qualification gate (see gate 9 above). Injectable
+ * verifier for hermetic tests; the real pipeline loads the compiled acquisition
+ * module from `dist/installer/acquire.js`.
+ */
+export async function runVerifiedInstallGate({
+  artifactRoot,
+  tarballPath,
+  tarballSha256,
+  artifactDigest,
+  filename,
+  channel,
+  target,
+  releaseManifest,
+  repoRoot = ROOT,
+  verifyLocalAcquisitionImpl,
+}) {
+  // A self-consistent keypair is generated per gate run; the caller's
+  // `publicKeyPem` (the release key) is NOT the chain key for this gate.
+  const errors = [];
+  const notes = [];
+  const installerModule = join(repoRoot, "dist", "installer", "acquire.js");
+  const moduleAvailable = await fileExistsSafe(installerModule);
+  if (verifyLocalAcquisitionImpl === undefined && !moduleAvailable) {
+    return gateResult("verified-install", "skipped", {
+      detail: "dist/installer/acquire.js is not built in this context; the installer verification gate requires the compiled runtime",
+    });
+  }
+  if (tarballPath === undefined || target === undefined) {
+    return gateResult("verified-install", "skipped", {
+      detail: "no exact tarball/target for the installer chain; exact-byte verification requires the packaged artifact lineage",
+    });
+  }
+  try {
+    const verifyLocalAcquisition = verifyLocalAcquisitionImpl ?? (await import(installerModule)).verifyLocalAcquisition;
+    const { generateSigningKeyPair, signJson, signDigestStatement } = await import("./signing.mjs");
+    const { buildChannelMetadata } = await import("./channel.mjs");
+    const { buildReleaseManifest } = await import("./manifest.mjs");
+    const chainDir = join(artifactRoot, "..", ".qualify-installer-chain");
+    await rm(chainDir, { recursive: true, force: true });
+    await mkdir(chainDir, { recursive: true });
+    const keypair = generateSigningKeyPair();
+    const keyPem = String(keypair.publicKey);
+    const privateKeyPem = String(keypair.privateKey);
+    const buildMeta = await readJsonSafe(join(artifactRoot, "rly-build.json"));
+    const { channelVersionFor } = await import("./channel.mjs");
+    const releaseVersion = buildMeta?.semanticVersion ?? releaseManifest?.releaseVersion ?? "unknown";
+    if (channelVersionFor(releaseVersion, channel) === null) {
+      return gateResult("verified-install", "skipped", {
+        detail: `release version ${releaseVersion} is not a valid ${channel} channel version; channel acquisition exercises qualified release versions only`,
+      });
+    }
+    const manifest = buildReleaseManifest({
+      releaseVersion,
+      releaseChannel: channel,
+      sourceCommit: buildMeta?.commitRevision ?? releaseManifest?.sourceCommit ?? "unknown",
+      buildId: buildMeta?.buildId ?? releaseManifest?.buildId ?? "unknown",
+      stateSchemaVersion: buildMeta?.stateSchemaVersion ?? 1,
+      controlProtocolVersion: buildMeta?.controlProtocolVersion ?? 1,
+      dataProtocolVersion: buildMeta?.dataProtocolVersion ?? 1,
+      publishedAt: new Date().toISOString(),
+      workflow: { name: "qualification" },
+      artifacts: [{
+        target,
+        filename,
+        sizeBytes: (await statSafe(tarballPath))?.size ?? 0,
+        sha256: tarballSha256,
+        artifactDigest,
+        targetStatus: "supported",
+        bundledNodeVersion: "24",
+        requiredSignatures: ["ed25519-sha256"],
+        attestations: ["rly-sbom.json", "rly-provenance.json"],
+      }],
+    });
+    const channelMetadata = buildChannelMetadata({
+      channel,
+      releaseVersion: manifest.releaseVersion,
+      sourceCommit: manifest.sourceCommit,
+      buildId: manifest.buildId,
+      publishedAt: manifest.publishedAt,
+      artifactDigests: { [target]: { filename, sha256: tarballSha256, artifactDigest, targetStatus: "supported" } },
+      qualification: { status: "qualified", ref: "rly-qualification.json" },
+      updatedAt: manifest.publishedAt,
+    });
+    await writeJson(join(chainDir, `rly-channel-${channel}.json`), channelMetadata);
+    await writeJson(join(chainDir, `rly-channel-${channel}.json.sig`), signJson(privateKeyPem, channelMetadata));
+    await writeJson(join(chainDir, "rly-release.json"), manifest);
+    await writeJson(join(chainDir, "rly-release.json.sig"), signJson(privateKeyPem, manifest));
+    // The artifact digest statement beside a copy of the EXACT tarball (the
+    // same bytes publish signs later); the release dir itself stays pristine.
+    const chainTarball = join(chainDir, filename);
+    await writeBytes(chainTarball, await readFileSafeBytes(tarballPath));
+    await writeJson(`${chainTarball}.sig`, signDigestStatement(privateKeyPem, tarballSha256));
+
+    const candidate = await verifyLocalAcquisition({
+      metadataDirectory: chainDir,
+      tarballPath: chainTarball,
+      channel,
+      target,
+      publicKeyPem: keyPem,
+    });
+    notes.push(`verified the exact artifact (${candidate.version}, ${candidate.artifactDigest.slice(0, 16)}…)`);
+    if (candidate.version !== manifest.releaseVersion) errors.push(`verified candidate version ${candidate.version} != manifest ${manifest.releaseVersion}`);
+
+    // Negative: a tampered artifact must be refused BEFORE any mutation.
+    const tamperedPath = join(chainDir, `tampered-${filename}`);
+    const tarballBytes = await readFileSafeBytes(chainTarball);
+    await writeBytes(tamperedPath, Buffer.concat([Buffer.from([tarballBytes[0] === 0 ? 1 : 0]), tarballBytes.subarray(1)]));
+    await writeBytes(`${tamperedPath}.sig`, await readFileSafeBytes(`${chainTarball}.sig`));
+    let refused = false;
+    try {
+      await verifyLocalAcquisition({ metadataDirectory: chainDir, tarballPath: tamperedPath, channel, target, publicKeyPem: keyPem });
+    } catch {
+      refused = true;
+    }
+    if (!refused) errors.push("tampered artifact was NOT refused by the installer verification");
+    else notes.push("tampered artifact refused before install");
+
+    return gateResult("verified-install", errors.length === 0 ? "passed" : "failed", {
+      detail: errors.length === 0 ? `installer acquisition verified the exact bytes and refused tampered bytes: ${notes.join("; ")}` : errors.join("; "),
+    });
+  } catch (error) {
+    return gateResult("verified-install", "failed", {
+      detail: `installer verification gate failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 }
 
 /**
@@ -387,4 +540,34 @@ async function readSignatureEnvelopeSafe(tarballPath) {
   } catch {
     return undefined;
   }
+}
+
+async function fileExistsSafe(path) {
+  try {
+    await lstat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function statSafe(path) {
+  try {
+    return await stat(path);
+  } catch {
+    return undefined;
+  }
+}
+
+async function readFileSafeBytes(path) {
+  return new Uint8Array(await readFile(path));
+}
+
+async function writeBytes(path, bytes) {
+  await writeFile(path, Buffer.from(bytes));
+}
+
+async function writeJson(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }

@@ -39,6 +39,12 @@ export type UpdateRuntimeDependencies = Readonly<{
   serviceDefinition?: ServiceDefinitionInput;
   /** Verified candidate to install; omitted resumes/reports the pending state. */
   candidate?: Readonly<{ version: string; sourceDirectory: string }>;
+  /**
+   * #129 acquisition boundary: install + verify + write the durable pending
+   * record, then STOP (INSTALL != ACTIVATE). Wave 4 resumes activation with a
+   * later `rly update`. Never touches `refs/active`, never restarts.
+   */
+  installOnly?: boolean;
   /** Explicit destructive/force path: skip the session-drain wait. */
   force?: boolean;
   runtimeDirectory?: string;
@@ -164,27 +170,90 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
     }
 
     // A candidate was requested: separate installation from activation.
-    assertUpdateableRuntime(runtime);
-    const candidateVersion = dependencies.candidate.version;
-    const previousVersion = runtimeVersion ?? record?.currentVersion ?? RUNTIME_VERSION;
-    const installing = await store.transitionUnderLock(["none", "idle", "active", "failed", "pending-activation"], (current) => ({
-      schemaVersion: 1 as const,
-      state: "installing" as const,
-      currentVersion: current?.currentVersion ?? previousVersion,
-      pendingVersion: candidateVersion,
-      ...(current?.previousVersion === undefined ? {} : { previousVersion: current.previousVersion }),
-      updatedAt: new Date().toISOString(),
-      ...(current?.lastActivationResult === undefined ? {} : { lastActivationResult: current.lastActivationResult }),
-      ...(current?.lastRollbackResult === undefined ? {} : { lastRollbackResult: current.lastRollbackResult }),
-    }));
+    const staged = await stageCandidate(dependencies, {
+      runtime,
+      store,
+      record,
+      ...(cliStateVersion === undefined ? {} : { cliStateVersion }),
+    });
+    if (!staged.ok) return staged.result;
+    // #129 acquisition boundary: verified candidates are installed/staged and
+    // handed to Wave 4; activation is a separate explicit `rly update` run.
+    if (dependencies.installOnly === true) {
+      return {
+        outcome: "installed",
+        state: "pending-activation",
+        phase: "staged",
+        currentVersion: staged.pending.currentVersion,
+        ...(staged.pending.pendingVersion === undefined ? {} : { pendingVersion: staged.pending.pendingVersion }),
+        message: "candidate verified and installed; activation is pending (Wave 4). The serving runtime is unchanged — run `rly update` to activate",
+      };
+    }
+    return await activate(dependencies, store, staged.pending, { runtime, request });
+  } finally {
+    await lock.release().catch(() => undefined);
+  }
+}
+
+/**
+ * #129 installer/updater boundary: installs a verified candidate into the
+ * #92 immutable store (updating ONLY `refs/staged`), writes the durable
+ * pending-activation record with the STAGED transaction journal, and runs the
+ * migration preflight. It NEVER changes `refs/active` and NEVER restarts the
+ * resident service (INSTALL != ACTIVATE; Wave 4 owns activation). The remote
+ * acquisition CLI hands the verified candidate here and stops; `rly update`
+ * resumes activation on the pending record.
+ */
+export type StagedCandidate = Readonly<{
+  ok: true;
+  pending: UpdateStateRecord;
+  migrationClass: ReturnType<typeof migrationClassOf>;
+}>;
+
+export async function stageCandidate(
+  dependencies: UpdateRuntimeDependencies,
+  context: Readonly<{
+    runtime: RuntimeInspection;
+    store: UpdateStateStore;
+    record: UpdateStateRecord | undefined;
+    cliStateVersion?: number;
+  }>,
+): Promise<StagedCandidate | { ok: false; result: UpdateRunResult }> {
+  const { runtime, store, record } = context;
+  const cliStateVersion = context.cliStateVersion ?? dependencies.cliStateVersion;
+  const candidate = dependencies.candidate;
+  if (candidate === undefined) {
+    return {
+      ok: false,
+      result: {
+        outcome: "no-candidate",
+        state: record?.state ?? "idle",
+        currentVersion: runtime.state === "attested-compatible" ? runtime.runtimeVersion ?? RUNTIME_VERSION : record?.currentVersion ?? RUNTIME_VERSION,
+        message: "a verified candidate is required to stage an update",
+      },
+    };
+  }
+  assertUpdateableRuntime(runtime);
+  const candidateVersion = candidate.version;
+  const previousVersion = runtime.state === "attested-compatible" ? runtime.runtimeVersion ?? RUNTIME_VERSION : record?.currentVersion ?? RUNTIME_VERSION;
+  const installing = await store.transitionUnderLock(["none", "idle", "active", "failed", "pending-activation"], (current) => ({
+    schemaVersion: 1 as const,
+    state: "installing" as const,
+    currentVersion: current?.currentVersion ?? previousVersion,
+    pendingVersion: candidateVersion,
+    ...(current?.previousVersion === undefined ? {} : { previousVersion: current.previousVersion }),
+    updatedAt: new Date().toISOString(),
+    ...(current?.lastActivationResult === undefined ? {} : { lastActivationResult: current.lastActivationResult }),
+    ...(current?.lastRollbackResult === undefined ? {} : { lastRollbackResult: current.lastRollbackResult }),
+  }));
 
     let installed: { version: string; artifactId: string; previousVersion?: string; previousArtifactId?: string };
     try {
-      installed = await dependencies.installer.installCandidate(dependencies.candidate);
+      installed = await dependencies.installer.installCandidate(candidate);
     } catch (error) {
       const message = `candidate installation failed: ${errorMessage(error)}; the previous version keeps serving`;
       await store.write({ ...installing, state: "failed", failureReason: message, updatedAt: new Date().toISOString() });
-      return { outcome: "failed", state: "failed", currentVersion: installing.currentVersion, pendingVersion: candidateVersion, message };
+      return { ok: false, result: { outcome: "failed", state: "failed", currentVersion: installing.currentVersion, pendingVersion: candidateVersion, message } };
     }
 
     // The durable transaction journal opens at STAGED (#93) with the immutable
@@ -224,19 +293,16 @@ export async function runUpdate(dependencies: UpdateRuntimeDependencies): Promis
       if (blocker !== undefined) {
         const failed: UpdateStateRecord = { ...pending, state: "failed", failureReason: blocker, updatedAt: new Date().toISOString() };
         await store.write(failed);
-        return { outcome: "failed", state: "failed", currentVersion: pending.currentVersion, pendingVersion: candidateVersion, message: blocker };
+        return { ok: false, result: { outcome: "failed", state: "failed", currentVersion: pending.currentVersion, pendingVersion: candidateVersion, message: blocker } };
       }
       if (cliStateVersion !== undefined && !stateVersionsCompatible(cliStateVersion, manifest.stateVersion)) {
         const message = `candidate ${candidateVersion} requires durable state schema ${String(manifest.stateVersion)} but this RLY understands ${String(cliStateVersion)}; update is blocked before activation`;
         await store.write({ ...pending, state: "failed", failureReason: message, updatedAt: new Date().toISOString() });
-        return { outcome: "failed", state: "failed", currentVersion: pending.currentVersion, pendingVersion: candidateVersion, message };
+        return { ok: false, result: { outcome: "failed", state: "failed", currentVersion: pending.currentVersion, pendingVersion: candidateVersion, message } };
       }
     }
 
-    return await activate(dependencies, store, pending, { runtime, request });
-  } finally {
-    await lock.release().catch(() => undefined);
-  }
+    return { ok: true, pending, migrationClass };
 }
 
 /**

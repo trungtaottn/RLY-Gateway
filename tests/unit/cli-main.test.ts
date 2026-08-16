@@ -149,6 +149,9 @@ describe("CLI parsing", () => {
       profile: "codex",
     });
     expect(parseCliArgs(["init"], "/work")).toMatchObject({ command: "init", configPath: "/work/gateway.config.toml" });
+    expect(parseCliArgs(["install", "--channel", "stable"], "/work")).toMatchObject({ command: "install" });
+    expect(parseCliArgs(["uninstall", "--purge"], "/work")).toMatchObject({ command: "uninstall" });
+    expect(parseCliArgs(["update", "--channel", "beta"], "/work")).toMatchObject({ command: "update" });
     expect(parseCliArgs(["init", "--config", "custom.toml"], "/work")).toMatchObject({
       command: "init",
       configPath: "/work/custom.toml",
