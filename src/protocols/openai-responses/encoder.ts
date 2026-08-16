@@ -1,4 +1,5 @@
 import type { CanonicalEvent } from "../../core/canonical-event.js";
+import { artifactValue, type OpaqueArtifact } from "../../core/fidelity.js";
 import { ResponsesProtocolError } from "./decoder.js";
 
 export type ResponsesWireEvent = Readonly<{ event: string; data: Record<string, unknown> }>;
@@ -18,16 +19,18 @@ function itemId(index: number, prefix: string): string {
 }
 
 function startItem(event: Extract<CanonicalEvent, { type: "content-started" }>): OutputItem {
+  // #121: provider-assigned item ids survive onto the wire when the upstream
+  // rail preserved them; otherwise a deterministic local id is fabricated.
   if (event.contentType === "text") {
-    return { type: "message", id: itemId(event.index, "msg"), role: "assistant", status: "in_progress", content: [] };
+    return { type: "message", id: event.itemId ?? itemId(event.index, "msg"), role: "assistant", status: "in_progress", content: [] };
   }
   if (event.contentType === "reasoning" || event.contentType === "redacted-reasoning") {
-    return { type: "reasoning", id: itemId(event.index, "rs"), summary: [] };
+    return { type: "reasoning", id: event.itemId ?? itemId(event.index, "rs"), summary: [] };
   }
   if (!event.toolCallId || !event.toolName) {
     throw new ResponsesProtocolError("invalid_event", "Function call content requires an ID and name", 500);
   }
-  return { type: "function_call", id: itemId(event.index, "fc"), call_id: event.toolCallId, name: event.toolName, arguments: "" };
+  return { type: "function_call", id: event.itemId ?? itemId(event.index, "fc"), call_id: event.toolCallId, name: event.toolName, arguments: "" };
 }
 
 function responseRecord(
@@ -60,6 +63,8 @@ export type ResponsesAggregateState = Readonly<{
   responseId: string;
   model: string;
   usage: Record<string, number>;
+  /** #121: opaque continuation artifacts discovered in the provider response. */
+  artifacts: readonly OpaqueArtifact[];
 }>;
 
 type ResponsesAggregateContext = {
@@ -70,6 +75,7 @@ type ResponsesAggregateContext = {
   responseId: string;
   model: string;
   usage: Record<string, number>;
+  artifacts: OpaqueArtifact[];
 };
 
 function createAggregateContext(): ResponsesAggregateContext {
@@ -81,6 +87,7 @@ function createAggregateContext(): ResponsesAggregateContext {
     responseId: "resp_unknown",
     model: "unknown",
     usage: { input_tokens: 0, output_tokens: 0 },
+    artifacts: [],
   };
 }
 
@@ -91,6 +98,7 @@ function applyAggregate(context: ResponsesAggregateContext, item: CanonicalEvent
   if (item.type === "reasoning-delta") appendDelta(context.reasoning, item.index, item.text);
   if (item.type === "tool-arguments-delta") appendDelta(context.toolJson, item.index, item.partialJson);
   if (item.type === "usage-updated") context.usage = { input_tokens: item.inputTokens ?? 0, output_tokens: item.outputTokens ?? 0 };
+  if (item.type === "fidelity-artifacts") context.artifacts.push(...item.artifacts);
 }
 
 /** Builds the final aggregated output from the retained aggregate state. */
@@ -110,6 +118,14 @@ function finalizeAggregate(context: ResponsesAggregateContext): Readonly<{
   for (const [index, value] of context.reasoning) {
     const item = context.items.get(index);
     if (item?.type === "reasoning") item.summary = [{ type: "summary_text", text: value }];
+  }
+  // #121: provider-returned opaque artifacts (reasoning encrypted content)
+  // attach to their owning reasoning item by association, never interpreted.
+  for (const item of context.items.values()) {
+    if (item.type !== "reasoning" || typeof item.id !== "string") continue;
+    const envelope = { version: 1 as const, sourceProtocol: "openai-responses" as const, artifacts: context.artifacts, notes: [], required: [] };
+    const encrypted = artifactValue(envelope, "openai-reasoning-encrypted-content", item.id);
+    if (encrypted !== undefined) item.encrypted_content = encrypted;
   }
   for (const [index, value] of context.toolJson) {
     const item = context.items.get(index);
@@ -220,10 +236,16 @@ function encodeResponsesEvent(context: ResponsesEncodeContext, item: CanonicalEv
     }
     case "response-failed":
       context.status = "failed";
-      return [wire("response.failed", { type: "response.failed", response: { id: context.aggregate.responseId, object: "response", status: "failed", error: { code: item.code, message: "Gateway upstream failed" } } })];
+      // #121: the canonical failed event's code/message are adapter-safe
+      // (allowlisted provider error fields), so they survive to the wire
+      // instead of generic normalization.
+      return [wire("response.failed", { type: "response.failed", response: { id: context.aggregate.responseId, object: "response", status: "failed", error: { code: item.code, message: item.message } } })];
     case "signature-delta":
       // Anthropic-only fidelity event; a Responses stream never carries it.
       // Preserve legacy wire-equivalence: no frame is produced for it.
+      return [];
+    case "fidelity-artifacts":
+      // Opaque artifacts attach to the terminal aggregate only; no wire frame.
       return [];
     default:
       // Exhaustive safety net: unknown event kinds produce no frame.

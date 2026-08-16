@@ -54,7 +54,11 @@ function encodeAnthropicEvent(context: AnthropicEncodeContext, item: CanonicalEv
       return [wire("content_block_stop", { type: "content_block_stop", index: item.index })];
     case "usage-updated": return [wire("message_delta", { type: "message_delta", delta: {}, usage: { input_tokens: item.inputTokens, output_tokens: item.outputTokens } })];
     case "response-completed": return [wire("message_delta", { type: "message_delta", delta: { stop_reason: item.stopReason, stop_sequence: null }, usage: {} }), wire("message_stop", { type: "message_stop" })];
-    case "response-failed": return [wire("error", { type: "error", error: { type: item.code, message: "Gateway upstream failed" } })];
+    case "response-failed": return [wire("error", { type: "error", error: { type: item.code, message: item.message } })];
+    case "fidelity-artifacts":
+      // #121: opaque continuation artifacts (e.g. Responses encrypted content)
+      // carry no Anthropic wire frame; they are aggregate-only.
+      return [];
   }
 }
 

@@ -4,7 +4,9 @@ import type { CanonicalEvent } from "../../core/canonical-event.js";
 import { unsupportedRequiredArtifacts } from "../../core/fidelity.js";
 import type { ResolvedReasoning } from "../../core/reasoning.js";
 import type { RouteDecision } from "../../core/route-decision.js";
+import { commitmentForHttpFailure, parseProviderError } from "../provider-error.js";
 import { ProviderAdapterError, type ProviderAdapter, type ProviderProbe } from "../provider-adapter.js";
+import { OpenAiResponsesAdapter } from "./openai-responses-adapter.js";
 
 type Fetch = typeof fetch;
 type ChatMessage = Record<string, unknown>;
@@ -36,12 +38,6 @@ function toChatMessages(messages: readonly CanonicalMessage[], includeReasoningR
     if (includeReasoningReplay && reasoning && toolCalls.length > 0) result.reasoning_content = reasoning;
     return [result];
   });
-}
-
-function parseError(status: number): string {
-  if (status === 401 || status === 403) return "authentication_error";
-  if (status === 429) return "rate_limit_error";
-  return "api_error";
 }
 
 function event(request: CanonicalRequest, decision: RouteDecision, sequence: number, type: CanonicalEvent["type"], data: object): CanonicalEvent {
@@ -136,17 +132,46 @@ export abstract class OpenAiChatAdapter implements ProviderAdapter {
     const timeout = AbortSignal.timeout(this.timeoutMs);
     try {
       const response = await this.request(`${this.requestEndpoint}/chat/completions`, { method: "POST", signal: AbortSignal.any([signal, timeout]), headers: { authorization: `Bearer ${secret.reveal()}`, "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", ...this.extraHeaders() }, body: JSON.stringify(this.payload(request, decision.resolvedReasoning)) });
-      if (!response.ok) throw new ProviderAdapterError(parseError(response.status));
+      if (!response.ok) {
+        // #121: safe structured provider error metadata survives the boundary.
+        const info = await parseProviderError(response);
+        throw new ProviderAdapterError(info.code, info.message, info, commitmentForHttpFailure(response));
+      }
       return response;
     } catch (error) {
-      if (timeout.aborted && !signal.aborted) throw new ProviderAdapterError("api_error", "Provider request timed out");
-      throw error;
+      if (timeout.aborted && !signal.aborted) throw new ProviderAdapterError("api_error", "Provider request timed out", undefined, "unknown");
+      if (error instanceof ProviderAdapterError) throw error;
+      // Connection-level failures prove the request never reached the provider;
+      // anything else after send is an ambiguous/unknown outcome (no replay).
+      const code = (error as { cause?: { code?: string } }).cause?.code;
+      const commitment = typeof code === "string" && ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "EAI_AGAIN", "ECONNRESET"].includes(code) ? "not-sent" as const : "unknown" as const;
+      throw new ProviderAdapterError("api_error", "Provider request failed", undefined, commitment);
     } finally {
       if (this.ownsSecret) secret.dispose();
     }
   }
 
+  /**
+   * #121: exact native Responses endpoint contract this adapter implements
+   * (`POST {requestEndpoint}/responses`). When set, same-protocol Responses
+   * requests stay on the native rail instead of a lossy Chat-Completions
+   * approximation. `OpenAI-compatible` alone is NOT a sufficient claim: each
+   * provider adapter declares this exactly.
+   */
+  protected supportsResponsesNativeRail = false;
+
+  /** The native Responses rail for the same base endpoint. */
+  protected responsesRail(): ProviderAdapter {
+    return new OpenAiResponsesAdapter(this.request, this.requestEndpoint, this.environment, this.timeoutMs);
+  }
+
   async *invoke(request: CanonicalRequest, decision: RouteDecision, signal: AbortSignal): AsyncIterable<CanonicalEvent> {
+    // #121: same-protocol Responses paths use the native rail whenever the
+    // adapter's exact endpoint contract implements the Responses API.
+    if (request.source.protocol === "openai-responses" && this.supportsResponsesNativeRail) {
+      yield* this.responsesRail().invoke(request, decision, signal);
+      return;
+    }
     // #119 fail-closed fidelity: Chat Completions transport cannot represent
     // opaque continuation artifacts (signatures, encrypted reasoning content).
     // A required artifact on this cross-protocol path is unsupported, never
