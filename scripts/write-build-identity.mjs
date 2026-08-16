@@ -31,8 +31,13 @@ const buildId = createHash("sha256")
   .digest("hex")
   .slice(0, 16);
 
+// Canonical version authority (#35): `RLY_RELEASE_VERSION` (release builds,
+// e.g. the semantic-release tag) wins over package.json so the built tree's
+// semantic version and the release tag/artifact identity never diverge.
+const semanticVersion = (process.env.RLY_RELEASE_VERSION ?? "").trim() || packageJson.version;
+
 const meta = {
-  semanticVersion: packageJson.version,
+  semanticVersion,
   commitRevision,
   buildId,
   releaseChannel,

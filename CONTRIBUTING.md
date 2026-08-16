@@ -49,6 +49,12 @@ Protocol drift must begin with a redacted reproducing fixture. Provider changes 
 - Never retry after response bytes or a tool event have been emitted.
 - Live tests are opt-in and must not log real content.
 
+## Distribution and packaging
+
+- Standalone RLY-owned runtime artifacts are the PRIMARY production distribution (#35): `pnpm artifact:build` (or `node scripts/standalone/build-standalone.mjs --build --targets all`) produces deterministic `rly-<version>-<target>.tar.gz` packages (bundled pinned Node, compiled runtime, prod deps, licenses/notices, `rly.json`/`rly-build.json`/`rly-artifact.json`) under `out/` (gitignored) and `pnpm artifact:verify`/`scripts/standalone/verify-artifact.mjs` verifies allowlist/absence/identity/digest/smoke. Hermetic coverage lives in `tests/unit/standalone-artifact.test.ts` (runs in `pnpm test`).
+- Never commit built artifacts, tarballs, Node bundles, or `out/` to git — scripts, config, manifests, and docs only. Local smoke builds go to the gitignored `out/` or a temp directory.
+- The canonical version authority is `RLY_RELEASE_VERSION` → exact git tag → `package.json`; a build whose `dist/rly-build.json` version diverges from the resolved release version fails. npm/Homebrew secondary channels must consume the same canonical artifact lineage, never rebuild different bytes under the same build identity.
+
 ## Definition of done
 
 - Acceptance criteria for the active phase are met.

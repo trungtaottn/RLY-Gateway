@@ -1,0 +1,90 @@
+name: Standalone Artifacts
+
+# RLY-owned primary distribution (#35): builds the standalone runtime artifact
+# matrix from a clean compiled tree, bundles the pinned Node runtime, enforces
+# the positive allowlist + absence checks, runs the `rly --version` smoke on
+# the supported CI target (linux-x64), and publishes the deterministic
+# tarballs + digest + manifest. Experimental targets (darwin-arm64,
+# darwin-x64, linux-arm64) are built explicitly but not smoke-tested here
+# (no qualified runner); they never silently reuse another target's bytes.
+#
+# Triggered by a GitHub Release publication (the canonical artifact lineage:
+# the release tag IS the version input, so package.json/tag/runtime identity
+# never diverge) or manually with an explicit release-version input.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release-version:
+        description: "Canonical release version (e.g. 1.0.0-beta.32); defaults to the release tag or package.json version"
+        required: false
+        type: string
+      targets:
+        description: "Comma-separated targets; empty = all (darwin-arm64,darwin-x64,linux-x64,linux-arm64)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release && github.event.release.target_commitish || github.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve canonical release version
+        id: version
+        env:
+          RLY_RELEASE_VERSION: ${{ inputs.release-version || '' }}
+          RELEASE_TAG: ${{ github.event.release && github.event.release.tag_name || '' }}
+        run: |
+          VERSION="${RLY_RELEASE_VERSION:-${RELEASE_TAG#v}}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Canonical release version: ${VERSION}"
+      - name: Build standalone artifact matrix
+        env:
+          RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          TARGETS: ${{ inputs.targets || '' }}
+        run: |
+          ARGS=(--build --targets "${TARGETS:-all}")
+          node scripts/standalone/build-standalone.mjs "${ARGS[@]}"
+      - name: Verify artifact matrix (allowlist, identity, digest, smoke from unpacked tarball)
+        env:
+          RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${RLY_RELEASE_VERSION}"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          for tarball in out/standalone/rly-${VERSION}-*.tar.gz; do
+            target_dir="$(basename "$tarball" .tar.gz)"
+            mkdir -p "$TMP/$target_dir"
+            tar -xzf "$tarball" -C "$TMP/$target_dir"
+            node scripts/standalone/verify-artifact.mjs --artifact "$TMP/$target_dir" --expected-version "${VERSION}" --smoke
+          done
+      - name: Upload artifact matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: rly-standalone-${{ steps.version.outputs.version }}
+          path: out/standalone/**
+          if-no-files-found: error
+      - name: Attach artifacts to the GitHub Release
+        if: ${{ github.event_name == 'release' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/artifacts.json --clobber
