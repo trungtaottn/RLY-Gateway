@@ -389,3 +389,8 @@ adapter/runtime route, not to this protocol boundary.
 - Codex launcher E2E: `tests/e2e/codex/fake-upstream.e2e.test.ts`
 - ClinePass Claude profile: `tests/lifecycle/cline-profile-route.test.ts`, `tests/e2e/claude-code/cline-interop.e2e.test.ts` (gated `RLY_CLAUDE_E2E=1`; skipped ≠ pass)
 - Boundary code: `src/protocols/anthropic/`, `src/protocols/openai-responses/`, `src/routes/anthropic-*.ts`, `src/routes/openai-responses-route.ts`
+
+## Runtime build identity and service bootstrap (#94)
+
+- The attested `/identity` handshake carries the serving runtime's exact build identity (`build`): semantic version, commit/source revision, build ID, release channel (`dev`/`beta`/`stable`), control/data protocol versions, durable state/schema version, and the serving artifact digest (#92 content-addressed deployment identity when serving from the immutable store). The CLI's `rly --version`, doctor/status, the release-candidate manifest (`rly.json`), deployment metadata, and update probation compare the SAME versioned fields; an exact match requires every field equal, and two artifacts sharing a semantic version are distinguishable by artifact digest.
+- Per-user service managers (launchd/systemd) execute ONE stable RLY-owned bootstrap launcher (`<control-plane>/bootstrap/rly-gateway`) instead of `dist/cli/init.js` or an incidental Node path; the bootstrap resolves ONLY the committed `refs/active` deployment (refusing staged/uncommitted/missing candidates), validates the immutable deployment, and execs the real `dist/cli/main.js` dispatcher with the gateway start contract. The identity challenge/proof contract is unchanged; reuse fails closed on same-semantic-version-different-artifact evidence and foreign/unattested listeners are never signaled.
