@@ -125,8 +125,13 @@ function effectiveCompatibilityFailure(
   }
   return {
     ...(summary === undefined ? {} : { effectiveLabel: summary.effective }),
-    ...(summary !== undefined && enforceEffective(summary.effective, context).enforcement === "quarantine-bypass"
-      ? { enforcementReason: "admin-quarantine-bypass" }
+    ...(summary !== undefined
+      ? (() => {
+          const enforced = enforceEffective(summary.effective, context);
+          return enforced.enforcement === "quarantine-bypass" || enforced.enforcement === "experimental-override"
+            ? { enforcementReason: enforced.reason }
+            : {};
+        })()
       : {}),
   };
 }
