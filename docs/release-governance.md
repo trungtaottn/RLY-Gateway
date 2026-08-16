@@ -26,6 +26,12 @@ Use Conventional Commit-compatible PR titles. Squash merge is preferred for feat
 - Tarballs + sha256 + `artifacts.json` manifest are uploaded and attached to the GitHub Release; the signed release supply chain (next section) is attached in the same publish. npm/Homebrew secondary channels must consume the same canonical artifact lineage.
 - Never commit built artifacts or `out/` to git.
 
+## Verified installer/updater/uninstaller (#129)
+
+- End-user acquisition consumes the SAME canonical artifact lineage + signed metadata: `rly install` / `rly update --channel beta|stable|current` and the `scripts/install.sh` bootstrap resolve the channel through the signed `rly-channel-<channel>.json` + `rly-release.json` assets, verify both Ed25519 signatures against the committed release public key, evaluate rollback/staleness/freeze, enforce the channel qualification gate, and verify the exact artifact digest chain (sha256/size + `<tarball>.sig` + unpacked-tree digest) BEFORE any install/staging mutation. The `verified-install` exact-byte qualification gate exercises this machinery on the exact bytes; the real signatures are verified post-publish by `verify-release.mjs`.
+- INSTALL != ACTIVATE: acquisition stages verified candidates; Wave 4 (#92/#93) owns activation (the serving `active` reference and the resident service are never changed by `rly install`/`rly update --channel`/`--install-only`).
+- Uninstall/purge: `rly uninstall` removes ONLY RLY-owned service definitions + product artifacts and preserves `~/.rly` durable user data; `rly uninstall --purge --yes` is the explicit destructive removal and never touches native Claude/Codex configuration.
+
 ## Release supply chain (#128) — exact-byte qualification is the publication authority
 
 A release is promoted only on evidence produced by installing and exercising the EXACT artifact digest that is subsequently published — never a rebuilt equivalent, never a version label. The release supply chain (`scripts/release/`) turns the #35 artifact lineage into authenticated, traceable, qualification-tested release bytes:
