@@ -5,8 +5,8 @@ import { ProfileActivationError } from "../profiles/errors.js";
 import { decodeAnthropicRequest, AnthropicProtocolError } from "../protocols/anthropic/decoder.js";
 import { aggregateAnthropicEvents, createAnthropicIncrementalEncoder } from "../protocols/anthropic/encoder.js";
 import { collectWithSafeRetry, type CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
-import { ProviderAdapterError } from "../providers/provider-adapter.js";
 import { NoEligibleAccountError } from "../routing/errors.js";
+import { providerErrorPayload, providerErrorStatus, providerRetryAfterOf } from "./provider-error-mapping.js";
 import { createStreamLifecycle, type StreamTimeoutPolicy } from "./stream-lifecycle.js";
 import { pumpStream } from "./stream-pump.js";
 
@@ -50,22 +50,22 @@ export function bindClientAbort(request: Closeable, response: Closeable, control
   };
 }
 
-function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string } } {
+function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string; param?: string; code?: string; cause?: string } } {
   if (error instanceof AnthropicProtocolError) return { type: "error", error: { type: error.code, message: error.message } };
   if (error instanceof UnsupportedRouteError) return { type: "error", error: { type: "unsupported_feature", message: "Request requires an unavailable capability" } };
   if (error instanceof ProfileActivationError) return { type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined && error.tierFailure === undefined && error.intentFailure === undefined ? {} : { reason: error.tierFailure ?? error.intentFailure ?? error.modelFailure }), ...(error.tierCause === undefined ? {} : { cause: error.tierCause }) } };
   if (error instanceof NoEligibleAccountError) return { type: "error", error: { type: "no_eligible_account", message: "No eligible account is available" } };
-  if (error instanceof ProviderAdapterError) return { type: "error", error: { type: error.code, message: "Gateway upstream failed" } };
-  return { type: "error", error: { type: "api_error", message: "Gateway upstream failed" } };
+  // #121: ProviderAdapterError / RouteFailure carry safe structured provider
+  // error metadata; it survives (cross-protocol translated) instead of
+  // generic normalization.
+  return { type: "error", error: providerErrorPayload(error, "anthropic-messages") };
 }
 
 function statusFor(error: unknown): number {
   if (error instanceof AnthropicProtocolError) return error.statusCode;
   if (error instanceof UnsupportedRouteError || error instanceof ProfileActivationError) return 400;
   if (error instanceof NoEligibleAccountError) return 503;
-  if (error instanceof ProviderAdapterError && error.code === "authentication_error") return 401;
-  if (error instanceof ProviderAdapterError && error.code === "rate_limit_error") return 429;
-  return 502;
+  return providerErrorStatus(error, "anthropic-messages");
 }
 
 function sseFrame(event: string, data: unknown): string {
@@ -133,6 +133,8 @@ export function registerAnthropicMessagesRoute(app: FastifyInstance, dependencie
         unbindAbort();
       }
     } catch (error) {
+      const retryAfter = providerRetryAfterOf(error);
+      if (retryAfter !== undefined) reply.header("retry-after", String(retryAfter));
       return await reply.code(statusFor(error)).send(errorPayload(error));
     }
   });

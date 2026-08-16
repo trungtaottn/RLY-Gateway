@@ -161,7 +161,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
     for await (const frame of sseFrames(bodyStream)) {
       if ("error" in frame) fail("api_error", "Provider returned a malformed stream frame");
       const wire = frame as Readonly<{ event?: string; data: Readonly<Record<string, unknown>> }>;
-      const type = String(wire.data.type ?? wire.event ?? "");
+      const type = typeof wire.data.type === "string" ? wire.data.type : (wire.event ?? "");
       switch (type) {
         case "response.created":
         case "response.in_progress": {
@@ -190,7 +190,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
             for (const part of reasoningSummary(item)) yield this.event(request, decision, state, "reasoning-delta", { index, text: part });
           } else if (itemType === "function_call") {
             commitment = "tool-boundary";
-            const callId = typeof item?.call_id === "string" ? item.call_id : itemId ?? `tool-${index}`;
+            const callId = typeof item?.call_id === "string" ? item.call_id : itemId ?? `tool-${String(index)}`;
             const name = typeof item?.name === "string" ? item.name : "tool";
             state.toolNames.set(index, name);
             yield this.event(request, decision, state, "content-started", { index, contentType: "tool-call", toolCallId: callId, toolName: name, ...(itemId === undefined ? {} : { itemId }) });
@@ -217,7 +217,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
         case "response.function_call_arguments.delta": {
           const index = numberOr(wire.data.output_index, 0);
           const name = state.toolNames.get(index) ?? "tool";
-          const callId = typeof wire.data.item_id === "string" ? wire.data.item_id : `tool-${index}`;
+          const callId = typeof wire.data.item_id === "string" ? wire.data.item_id : `tool-${String(index)}`;
           if (!state.open.has(index)) { state.open.add(index); commitment = "tool-boundary"; yield this.event(request, decision, state, "content-started", { index, contentType: "tool-call", toolCallId: callId, toolName: name }); }
           if (typeof wire.data.delta === "string") yield this.event(request, decision, state, "tool-arguments-delta", { index, toolCallId: callId, partialJson: wire.data.delta });
           break;
@@ -258,9 +258,9 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
         }
         case "error": {
           const err = record(wire.data.error) ?? wire.data;
-          const code = typeof err?.code === "string" ? err.code : typeof err?.type === "string" ? err.type : "api_error";
-          const message = typeof err?.message === "string" ? err.message : "Provider stream error";
-          fail(code, message, { statusCode: 502, code, ...(typeof err?.type === "string" ? { type: err.type } : {}), message });
+          const code = typeof err.code === "string" ? err.code : typeof err.type === "string" ? err.type : "api_error";
+          const message = typeof err.message === "string" ? err.message : "Provider stream error";
+          fail(code, message, { statusCode: 502, code, ...(typeof err.type === "string" ? { type: err.type } : {}), message });
           break;
         }
         default:
@@ -282,7 +282,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
     void commitment;
     let body: Readonly<Record<string, unknown>>;
     try {
-      const parsed = await response.json() as unknown;
+      const parsed = await response.json();
       body = record(parsed) ?? {};
     } catch {
       fail("api_error", "Provider returned a malformed response body", { statusCode: 502, code: "api_error", message: "Provider returned a malformed response body" });
@@ -293,18 +293,18 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
     yield this.event(request, decision, state, "response-started", { responseId });
     let index = 0;
     for (const item of outputItems(body)) {
-      const itemId = typeof item?.id === "string" ? item.id : undefined;
-      if (item?.type === "message") {
+      const itemId = typeof item.id === "string" ? item.id : undefined;
+      if (item.type === "message") {
         yield this.event(request, decision, state, "content-started", { index, contentType: "text", ...(itemId === undefined ? {} : { itemId }) });
         for (const part of contentParts(item.content)) if (part.type === "output_text" && part.text) yield this.event(request, decision, state, "text-delta", { index, text: part.text });
         yield this.event(request, decision, state, "content-completed", { index });
-      } else if (item?.type === "reasoning") {
+      } else if (item.type === "reasoning") {
         yield this.event(request, decision, state, "content-started", { index, contentType: "reasoning", ...(itemId === undefined ? {} : { itemId }) });
         captureReasoningArtifact(state, item);
         for (const part of reasoningSummary(item)) yield this.event(request, decision, state, "reasoning-delta", { index, text: part });
         yield this.event(request, decision, state, "content-completed", { index });
-      } else if (item?.type === "function_call") {
-        const callId = typeof item.call_id === "string" ? item.call_id : itemId ?? `tool-${index}`;
+      } else if (item.type === "function_call") {
+        const callId = typeof item.call_id === "string" ? item.call_id : itemId ?? `tool-${String(index)}`;
         const name = typeof item.name === "string" ? item.name : "tool";
         yield this.event(request, decision, state, "content-started", { index, contentType: "tool-call", toolCallId: callId, toolName: name, ...(itemId === undefined ? {} : { itemId }) });
         if (typeof item.arguments === "string" && item.arguments) yield this.event(request, decision, state, "tool-arguments-delta", { index, toolCallId: callId, partialJson: item.arguments });

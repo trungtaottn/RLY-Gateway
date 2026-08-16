@@ -6,8 +6,8 @@ import { collectWithSafeRetry } from "../protocols/anthropic/fake-upstream.js";
 import type { ResponseContinuationStore } from "../protocols/openai-responses/continuation.js";
 import { decodeResponsesRequest, ResponsesProtocolError } from "../protocols/openai-responses/decoder.js";
 import { aggregateResponsesEvents, createResponsesIncrementalEncoder } from "../protocols/openai-responses/encoder.js";
-import { ProviderAdapterError } from "../providers/provider-adapter.js";
 import { NoEligibleAccountError } from "../routing/errors.js";
+import { providerErrorPayload, providerErrorStatus, providerRetryAfterOf } from "./provider-error-mapping.js";
 import {
   bindClientAbort,
   type AnthropicRouteDependencies,
@@ -15,22 +15,21 @@ import {
 import { createStreamLifecycle } from "./stream-lifecycle.js";
 import { pumpStream } from "./stream-pump.js";
 
-function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string } } {
+function errorPayload(error: unknown): { type: "error"; error: { type: string; message: string; param?: string; code?: string } } {
   if (error instanceof ResponsesProtocolError) return { type: "error", error: { type: error.code, message: error.message } };
   if (error instanceof UnsupportedRouteError) return { type: "error", error: { type: "unsupported_feature", message: "Request requires an unavailable capability" } };
   if (error instanceof ProfileActivationError) return { type: "error", error: { type: error.code, message: "Profile is not ready for this request", ...(error.modelFailure === undefined && error.tierFailure === undefined && error.intentFailure === undefined ? {} : { reason: error.tierFailure ?? error.intentFailure ?? error.modelFailure }) } };
   if (error instanceof NoEligibleAccountError) return { type: "error", error: { type: "no_eligible_account", message: "No eligible account is available" } };
-  if (error instanceof ProviderAdapterError) return { type: "error", error: { type: error.code, message: "Gateway upstream failed" } };
-  return { type: "error", error: { type: "api_error", message: "Gateway upstream failed" } };
+  // #121: ProviderAdapterError / RouteFailure carry safe structured provider
+  // error metadata; it survives instead of generic normalization.
+  return { type: "error", error: providerErrorPayload(error, "openai-responses") };
 }
 
 function statusFor(error: unknown): number {
   if (error instanceof ResponsesProtocolError) return error.statusCode;
   if (error instanceof UnsupportedRouteError || error instanceof ProfileActivationError) return 400;
   if (error instanceof NoEligibleAccountError) return 503;
-  if (error instanceof ProviderAdapterError && error.code === "authentication_error") return 401;
-  if (error instanceof ProviderAdapterError && error.code === "rate_limit_error") return 429;
-  return 502;
+  return providerErrorStatus(error, "openai-responses");
 }
 
 function sseFrame(event: string, data: unknown): string {
@@ -113,6 +112,8 @@ export function registerOpenAiResponsesRoute(app: FastifyInstance, dependencies:
         unbindAbort();
       }
     } catch (error) {
+      const retryAfter = providerRetryAfterOf(error);
+      if (retryAfter !== undefined) reply.header("retry-after", String(retryAfter));
       return await reply.code(statusFor(error)).send(errorPayload(error));
     }
   });
@@ -126,6 +127,8 @@ export function registerOpenAiResponsesRoute(app: FastifyInstance, dependencies:
       if (!stored) return await reply.code(404).send(notStored());
       return continuation.toResponsesObject(stored);
     } catch (error) {
+      const retryAfter = providerRetryAfterOf(error);
+      if (retryAfter !== undefined) reply.header("retry-after", String(retryAfter));
       return await reply.code(statusFor(error)).send(errorPayload(error));
     }
   });

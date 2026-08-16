@@ -93,7 +93,7 @@ function rateLimitOf(headers: Headers): ProviderRateLimit | undefined {
 /** Bounded body read: never read unbounded provider error bodies into memory. */
 async function readBoundedBodyText(response: Response, limit = 32 * 1024): Promise<string> {
   if (response.body === null) return "";
-  const reader = response.body.getReader();
+  const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
   const decoder = new TextDecoder();
   let buffered = "";
   try {
@@ -133,14 +133,15 @@ export async function parseProviderError(response: Response, bodyText?: string):
   // Common shapes: {error:{...}}, {error:"string"}, flat {code,message}, {message}.
   const candidate = errorField ?? top;
   let code = boundedString(candidate?.code, MAX_CODE_LENGTH);
-  let type = boundedString(candidate?.type, MAX_CODE_LENGTH);
-  let message = boundedString(candidate?.message, MAX_MESSAGE_LENGTH);
-  let param = boundedString(candidate?.param, MAX_CODE_LENGTH);
+  const type = boundedString(candidate?.type, MAX_CODE_LENGTH);
+  const messageCandidate = boundedString(candidate?.message, MAX_MESSAGE_LENGTH);
+  const param = boundedString(candidate?.param, MAX_CODE_LENGTH);
+  let message = messageCandidate;
   if (code === undefined) code = boundedString(errorField === undefined ? top?.error : undefined, MAX_CODE_LENGTH);
   if (code === undefined && type !== undefined) code = type;
   if (message === undefined) message = boundedString(top?.message, MAX_MESSAGE_LENGTH);
   if (code === undefined) code = codeForStatus(statusCode);
-  if (message === undefined) message = `Provider request failed (HTTP ${statusCode})`;
+  if (message === undefined) message = `Provider request failed (HTTP ${String(statusCode)})`;
   return Object.freeze({
     statusCode,
     code,

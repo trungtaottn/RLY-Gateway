@@ -1,6 +1,7 @@
 import type { TokenCountingQuality } from "../../core/capabilities.js";
 import type { CanonicalEvent } from "../../core/canonical-event.js";
 import type { CanonicalRequest } from "../../core/canonical-request.js";
+import { ProviderAdapterError } from "../../providers/provider-adapter.js";
 
 export type FakeUpstreamScenario = "text" | "tool" | "slow" | "malformed" | "disconnect" | "auth" | "rate-limit" | "server-error";
 export type CanonicalUpstream = Readonly<{ invoke: (request: CanonicalRequest, signal: AbortSignal) => AsyncIterable<CanonicalEvent>; countTokens?: (request: CanonicalRequest) => Promise<{ inputTokens: number; quality: TokenCountingQuality }> }>;
@@ -35,9 +36,19 @@ export class FakeCanonicalUpstream implements CanonicalUpstream {
   countTokens(): Promise<{ inputTokens: number; quality: "exact-local" }> { return Promise.resolve({ inputTokens: 12, quality: "exact-local" }); }
 }
 
-export class RetryableTransportError extends Error { constructor(message = "transport failed before first byte") { super(message); this.name = "RetryableTransportError"; } }
+export class RetryableTransportError extends Error {
+  /** #121: retry only when the failure proves the request never crossed a commitment boundary. */
+  public readonly commitment = "not-sent" as const;
+  constructor(message = "transport failed before first byte") { super(message); this.name = "RetryableTransportError"; }
+}
 
-/** A retry can occur only before a canonical event has crossed the protocol boundary. */
+/**
+ * A retry can occur only when the previous attempt provably did not cross a
+ * provider/client/tool commitment boundary. #121: `collectWithSafeRetry` now
+ * consumes the failure's commitment state — `RetryableTransportError`
+ * (failed before send) is retried once; an ambiguous/unknown outcome after a
+ * network failure is never replayed.
+ */
 export async function collectWithSafeRetry(upstream: CanonicalUpstream, request: CanonicalRequest, signal: AbortSignal): Promise<CanonicalEvent[]> {
   let emitted = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -46,7 +57,8 @@ export async function collectWithSafeRetry(upstream: CanonicalUpstream, request:
       for await (const item of upstream.invoke(request, signal)) { emitted = true; events.push(item); }
       return events;
     } catch (error) {
-      if (emitted || attempt === 1 || signal.aborted || !(error instanceof RetryableTransportError)) throw error;
+      const commitment = error instanceof RetryableTransportError ? error.commitment : error instanceof ProviderAdapterError ? error.commitment : "unknown";
+      if (emitted || attempt === 1 || signal.aborted || commitment !== "not-sent" || !(error instanceof RetryableTransportError)) throw error;
     }
   }
   return [];
