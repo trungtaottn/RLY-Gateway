@@ -11,6 +11,7 @@
  */
 
 import type { ModelEvidence } from "../../registry/model-registry.js";
+import type { ModelCandidateAssessment } from "../model-selection/types.js";
 
 export const LOGICAL_TIERS = ["haiku", "sonnet", "opus", "fable"] as const;
 export type LogicalTier = (typeof LOGICAL_TIERS)[number];
@@ -90,6 +91,13 @@ export type TierResolutionTrace = Readonly<{
   registryRevision: number;
   /** Non-empty only when an explicitly enabled fallback scope was used. */
   fallbackReason?: string;
+  /**
+   * #68 candidate assessments from the derived/fallback evaluation (secret-
+   * free). Populated when the tier target came from the #68 candidate path so
+   * the EffectiveModelDecision can explain blocked alternatives without a
+   * second selector.
+   */
+  assessments?: readonly ModelCandidateAssessment[];
 }>;
 
 export type TierResolutionResult = Readonly<{

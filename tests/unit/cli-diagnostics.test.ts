@@ -239,7 +239,17 @@ describe("CLI diagnostics", () => {
         accounts?: { pseudonym?: string; quotaClass?: string }[];
       };
       const traces = JSON.parse(printed.find((line) => line.includes("sourceRule")) ?? "{}") as {
-        traces?: { profileName?: string; sourceRule?: string; selectedPseudonym?: string }[];
+        traces?: {
+          profileName?: string;
+          sourceRule?: string;
+          selectedPseudonym?: string;
+          effectiveModelDecision?: {
+            intent?: { kind?: string; sourceSelector?: string };
+            target?: { accessProviderId?: string; physicalModelId?: string };
+            compatibility?: { authority?: string };
+            poolBinding?: { poolId?: string };
+          };
+        }[];
       };
       expect(quota.accounts?.[0]?.pseudonym).toBe("acct-codex-a");
       expect(quota.accounts?.[0]?.quotaClass).toBe("healthy");
@@ -247,10 +257,19 @@ describe("CLI diagnostics", () => {
       expect(traces.traces?.[0]?.profileName).toBe("codex");
       expect(traces.traces?.[0]?.sourceRule).toMatch(/^pool:/);
       expect(traces.traces?.[0]?.selectedPseudonym).toBe("acct-codex-a");
+      // #127: every routing request produces one secret-free EffectiveModelDecision
+      // (intent + frozen target + ECR authority + pool binding) on the trace.
+      expect(traces.traces?.[0]?.effectiveModelDecision?.intent?.kind).toBe("EXACT_CLIENT_MODEL");
+      expect(traces.traces?.[0]?.effectiveModelDecision?.intent?.sourceSelector).toBe("primary");
+      expect(traces.traces?.[0]?.effectiveModelDecision?.target?.accessProviderId).toBe("codex");
+      expect(traces.traces?.[0]?.effectiveModelDecision?.target?.physicalModelId).toBe("gpt-5.4");
+      expect(traces.traces?.[0]?.effectiveModelDecision?.compatibility?.authority).toBe("ecr");
+      expect(traces.traces?.[0]?.effectiveModelDecision?.poolBinding?.poolId).toBeDefined();
       expect(traces.traces?.[0]).toEqual({
         profileName: "codex",
         sourceRule: traces.traces?.[0]?.sourceRule,
         selectedPseudonym: "acct-codex-a",
+        effectiveModelDecision: traces.traces?.[0]?.effectiveModelDecision,
       });
       expect(printed.join("\n")).not.toMatch(/access-token-fixture|refresh-token|authorization|prompt|@/i);
     } finally {
