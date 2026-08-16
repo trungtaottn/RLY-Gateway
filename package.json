@@ -13,7 +13,7 @@
   },
   "packageManager": "pnpm@11.16.0",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/write-build-identity.mjs && tsc -p tsconfig.build.json",
     "dev": "tsx src/cli/main.ts",
     "start": "node dist/cli/main.js",
     "lint": "eslint .",

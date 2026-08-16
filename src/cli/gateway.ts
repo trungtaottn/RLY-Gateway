@@ -29,6 +29,7 @@ export async function runGatewayCommand(
   if (action === "status") {
     const state = await inspectRuntimeGateway(config);
     const installation = await readInstallation(config.controlPlane.dataDirectory ?? defaultControlPlaneDirectory());
+    const servingBuild = state.state === "attested-compatible" ? state.buildIdentity : undefined;
     // Report service registration/load state separately from runtime readiness
     // on platforms with a per-user service manager (macOS LaunchAgent, Linux
     // systemd --user). Only consulted when an installation record exists, so
@@ -42,6 +43,8 @@ export async function runGatewayCommand(
       ...(state.state === "attested-compatible"
         ? { resident: state.resident, runtimeVersion: state.runtimeVersion, instanceId: state.instanceId }
         : {}),
+      // #94: exact serving build identity from the attested handshake.
+      ...(servingBuild === undefined ? {} : { buildIdentity: servingBuild }),
       service: installation === undefined
         ? { registered: false }
         : {

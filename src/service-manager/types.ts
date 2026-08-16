@@ -10,11 +10,18 @@ export type ServicePlatform = "darwin" | "linux" | "unsupported";
  * Everything needed to generate a per-user service definition. Only absolute
  * paths and metadata; never credentials, account identity, or environment
  * values that could leak secrets into service-manager files or logs.
+ *
+ * #94 stable bootstrap contract: `executable` is either a Node binary with a
+ * module `entrypoint` (legacy dev path) or the RLY-owned bootstrap script with
+ * NO entrypoint — the bootstrap resolves the committed #92 `active` deployment
+ * itself, so the definition never points at `dist/cli/init.js` or depends on
+ * the Node installation that happened to invoke `rly init`.
  */
 export type ServiceDefinitionInput = Readonly<{
   serviceName: string;
   executable: string;
-  entrypoint: string;
+  /** Module entrypoint; absent when `executable` is the stable RLY bootstrap. */
+  entrypoint?: string;
   configPath: string;
   logPath?: string;
 }>;

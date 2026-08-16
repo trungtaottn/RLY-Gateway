@@ -91,6 +91,11 @@ export class SystemdUserAdapter implements ServiceManagerAdapter {
     return join(this.#unitDirectory, `${this.serviceName}.service`);
   }
 
+  /** Stable on-disk definition path, exposed for reconciliation diagnostics. */
+  public get definitionPath(): string {
+    return this.#unitPath;
+  }
+
   get #unitName(): string {
     return `${this.serviceName}.service`;
   }
@@ -134,11 +139,7 @@ export class SystemdUserAdapter implements ServiceManagerAdapter {
     if (logPath !== undefined) {
       await mkdir(dirname(logPath), { recursive: true, mode: 0o700 });
     }
-    const unit = buildSystemdUserUnit({
-      ...input,
-      ...(logPath === undefined ? {} : { logPath }),
-      ...(this.#workingDirectory === undefined ? {} : { workingDirectory: this.#workingDirectory }),
-    });
+    const unit = this.renderDefinition(input);
     const previous = await readFile(this.#unitPath, "utf8").catch(() => undefined);
     // daemon-reload only when the definition actually changed; an unchanged
     // re-init (repair/validation) stays a filesystem no-op and never creates a
@@ -147,6 +148,21 @@ export class SystemdUserAdapter implements ServiceManagerAdapter {
       await this.#writeUnitAtomically(unit);
       await this.#systemctl("register the per-user service", "daemon-reload");
     }
+  }
+
+  /**
+   * Renders the exact unit this adapter would write for `input` (same options
+   * as `register`). Used by service-definition reconciliation to detect
+   * missing/stale/path-drifted definitions idempotently without touching
+   * systemd.
+   */
+  public renderDefinition(input: ServiceDefinitionInput): string {
+    const logPath = input.logPath ?? this.#logPath;
+    return buildSystemdUserUnit({
+      ...input,
+      ...(logPath === undefined ? {} : { logPath }),
+      ...(this.#workingDirectory === undefined ? {} : { workingDirectory: this.#workingDirectory }),
+    });
   }
 
   public async start(): Promise<void> {

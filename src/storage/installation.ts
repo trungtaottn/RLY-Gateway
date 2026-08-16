@@ -13,6 +13,10 @@ const installationRecordSchema = z.object({
   platform: z.enum(["darwin", "linux", "unsupported"]),
   serviceName: z.string().min(1),
   registeredAt: z.iso.datetime(),
+  /** #94: stable RLY-owned bootstrap launcher path (never dist/cli/init.js). */
+  bootstrapPath: z.string().min(1).optional(),
+  /** #94: sha256 revision of the registered service definition. */
+  definitionRevision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 });
 
 export type InstallationRecord = z.infer<typeof installationRecordSchema>;

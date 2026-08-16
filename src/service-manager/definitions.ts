@@ -19,8 +19,14 @@ export function buildLaunchAgentPlist(
     & Readonly<{ label: string }>
     & Readonly<{ workingDirectory?: string }>,
 ): string {
-  const programArguments = [input.executable, input.entrypoint, "gateway", "start", "--config", input.configPath]
-    .map((value) => `    <string>${xmlEscape(value)}</string>`)
+  const programArguments = [
+    input.executable,
+    ...(input.entrypoint === undefined ? [] : [input.entrypoint]),
+    "gateway",
+    "start",
+    "--config",
+    input.configPath,
+  ].map((value) => `    <string>${xmlEscape(value)}</string>`)
     .join("\n");
   const workingBlock = input.workingDirectory === undefined
     ? ""
@@ -70,8 +76,14 @@ function systemdQuote(value: string): string {
 export function buildSystemdUserUnit(
   input: ServiceDefinitionInput & Readonly<{ workingDirectory?: string; logPath?: string }>,
 ): string {
-  const execStart = [input.executable, input.entrypoint, "gateway", "start", "--config", input.configPath]
-    .map(systemdQuote)
+  const execStart = [
+    input.executable,
+    ...(input.entrypoint === undefined ? [] : [input.entrypoint]),
+    "gateway",
+    "start",
+    "--config",
+    input.configPath,
+  ].map(systemdQuote)
     .join(" ");
   // Paths only. No Environment= and no credentials/account identity ever enter
   // the unit; stdout/stderr go to the durable RLY log directory when a log path

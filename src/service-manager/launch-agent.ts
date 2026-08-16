@@ -95,6 +95,11 @@ export class LaunchAgentAdapter implements ServiceManagerAdapter {
     return join(this.#launchAgentsDirectory, `${this.#label}.plist`);
   }
 
+  /** Stable on-disk definition path, exposed for reconciliation diagnostics. */
+  public get definitionPath(): string {
+    return this.#plistPath;
+  }
+
   get #domainTarget(): string {
     return `gui/${String(process.getuid?.() ?? 0)}`;
   }
@@ -128,12 +133,7 @@ export class LaunchAgentAdapter implements ServiceManagerAdapter {
     if (logPath !== undefined) {
       await mkdir(dirname(logPath), { recursive: true, mode: 0o700 });
     }
-    const plist = buildLaunchAgentPlist({
-      ...input,
-      label: this.#label,
-      ...(logPath === undefined ? {} : { logPath }),
-      ...(this.#workingDirectory === undefined ? {} : { workingDirectory: this.#workingDirectory }),
-    });
+    const plist = this.renderDefinition(input);
     const previous = await readFile(this.#plistPath, "utf8").catch(() => undefined);
     await this.#writePlistAtomically(plist);
     // A prior definition whose content changed must be unloaded before the new
@@ -145,6 +145,22 @@ export class LaunchAgentAdapter implements ServiceManagerAdapter {
       }
     }
     await this.#bootstrap();
+  }
+
+  /**
+   * Renders the exact plist this adapter would write for `input` (same options
+   * as `register`). Used by service-definition reconciliation to detect
+   * missing/stale/path-drifted definitions idempotently without touching
+   * launchd.
+   */
+  public renderDefinition(input: ServiceDefinitionInput): string {
+    const logPath = input.logPath ?? this.#logPath;
+    return buildLaunchAgentPlist({
+      ...input,
+      label: this.#label,
+      ...(logPath === undefined ? {} : { logPath }),
+      ...(this.#workingDirectory === undefined ? {} : { workingDirectory: this.#workingDirectory }),
+    });
   }
 
   public async start(): Promise<void> {

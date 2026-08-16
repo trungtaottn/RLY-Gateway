@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadConfig } from "../config/load-config.js";
 import { RUNTIME_VERSION } from "../runtime/gateway-attestation.js";
+import { bootstrapServiceDefinition, writeBootstrapScript } from "../runtime/bootstrap.js";
 import { readCandidateManifestFromDirectory, LocalCandidateInstaller } from "../runtime/update/installer.js";
 import { runUpdate, type UpdateRunResult } from "../runtime/update/lifecycle.js";
 import { UpdateStateStore } from "../runtime/update/store.js";
@@ -108,6 +109,11 @@ export async function runUpdateCommand(
   }
   const installer = new LocalCandidateInstaller({ directory: controlPlaneDirectory });
   const updateStore = new UpdateStateStore(controlPlaneDirectory, (pid) => readProcessIdentity(pid));
+  // #94 stable bootstrap: the service definition references the RLY-owned
+  // launcher (never dist/cli/init.js, never an incidental Node path, never a
+  // direct runtime/refs/... path), so the controlled restart after the
+  // `active` ref switch automatically boots the newly committed deployment.
+  await writeBootstrapScript(controlPlaneDirectory);
   let candidate: Readonly<{ version: string; sourceDirectory: string }> | undefined;
   if (options.candidate !== undefined) {
     const manifest = await readCandidateManifestFromDirectory(options.candidate.sourceDirectory);
@@ -123,14 +129,11 @@ export async function runUpdateCommand(
     controlPlaneDirectory,
     installer,
     serviceManager: manager,
-    serviceDefinition: {
-      serviceName: installation.serviceName,
-      executable: process.execPath,
-      // Stable entrypoint through the immutable `active` reference (#92): the
-      // path always resolves to the currently serving immutable deployment.
-      entrypoint: join(controlPlaneDirectory, "runtime", "refs", "active", "dist", "cli", "main.js"),
-      configPath: installation.configPath,
-    },
+    serviceDefinition: bootstrapServiceDefinition(
+      controlPlaneDirectory,
+      installation.configPath,
+      join(controlPlaneDirectory, LOG_DIRECTORY, SERVICE_LOG_NAME),
+    ),
     ...(candidate === undefined ? {} : { candidate }),
     ...(options.force ? { force: true } : {}),
     drainTimeoutMs: options.waitTimeoutMs,

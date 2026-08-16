@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { RUNTIME_VERSION } from "../gateway-attestation.js";
+import type { BuildIdentity } from "../build-identity.js";
 import { inspectRuntimeGateway, runtimeDirectory, type RuntimeInspection } from "../gateway-lifecycle.js";
 import { RuntimeStore } from "../runtime-store.js";
 import { createIdentityProof } from "../gateway-server.js";
@@ -328,7 +329,7 @@ async function activate(
       updatedAt: new Date().toISOString(),
     }));
 
-    const verified = await verifyCandidateRuntime(dependencies, request, probation.transaction?.candidateVersion ?? probation.pendingVersion);
+    const verified = await verifyCandidateRuntime(dependencies, request, probation.transaction?.candidateVersion ?? probation.pendingVersion, probation.transaction?.candidateArtifactId ?? probation.pendingArtifactId);
     if (!verified.ok) {
       return await rollback(dependencies, store, probation, { restarted: true, reason: verified.reason, request });
     }
@@ -461,15 +462,21 @@ async function controlledRestart(
 }
 
 /**
- * Verifies the activated candidate (#93 probation): attested identity + exact
- * serving runtime version equals the pending candidate (never the package
- * version on disk alone) + management/data protocol compatibility + durable
- * state/schema compatibility + authenticated readiness (management/state open).
+ * Verifies the activated candidate (#93/#94 probation): attested identity +
+ * exact serving runtime version equals the pending candidate (never the
+ * package version on disk alone) + management/data protocol compatibility +
+ * durable state/schema compatibility + authenticated readiness
+ * (management/state open). Since #94 probation ALSO requires the exact build
+ * identity: the serving runtime's build identity must match the candidate's
+ * declared identity (commit/build/channel when declared) AND the serving
+ * artifact digest must equal the candidate's immutable deployment identity —
+ * so a same-semantic-version-different-artifact candidate can never pass.
  */
 async function verifyCandidateRuntime(
   dependencies: UpdateRuntimeDependencies,
   request: typeof fetch,
   pendingVersion: string | undefined,
+  pendingArtifactId: string | undefined,
 ): Promise<{ ok: boolean; reason: string }> {
   const deadline = Date.now() + (dependencies.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
   const pollMs = dependencies.readinessPollMs ?? DEFAULT_READINESS_POLL_MS;
@@ -491,6 +498,20 @@ async function verifyCandidateRuntime(
       }
       if (pendingVersion !== undefined && identity.runtimeVersion !== pendingVersion) {
         return { ok: false, reason: `serving runtime version ${identity.runtimeVersion ?? "unknown"} does not match the pending candidate ${pendingVersion}` };
+      }
+      if (pendingArtifactId !== undefined) {
+        if (identity.build?.artifactId !== pendingArtifactId) {
+          return {
+            ok: false,
+            reason: `serving runtime artifact digest ${identity.build?.artifactId ?? "<none>"} does not match the pending candidate deployment ${pendingArtifactId}; same semantic version, different artifact`,
+          };
+        }
+        if (identity.build !== undefined && identity.build.semanticVersion !== pendingVersion) {
+          return { ok: false, reason: `serving build identity version ${identity.build.semanticVersion} does not match the pending candidate ${String(pendingVersion)}` };
+        }
+        if (identity.build !== undefined && identity.build.controlProtocolVersion !== RUNTIME_PROTOCOL_VERSION) {
+          return { ok: false, reason: `serving build control protocol ${String(identity.build.controlProtocolVersion)} is not compatible (${String(RUNTIME_PROTOCOL_VERSION)})` };
+        }
       }
       if (dependencies.cliStateVersion !== undefined && !stateVersionsCompatible(dependencies.cliStateVersion, identity.stateVersion)) {
         return { ok: false, reason: `serving runtime state/schema version ${String(identity.stateVersion)} is not compatible with this RLY (${String(dependencies.cliStateVersion)})` };
@@ -525,7 +546,7 @@ async function authenticatedReadiness(dependencies: UpdateRuntimeDependencies, r
 async function readRuntimeIdentity(
   dependencies: UpdateRuntimeDependencies,
   request: typeof fetch,
-): Promise<{ runtimeVersion?: string; stateVersion?: number; activeSessions?: number; protocolVersion?: number } | undefined> {
+): Promise<{ runtimeVersion?: string; stateVersion?: number; activeSessions?: number; protocolVersion?: number; build?: BuildIdentity } | undefined> {
   const store = new RuntimeStore(dependencies.runtimeDirectory ?? runtimeDirectoryFor(dependencies));
   const secret = await store.readInstanceSecret();
   if (secret === undefined) return undefined;
@@ -541,6 +562,7 @@ async function readRuntimeIdentity(
       stateVersion?: number;
       activeSessions?: number;
       protocolVersion?: number;
+      build?: BuildIdentity;
       proof?: string;
     };
     if (payload.proof === undefined || payload.instanceId === undefined || payload.configFingerprint === undefined) return undefined;
@@ -551,6 +573,7 @@ async function readRuntimeIdentity(
       ...(payload.stateVersion === undefined ? {} : { stateVersion: payload.stateVersion }),
       ...(payload.activeSessions === undefined ? {} : { activeSessions: payload.activeSessions }),
       ...(payload.protocolVersion === undefined ? {} : { protocolVersion: payload.protocolVersion }),
+      ...(payload.build === undefined ? {} : { build: payload.build }),
     };
   } catch {
     return undefined;
@@ -619,7 +642,7 @@ async function rollback(
     }
     if (input.restarted) {
       await dependencies.serviceManager.restart();
-      const verified = await verifyCandidateRuntime(dependencies, input.request, restored.version);
+      const verified = await verifyCandidateRuntime(dependencies, input.request, restored.version, restored.artifactId);
       if (!verified.ok) throw new Error(`rollback runtime verification failed: ${verified.reason}`);
     }
     const active = await store.transitionUnderLock(["rollback-required"], (current) => ({

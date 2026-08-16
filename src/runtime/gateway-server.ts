@@ -23,6 +23,7 @@ import { registerAnthropicModelsRoute } from "../routes/anthropic-models-route.j
 import { registerOpenAiResponsesRoute } from "../routes/openai-responses-route.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
 import { RUNTIME_VERSION } from "./gateway-attestation.js";
+import type { BuildIdentity } from "./build-identity.js";
 import type { UpdateStateRecord } from "./update/types.js";
 
 /**
@@ -74,6 +75,13 @@ export type GatewayServerOptions = Readonly<{
    * to prove the identity reports the actual serving binary version.
    */
   runtimeVersion?: string;
+  /**
+   * Exact build identity (#94) reported on `/identity`: semantic version,
+   * commit revision, build ID, release channel, protocol/state versions, and
+   * the serving artifact digest. Defaults to the compiled identity; tests and
+   * distributions override it to prove the exact bytes now serving.
+   */
+  buildIdentity?: BuildIdentity;
   /**
    * Durable update-state reader (#73). The serving runtime reports the update
    * state through `/identity` so an updated CLI can apply the launch policy.
@@ -332,6 +340,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       runtimeVersion: options.runtimeVersion ?? RUNTIME_VERSION,
       ...(options.stateVersion === undefined ? {} : { stateVersion: options.stateVersion }),
       ...(options.resident === undefined ? {} : { resident: options.resident }),
+      ...(options.buildIdentity === undefined ? {} : { build: options.buildIdentity }),
       activeSessions: options.launchSessions?.size() ?? 0,
       draining,
       update: {
