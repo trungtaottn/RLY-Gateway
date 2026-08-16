@@ -233,20 +233,30 @@ describe("immutable deployment store (#92)", () => {
     const replacements = (async () => {
       try {
         for (let index = 0; index < GENERATIONS; index += 1) {
+          console.error(`[DIAG] writer gen=${index + 1}/12 start ${Date.now()}`);
           await installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB });
+          console.error(`[DIAG] writer gen=${index + 1}/12 done ${Date.now()}`);
           barrier.generation += 1;
           while (barrier.seen < barrier.generation) {
             await new Promise<void>((resolve) => setImmediate(resolve));
           }
+          console.error(`[DIAG] writer gen=${index + 1}/12 barrier passed ${Date.now()}`);
         }
+        console.error(`[DIAG] writer COMPLETE ${Date.now()}`);
       } catch (error) {
         barrier.writerFailed = true;
+        console.error(`[DIAG] writer FAILED ${Date.now()}`, error);
         throw error;
       }
     })();
     const reader = (async () => {
       let observed = 0;
+      let lastProgress = Date.now();
       while (barrier.seen < GENERATIONS && !barrier.writerFailed) {
+        if (Date.now() - lastProgress > 5000) {
+          console.error(`[DIAG] reader stalled 5s: seen=${barrier.seen} gen=${barrier.generation} observed=${observed} at ${Date.now()}`);
+          lastProgress = Date.now();
+        }
         const target = await readlink(installer.stagedPath).catch(() => undefined);
         if (target === undefined) {
           throw new Error(`reader observed a missing staged reference (gap)`);
