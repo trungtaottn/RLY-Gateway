@@ -233,14 +233,14 @@ describe("immutable deployment store (#92)", () => {
     const replacements = (async () => {
       try {
         for (let index = 0; index < GENERATIONS; index += 1) {
-          console.error(`[DIAG] writer gen=${index + 1}/12 start ${String(Date.now())}`);
+          console.error(`[DIAG] writer gen=${String(index + 1)}/12 start ${String(Date.now())}`);
           await installer.installCandidate({ version: index % 2 === 0 ? "2.0.0" : "2.1.0", sourceDirectory: index % 2 === 0 ? sourceA : sourceB });
-          console.error(`[DIAG] writer gen=${index + 1}/12 done ${String(Date.now())}`);
+          console.error(`[DIAG] writer gen=${String(index + 1)}/12 done ${String(Date.now())}`);
           barrier.generation += 1;
           while (barrier.seen < barrier.generation) {
             await new Promise<void>((resolve) => setImmediate(resolve));
           }
-          console.error(`[DIAG] writer gen=${index + 1}/12 barrier passed ${String(Date.now())}`);
+          console.error(`[DIAG] writer gen=${String(index + 1)}/12 barrier passed ${String(Date.now())}`);
         }
         console.error(`[DIAG] writer COMPLETE ${String(Date.now())}`);
       } catch (error) {
@@ -254,7 +254,7 @@ describe("immutable deployment store (#92)", () => {
       let lastProgress = Date.now();
       while (barrier.seen < GENERATIONS && !barrier.writerFailed) {
         if (Date.now() - lastProgress > 5000) {
-          console.error(`[DIAG] reader stalled 5s: seen=${barrier.seen} gen=${barrier.generation} observed=${observed} at ${String(Date.now())}`);
+          console.error(`[DIAG] reader stalled 5s: seen=${String(barrier.seen)} gen=${String(barrier.generation)} observed=${String(observed)} at ${String(Date.now())}`);
           lastProgress = Date.now();
         }
         const target = await readlink(installer.stagedPath).catch(() => undefined);
