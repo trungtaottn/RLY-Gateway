@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type { ProfileRecord } from "../control-plane/types.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
-import type { ModelUniverseSnapshot } from "../routing/model-projection/types.js";
+import type { ModelUniverseSnapshot, SessionPolicySnapshot } from "../routing/model-projection/types.js";
 import { ProfileActivationError } from "./errors.js";
 import { inspectLaunchableProfile } from "./activate.js";
 import type { LaunchSessionRegistry } from "./sessions.js";
@@ -34,11 +34,12 @@ export function registerLaunchSessionRoutes(
      */
     refuseIssuance?: () => string | undefined;
     /**
-     * Compiles the session-pinned model-universe snapshot (#72) from the
-     * current policy + registry at issue time, so discovery and reverse
-     * mapping stay stable for the active session.
+     * Compiles the session-pinned snapshots (#72 + #J2 contract A) from the
+     * current policy + registry at issue time: the model-universe snapshot for
+     * projection/discovery stability, plus the frozen profile-route binding
+     * (model roles/policy + provider→pool execution target).
      */
-    compileModelUniverse: (profile: ProfileRecord) => ModelUniverseSnapshot;
+    compileBinding: (profile: ProfileRecord) => Readonly<{ universe: ModelUniverseSnapshot; policy: SessionPolicySnapshot }>;
   }>,
 ): void {
   app.post("/v1/launch-sessions", async (request, reply) => {
@@ -56,11 +57,13 @@ export function registerLaunchSessionRoutes(
       if (input.leaseActive !== undefined && !input.leaseActive(parsed.data.leaseId)) {
         return await reply.code(400).send({ error: "lease-not-active" });
       }
+      const compiled = input.compileBinding(profile);
       const token = input.sessions.issue({
         profileId: profile.id,
         profileName: profile.name,
         leaseId: parsed.data.leaseId,
-        modelUniverse: input.compileModelUniverse(profile),
+        modelUniverse: compiled.universe,
+        binding: compiled.policy,
       });
       return await reply.code(201).send({
         profileName: profile.name,
