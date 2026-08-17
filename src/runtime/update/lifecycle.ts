@@ -337,11 +337,35 @@ async function activate(
   // complete naturally on the old process; in-flight streams/tool loops are
   // never replayed or moved. Best-effort on an attested resident runtime; the
   // bounded service-manager restart closes the window.
-  await beginDrain(dependencies, request);
+  //
+  // #J7 fail-closed drain gate: the fence must actually ENGAGE before the
+  // switch. When the runtime is believed live (`alreadyDown` false) but the
+  // fence could not be established (unattested state, missing instance
+  // secret, or an unreachable/timing-out `/drain`), proceeding would let the
+  // old runtime keep accepting new launch sessions during the switch. The
+  // activation then stays pending instead of silently switching — unless the
+  // user explicitly requested the destructive `--force` path.
+  const alreadyDown = context.runtime.state === "not-running" || context.runtime.state === "stale-record";
+  const fenceEngaged = await beginDrain(dependencies, request);
+  if (!alreadyDown && !dependencies.force && !fenceEngaged) {
+    const pending = await store.transitionUnderLock(["activating"], (current) => ({
+      ...(current ?? activating),
+      state: "pending-activation" as const,
+      transaction: { ...tx, phase: "draining" as const, updatedAt: new Date().toISOString() },
+      updatedAt: new Date().toISOString(),
+    }));
+    return {
+      outcome: "pending",
+      state: "pending-activation",
+      ...(pending.transaction === undefined ? {} : { phase: pending.transaction.phase }),
+      currentVersion: pending.currentVersion,
+      ...(pending.pendingVersion === undefined ? {} : { pendingVersion: pending.pendingVersion }),
+      message: "update installed; activation pending: the drain fence could not be established (runtime identity/secret unreadable or /drain unreachable). Existing sessions keep running; re-run rly update when the runtime is healthy, or use --force",
+    };
+  }
 
   // Drain: wait for launch sessions (not TCP counts) to reach zero unless the
   // user explicitly requested the destructive/force path.
-  const alreadyDown = context.runtime.state === "not-running" || context.runtime.state === "stale-record";
   if (!alreadyDown && !dependencies.force) {
     const drained = await waitForSessionDrain(dependencies, request);
     if (!drained.drained) {
@@ -359,7 +383,9 @@ async function activate(
         ...(pending.transaction === undefined ? {} : { phase: pending.transaction.phase }),
         currentVersion: pending.currentVersion,
         ...(pending.pendingVersion === undefined ? {} : { pendingVersion: pending.pendingVersion }),
-        message: `update installed; activation pending drain (${String(drained.activeSessions)} session(s) active). Existing sessions keep running; re-run rly update when they end, or use --force`,
+        message: drained.unverified
+          ? "update installed; activation pending: the runtime session count could not be verified. Existing sessions keep running; re-run rly update when the runtime is healthy, or use --force"
+          : `update installed; activation pending drain (${String(drained.activeSessions)} session(s) active). Existing sessions keep running; re-run rly update when they end, or use --force`,
       };
     }
   }
@@ -470,20 +496,28 @@ async function transactionFor(
 async function waitForSessionDrain(
   dependencies: UpdateRuntimeDependencies,
   request: typeof fetch,
-): Promise<{ drained: boolean; activeSessions: number }> {
+): Promise<{ drained: boolean; activeSessions: number | undefined; unverified: boolean }> {
   const deadline = Date.now() + (dependencies.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS);
   const pollMs = dependencies.drainPollMs ?? DEFAULT_DRAIN_POLL_MS;
   for (;;) {
     const activeSessions = await currentActiveSessions(dependencies, request);
-    if (activeSessions === 0) return { drained: true, activeSessions: 0 };
-    if (Date.now() >= deadline) return { drained: false, activeSessions };
+    // #J7: only a VERIFIED zero session count drains the gate. An unreadable
+    // identity is unknown — keep polling, and at the deadline fail closed
+    // (never switch while the runtime's session state cannot be attested).
+    if (activeSessions === 0) return { drained: true, activeSessions: 0, unverified: false };
+    if (Date.now() >= deadline) return { drained: false, activeSessions, unverified: activeSessions === undefined };
+
     await sleep(pollMs);
   }
 }
 
-async function currentActiveSessions(dependencies: UpdateRuntimeDependencies, request: typeof fetch): Promise<number> {
+async function currentActiveSessions(dependencies: UpdateRuntimeDependencies, request: typeof fetch): Promise<number | undefined> {
+  // #J7: an unreadable runtime identity is UNKNOWN — never treated as zero.
+  // `undefined` keeps the drain wait polling and fails closed at the deadline
+  // instead of silently proceeding while the old runtime may still accept new
+  // launch sessions.
   const identity = await readRuntimeIdentity(dependencies, request);
-  return identity?.activeSessions ?? 0;
+  return identity?.activeSessions;
 }
 
 /** Attested in-process drain request: refuses new issuance on the old runtime. */
