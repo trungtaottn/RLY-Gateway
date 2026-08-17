@@ -171,6 +171,8 @@ pnpm verify
 
 The example route contains placeholder model IDs and requires no credential for `doctor`. `pnpm dev` runs the source checkout; an installed package exposes the `rly` executable shown below. Do not commit the local configuration or place a raw secret in it; credential fields contain references such as `env:OPENROUTER_API_KEY`.
 
+Fresh-install model discovery (`GET /v1/models`) is empty by default: every shipped model is EXPERIMENTAL without reviewed compatibility evidence and `gateway.modelDiscovery.experimentalModels` defaults to `false`. The discovery response carries a secret-free `note` explaining exactly this and how to unblock; enable the opt-in to expose EXPERIMENTAL models (exact-model pins keep working regardless), or await canary review evidence. A session's profile-route model/pool/provider is frozen at launch (#J2 contract A) — a mid-session profile edit applies to NEW sessions only, while account/credential/ECR changes apply immediately.
+
 RLY stores its durable local control-plane state in `~/.rly`. On its first start after this rename, RLY atomically migrates a complete legacy `~/.agent-gateway` tree only when `~/.rly` is absent. If both roots exist, RLY stops without modifying either directory; back up or move one root before retrying.
 
 Project-owned Gemini OAuth uses `RLY_GEMINI_OAUTH_CLIENT_ID`. There is no default client id and no Gemini CLI / Code Assist impersonation. Opt-in live smoke: `RLY_LIVE_GEMINI_OAUTH=1`. Cline create requires an explicit loopback or HTTPS `endpointPolicy` (never ports `10100`, `8317`, or `17870`). OpenCode Go and Alibaba have adapters but no reviewed TOML model routes yet; Alibaba stays terms-gated.
