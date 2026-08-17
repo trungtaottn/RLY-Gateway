@@ -465,6 +465,11 @@ describe("EffectiveModelDecision runtime lifecycle (#127)", () => {
     if (agentContexts === undefined) throw new Error("missing agent contexts");
     const mainContext = agentContexts.resolve({
       profileId: "unused", profileName: "unused", leaseId: "00000000-0000-4000-8000-000000000323", viewId: "unused", modelUniverse: { policyRevision: 1, policyHash: "x".repeat(64), registryRevision: 5, bindings: [], experimentalModels: false },
+      binding: {
+        profile: { id: "unused", name: "unused", harness: "claude", modelRoles: {}, capabilityPolicy: undefined, launchPolicy: undefined },
+        pool: { id: "pool-unused", name: "pool", providerId: "prov-unused", strategy: "fill-first", retryBudget: 0, affinity: undefined, memberships: [] },
+        provider: { id: "prov-unused", name: "openrouter", integrationMode: "direct", endpointPolicy: undefined, enabled: true },
+      },
     }, session, "main-agent");
     expect(mainContext?.resolvedModelId).toBe("gpt-5.6-terra");
     // A follow-up main request still resolves Terra.

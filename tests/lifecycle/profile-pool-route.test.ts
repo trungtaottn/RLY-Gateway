@@ -244,4 +244,81 @@ describe("profile pool route", () => {
     expect(afterRelease.statusCode).toBe(401);
     leases.dispose();
   });
+
+  it("#J2 contract A: a mid-session profile edit never changes the model of an active session", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-j2-freeze-"));
+    directories.push(directory);
+    const received: string[] = [];
+    provider = Fastify();
+    provider.post("/chat/completions", (request) => {
+      const body = request.body as { model?: unknown };
+      if (typeof body.model === "string") received.push(body.model);
+      return new Response('data: {"id":"j2","choices":[{"delta":{"content":"J2_OK"}}]}\n\ndata: {"id":"j2","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } });
+    });
+    const endpoint = await provider.listen({ host: "127.0.0.1", port: 0 });
+    const seeded = await seed(directory, endpoint);
+    if (!store || !broker) throw new Error("missing store");
+    const leases = new LeaseManager({ ttlMs: 60_000, idleGraceMs: 60_000, onIdle: () => undefined });
+    const sessions = new LaunchSessionRegistry((id) => leases.has(id));
+    const traces = new RouteTraceRing();
+    const config = gatewayConfigSchema.parse({ schemaVersion: 1, gateway: { port: 17871, logLevel: "silent" } });
+    app = createGatewayServer({
+      host: "127.0.0.1",
+      port: 17871,
+      authToken: "instance-secret",
+      instanceId: "00000000-0000-4000-8000-000000000002",
+      configFingerprint: "a".repeat(64),
+      config,
+      environment: { OPENROUTER_API_KEY: "fixture-key" },
+      controlPlane: store,
+      broker,
+      selector: new RouteSelector(store, new AffinityStore(directory)),
+      launchSessions: sessions,
+      traces,
+      leases,
+    });
+    const issue = async (gatewayInstance: FastifyInstance, leaseId: string): Promise<string> => {
+      await leases.add(leaseId);
+      const issued = await gatewayInstance.inject({
+        method: "POST",
+        url: "/v1/launch-sessions",
+        headers: { authorization: "Bearer instance-secret", "content-type": "application/json" },
+        payload: { profileName: "work", leaseId },
+      });
+      expect(issued.statusCode).toBe(201);
+      const body: unknown = issued.json();
+      return body && typeof body === "object" && "token" in body && typeof body.token === "string" ? body.token : "";
+    };
+    const send = async (gatewayInstance: FastifyInstance, token: string, model: string): Promise<number> => {
+      const response = await gatewayInstance.inject({
+        method: "POST",
+        url: "/v1/messages",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        payload: { model, max_tokens: 8, stream: true, messages: [{ role: "user", content: "j2" }] },
+      });
+      return response.statusCode;
+    };
+
+    const oldModel = "nvidia/nemotron-3.5-lightning:free";
+    const newModel = "openai/gpt-oss-20b:free";
+    const gatewayInstance = app;
+    const token = await issue(gatewayInstance, "00000000-0000-4000-8000-000000000021");
+    // Session pinned to the OLD primary.
+    expect(await send(gatewayInstance, token, oldModel)).toBe(200);
+    // Admin changes the profile primary mid-session.
+    store.updateProfile(seeded.profile.id, seeded.profile.version, {
+      modelRoles: { primary: newModel, fast: "nvidia/nemotron-nano-12b-v2-vl:free" },
+    }, "cli");
+    // The SAME session still resolves the OLD model (frozen binding) — the
+    // exact complaint in #J2: no silent switch, no role-unmapped.
+    expect(await send(gatewayInstance, token, oldModel)).toBe(200);
+    // The NEW model is NOT in the frozen roles → role-unmapped for this session.
+    expect(await send(gatewayInstance, token, newModel)).toBe(400);
+    // Control: a NEW session sees the change (live config applies to new sessions).
+    const fresh = await issue(gatewayInstance, "00000000-0000-4000-8000-000000000022");
+    expect(await send(gatewayInstance, fresh, newModel)).toBe(200);
+    expect(received.filter((model) => model === oldModel).length).toBe(2);
+    expect(received.filter((model) => model === newModel).length).toBe(1);
+    leases.dispose();
+  });
 });

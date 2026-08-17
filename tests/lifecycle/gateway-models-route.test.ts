@@ -11,7 +11,7 @@ import { LaunchSessionRegistry } from "../../src/profiles/sessions.js";
 import { RouteTraceRing } from "../../src/profiles/traces.js";
 import {
   MODEL_REGISTRY_REVISION,
-  reviewedModel,
+  reviewedModel, directProviderRegistry,
   type RegistryDocument,
 } from "../../src/registry/model-registry.js";
 import { RLY_MODEL_PREFIX } from "../../src/routing/model-projection/types.js";
@@ -401,7 +401,7 @@ describe("gateway model discovery and projection routing (#72)", () => {
     leases = undefined;
     await openGateway(directory, {
       endpoints,
-      registry: gatewayRegistry,
+      registry: directProviderRegistry,
       config: gatewayConfigSchema.parse({
         schemaVersion: 1,
         gateway: { port: 17891, logLevel: "silent", modelDiscovery: { experimentalModels: true } },
@@ -409,6 +409,41 @@ describe("gateway model discovery and projection routing (#72)", () => {
     });
     const optInRows = (await discover("instance-secret")).rows;
     expect(optInRows.map((row) => row.display_name)).toContain("DeepSeek V4 Flash (DeepSeek)");
+  });
+
+  it("#J1 UX: an empty discovery carries a secret-free note explaining why, never a bare empty list", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-models-note-"));
+    directories.push(directory);
+    const { endpoints } = await startUpstreams();
+    // Default config: experimentalModels=false, and the shipped registry
+    // models are all EXPERIMENTAL without reviewed evidence → discovery empty.
+    await openGateway(directory, { endpoints, registry: directProviderRegistry });
+    const response = await requireApp().inject({ method: "GET", url: "/v1/models", headers: { authorization: "Bearer instance-secret" } });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{ data?: unknown[]; note?: string }>();
+    expect(body.data).toEqual([]);
+    // The Claude-compatible wire shape is preserved; the note explains the
+    // empty result and how to unblock (secret-free).
+    expect(typeof body.note).toBe("string");
+    expect(body.note).toContain("EXPERIMENTAL");
+    expect(body.note).toContain("experimentalModels");
+    // With the opt-in the note disappears (models are discoverable).
+    await requireApp().close();
+    app = undefined;
+    leases?.dispose();
+    leases = undefined;
+    await openGateway(directory, {
+      endpoints,
+      registry: directProviderRegistry,
+      config: gatewayConfigSchema.parse({
+        schemaVersion: 1,
+        gateway: { port: 17891, logLevel: "silent", modelDiscovery: { experimentalModels: true } },
+      }),
+    });
+    const optIn = await requireApp().inject({ method: "GET", url: "/v1/models", headers: { authorization: "Bearer instance-secret" } });
+    const optInBody = optIn.json<{ data?: unknown[]; note?: string }>();
+    expect(optInBody.data?.length).toBeGreaterThan(0);
+    expect(optInBody.note).toBeUndefined();
   });
 
   it("supports limit and cursor pagination deterministically", async () => {
