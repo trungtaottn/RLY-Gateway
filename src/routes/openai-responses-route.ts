@@ -83,7 +83,9 @@ export function registerOpenAiResponsesRoute(app: FastifyInstance, dependencies:
           errorFrame: (error) => sseFrame("error", errorPayload(error)),
           timeoutFrame: (category) => sseFrame("error", errorPayload(timeoutError(category))),
           onComplete: async () => {
-            if (encoder.status() === "completed" && continuation !== undefined) {
+            // #J3: `store: false` means do NOT persist this response locally —
+            // the user's intent is honored on the continuation store too.
+            if (encoder.status() === "completed" && continuation !== undefined && continued.store !== false) {
               await continuation.rememberAggregated(continued, encoder.aggregate());
             }
           },
@@ -106,7 +108,10 @@ export function registerOpenAiResponsesRoute(app: FastifyInstance, dependencies:
       }
       try {
         const events = await collectWithSafeRetry(upstream, continued, controller.signal);
-        await continuation?.remember(continued, events);
+        // #J3: `store: false` skips local continuation persistence.
+        if (continuation !== undefined && continued.store !== false) {
+          await continuation.remember(continued, events);
+        }
         return await reply.send(aggregateResponsesEvents(events));
       } finally {
         unbindAbort();

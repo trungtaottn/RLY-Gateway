@@ -103,7 +103,15 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
       ...(request.inference.temperature === undefined ? {} : { temperature: request.inference.temperature }),
       ...(request.inference.topP === undefined ? {} : { top_p: request.inference.topP }),
       ...this.reasoningPayload(request, reasoning),
-      ...(request.fidelity === undefined || request.fidelity.artifacts.length === 0 ? {} : { include: ["reasoning.encrypted_content"] }),
+      // #J3: the `store` semantic control survives to the provider.
+      ...(request.store === undefined ? {} : { store: request.store }),
+      // #J4: `include` is forwarded whenever the user requested it — even on
+      // the FIRST turn when no continuation artifact exists yet — and is also
+      // implied when the request already carries an encrypted artifact that a
+      // later continuation must return. Never silently dropped.
+      ...(request.include === undefined && (request.fidelity === undefined || request.fidelity.artifacts.length === 0)
+        ? {}
+        : { include: request.include ?? ["reasoning.encrypted_content"] }),
     };
   }
 

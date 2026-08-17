@@ -41,6 +41,10 @@ export type CanonicalRequest = Readonly<{
   tools: readonly CanonicalTool[];
   toolChoice?: CanonicalToolChoice;
   stream: boolean;
+  /** #J3: OpenAI Responses `store` semantic control — false = do not persist this response locally. */
+  store?: boolean;
+  /** #J4: OpenAI Responses `include` request — forwarded to the provider (e.g. `reasoning.encrypted_content`). */
+  include?: readonly string[];
   inference: Readonly<{
     maxOutputTokens?: number;
     temperature?: number;
