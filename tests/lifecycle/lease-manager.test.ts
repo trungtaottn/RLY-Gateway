@@ -79,4 +79,51 @@ describe("lease manager", () => {
       vi.useRealTimers();
     }
   });
+
+  // #J8: the 15s lease TTL vs 5s launcher heartbeat is aggressive for desktop
+  // coding workflows — a single stalled heartbeat (laptop suspend, event-loop
+  // stall) longer than the TTL expires the launch session permanently. These
+  // deterministic tests encode the black-box finding (no heartbeat → 401 at
+  // t+15s; heartbeat renews keep the session alive).
+  it("soak: renews across many TTL windows keep the lease alive (normal use)", async () => {
+    vi.useFakeTimers();
+    try {
+      const expired: string[] = [];
+      const leases = new LeaseManager({ ttlMs: 15, idleGraceMs: 50, onIdle: () => undefined, onExpire: (id) => { expired.push(id); } });
+      await leases.add("00000000-0000-4000-8000-000000000011");
+      // Simulate a long-running Claude session: heartbeat every 5s (HEARTBEAT_MS)
+      // against a 15s TTL for ~10 minutes. The lease must never expire.
+      for (let tick = 0; tick < 120; tick += 1) {
+        await vi.advanceTimersByTimeAsync(5);
+        await leases.renew("00000000-0000-4000-8000-000000000011");
+      }
+      expect(expired).toEqual([]);
+      expect(leases.has("00000000-0000-4000-8000-000000000011")).toBe(true);
+      leases.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("suspend/resume: a gap longer than the TTL expires the lease and renew cannot recover it", async () => {
+    vi.useFakeTimers();
+    try {
+      const expired: string[] = [];
+      const leases = new LeaseManager({ ttlMs: 15, idleGraceMs: 50, onIdle: () => undefined, onExpire: (id) => { expired.push(id); } });
+      await leases.add("00000000-0000-4000-8000-000000000011");
+      // One heartbeat, then the machine suspends: no heartbeat for 16s (> TTL).
+      await vi.advanceTimersByTimeAsync(5);
+      await leases.renew("00000000-0000-4000-8000-000000000011");
+      await vi.advanceTimersByTimeAsync(16);
+      expect(expired).toEqual(["00000000-0000-4000-8000-000000000011"]);
+      expect(leases.has("00000000-0000-4000-8000-000000000011")).toBe(false);
+      // On resume the launcher heartbeat calls renew — the lease is gone and
+      // renew throws ("Lease is not active"); the launcher's .catch swallows it,
+      // so the session stays revoked and the user must restart Claude Code.
+      await expect(leases.renew("00000000-0000-4000-8000-000000000011")).rejects.toThrow(/not active/);
+      leases.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

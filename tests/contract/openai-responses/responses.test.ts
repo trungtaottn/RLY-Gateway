@@ -31,6 +31,42 @@ describe("OpenAI Responses protocol", () => {
     expect(decoded.required).toEqual(["streaming", "tools"]);
   });
 
+  it("carries the store semantic control and the include request (#J3/#J4)", () => {
+    const decoded = decodeResponsesRequest({
+      model: "fixture-model",
+      input: "fixture",
+      store: false,
+      include: ["reasoning.encrypted_content"],
+    });
+    // #J3: `store: false` is a semantic control that survives decode.
+    expect(decoded.request.store).toBe(false);
+    // #J4: the `include` request is carried to the provider, never dropped.
+    expect(decoded.request.include).toEqual(["reasoning.encrypted_content"]);
+    // The fidelity envelope records the preserved intent.
+    expect(decoded.request.fidelity?.notes.map((note) => note.field)).toContain("include[]=reasoning.encrypted_content");
+    expect(decoded.ignoredAdditiveFields).not.toContain("store");
+    expect(decoded.ignoredAdditiveFields).not.toContain("include");
+  });
+
+  it("keeps every part of a multi-part system message (#J5)", () => {
+    const decoded = decodeResponsesRequest({
+      model: "fixture-model",
+      input: [
+        {
+          type: "message",
+          role: "system",
+          content: [
+            { type: "input_text", text: "Always use TypeScript" },
+            { type: "input_text", text: "Never modify migrations" },
+          ],
+        },
+        { type: "message", role: "user", content: "do the thing" },
+      ],
+    });
+    // #J5: BOTH instructions survive — never truncated to the first part.
+    expect(decoded.request.system.map((item) => item.type === "text" && (item as { text: string }).text)).toEqual(["Always use TypeScript", "Never modify migrations"]);
+  });
+
   it("preserves function output, reasoning, and continuation identity", () => {
     const decoded = decodeResponsesRequest({
       model: "fixture-model",

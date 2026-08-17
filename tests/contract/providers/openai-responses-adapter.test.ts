@@ -130,4 +130,49 @@ describe("OpenAI Responses native upstream rail (#121)", () => {
     expect(probe).toMatchObject({ readiness: "ready", modelId: "fixture-model" });
     expect(fetch).toHaveBeenCalledWith("https://openrouter.ai/api/v1/models", expect.any(Object));
   });
+
+  it("forwards the store semantic control to the provider (#J3)", async () => {
+    const decoded = decodeResponsesRequest({ model: "fixture-model", input: "fixture", store: false });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "resp_1", output: [], status: "completed" }), { status: 200 }));
+    const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
+    await collect(adapter.invoke(decoded.request, decision(decoded.request.id), new AbortController().signal));
+    const outbound = fetch.mock.calls[0]?.[1]?.body;
+    const payload = typeof outbound === "string" ? JSON.parse(outbound) as Record<string, unknown> : {};
+    expect(payload.store).toBe(false);
+  });
+
+  it("forwards the include request even on the first turn (#J4)", async () => {
+    const decoded = decodeResponsesRequest({ model: "fixture-model", input: "fixture", include: ["reasoning.encrypted_content"] });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "resp_1", output: [], status: "completed" }), { status: 200 }));
+    const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
+    await collect(adapter.invoke(decoded.request, decision(decoded.request.id), new AbortController().signal));
+    const outbound = fetch.mock.calls[0]?.[1]?.body;
+    const payload = typeof outbound === "string" ? JSON.parse(outbound) as Record<string, unknown> : {};
+    // First turn, no continuation artifact yet: the user's include request
+    // must still reach the provider (previously it was dropped).
+    expect(payload.include).toEqual(["reasoning.encrypted_content"]);
+  });
+
+  it("sends the full multi-part system instruction as instructions (#J5)", async () => {
+    const decoded = decodeResponsesRequest({
+      model: "fixture-model",
+      input: [
+        {
+          type: "message",
+          role: "system",
+          content: [
+            { type: "input_text", text: "Always use TypeScript" },
+            { type: "input_text", text: "Never modify migrations" },
+          ],
+        },
+        { type: "message", role: "user", content: "do the thing" },
+      ],
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "resp_1", output: [], status: "completed" }), { status: 200 }));
+    const adapter = new OpenRouterAdapter(fetch, undefined, { OPENROUTER_API_KEY: "fixture-secret" });
+    await collect(adapter.invoke(decoded.request, decision(decoded.request.id), new AbortController().signal));
+    const outbound = fetch.mock.calls[0]?.[1]?.body;
+    const payload = typeof outbound === "string" ? JSON.parse(outbound) as Record<string, unknown> : {};
+    expect(payload.instructions).toBe("Always use TypeScript\nNever modify migrations");
+  });
 });
