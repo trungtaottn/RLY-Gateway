@@ -53,6 +53,8 @@ const rawSchema = z.object({
   top_p: z.number().optional(),
   reasoning: z.object({ effort: z.string().optional() }).optional(),
   include: z.array(z.string()).optional(),
+  /** #J3: Responses `store` semantic control — false = do not persist this response. */
+  store: z.boolean().optional(),
   metadata: z.object({}).loose().optional(),
 }).loose();
 
@@ -98,7 +100,7 @@ function parseJsonOrRaw(value: string): unknown {
   try { return JSON.parse(value); } catch { return value; }
 }
 
-function parseItem(raw: unknown): { role?: "user" | "assistant"; content: CanonicalContent[]; system?: CanonicalContent; artifacts: OpaqueArtifact[] } {
+function parseItem(raw: unknown): { role?: "user" | "assistant"; content: CanonicalContent[]; system?: CanonicalContent[]; artifacts: OpaqueArtifact[] } {
   const typed = z.object({ type: z.string() }).loose().safeParse(raw);
   if (!typed.success) throw new ResponsesProtocolError("invalid_request_error", "Input item is not an object");
   const parsed = knownItem.safeParse(raw);
@@ -108,7 +110,11 @@ function parseItem(raw: unknown): { role?: "user" | "assistant"; content: Canoni
   switch (parsed.data.type) {
     case "message": {
       const content = parseMessageContent(parsed.data.content);
-      if (parsed.data.role === "system") return content[0] === undefined ? { content: [], artifacts: [] } : { system: content[0], content: [], artifacts: [] };
+      // #J5: a system message keeps EVERY part — multi-part instructions must
+      // not be silently truncated to the first part. `system` carries the
+      // whole array; the route joins text parts (non-text parts are rejected
+      // earlier by parseMessageContent).
+      if (parsed.data.role === "system") return content.length === 0 ? { content: [], artifacts: [] } : { system: content, content: [], artifacts: [] };
       return { role: parsed.data.role, content, artifacts: [] };
     }
     case "function_call":
@@ -187,7 +193,7 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
   let hasEncryptedReasoning = false;
   for (const item of inputItems(value.input)) {
     const decoded = parseItem(item);
-    if (decoded.system) system.push(decoded.system);
+    if (decoded.system) system.push(...decoded.system);
     if (decoded.role && decoded.content.length > 0) messages.push({ role: decoded.role, content: decoded.content });
     for (const artifact of decoded.artifacts) {
       artifacts.push(artifact);
@@ -214,7 +220,7 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
   // and must fail closed on a path that cannot represent it.
   const ignored = Object.keys(value).filter((key) => !RECOGNIZED.has(key));
   const fidelity: FidelityEnvelope | undefined = (() => {
-    if (artifacts.length === 0 && ignored.length === 0) return undefined;
+    if (artifacts.length === 0 && ignored.length === 0 && value.include === undefined) return undefined;
     let envelope = emptyFidelityEnvelope("openai-responses", typeof headers["openai-version"] === "string" ? headers["openai-version"] : undefined);
     envelope = withArtifacts(envelope, artifacts);
     envelope = withNotes(envelope, [
@@ -222,6 +228,12 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
         ? [{ field: "input[].reasoning.summary", disposition: "translated" as const, reason: "summary text projected to semantic reasoning content" }]
         : []),
       ...artifacts.map((artifact) => ({ field: "input[].reasoning.encrypted_content", disposition: "preserved-native" as const, reason: `preserved at ${artifact.association}` })),
+      // #J4: the `include` request is a semantic control carried to the
+      // provider (not dropped); note it so the fidelity envelope records that
+      // the intent survived the boundary.
+      ...(value.include === undefined
+        ? []
+        : value.include.map((item) => ({ field: `include[]=${item}`, disposition: "preserved-native" as const, reason: "forwarded to the provider so reasoning encrypted content is returned" }))),
       ...ignored.map((key) => ({ field: key, disposition: "ignored" as const, reason: "unknown additive field; not required for continuation" })),
     ]);
     if (hasEncryptedReasoning) envelope = withRequired(envelope, ["openai-reasoning-encrypted-content"]);
@@ -249,6 +261,12 @@ export function decodeResponsesRequest(raw: unknown, headers: Record<string, str
       },
       metadata: beta.length === 0 ? {} : { beta },
       ...(value.previous_response_id === undefined ? {} : { continuation: { previousResponseId: value.previous_response_id } }),
+      // #J3: `store` is a semantic control, never silently discarded.
+      ...(value.store === undefined ? {} : { store: value.store }),
+      // #J4: the `include` request is carried to the provider (forwarded by
+      // the Responses adapter even on the first turn, when no continuation
+      // artifact exists yet).
+      ...(value.include === undefined ? {} : { include: value.include }),
       ...(fidelity === undefined ? {} : { fidelity }),
     },
     required,
