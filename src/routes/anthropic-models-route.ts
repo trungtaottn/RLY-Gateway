@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { LaunchSession, LaunchSessionRegistry } from "../profiles/sessions.js";
 import type { RegistryDocument } from "../registry/model-registry.js";
+import { modelsForProvider } from "../registry/model-registry.js";
 import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
 import { requiredFeaturesForEvidence } from "../compatibility/features.js";
 import {
@@ -79,6 +80,15 @@ export function registerAnthropicModelsRoute(app: FastifyInstance, dependencies:
           { required: false },
         );
     const projections = projectModelUniverse(dependencies.registry, universe, effective);
+    // #J1 UX fail-closed: an empty discovery is confusing on a fresh install
+    // (Claude Code shows no models while an exact pin still works). Keep the
+    // Claude-compatible wire shape (extra JSON fields are ignored by the
+    // client) but attach a secret-free `note` explaining WHY discovery is
+    // empty and how to unblock — never silently returning a bare empty list.
+    const note = discoveryNote(dependencies.registry, universe, projections);
+    if (note !== undefined) {
+      request.log.warn({ projectionCount: projections.length, bindingCount: universe.bindings.length }, `model discovery is empty: ${note}`);
+    }
     const { limit = 20, before_id, after_id } = parsedQuery.data;
     let window = projections;
     if (after_id !== undefined) {
@@ -98,6 +108,28 @@ export function registerAnthropicModelsRoute(app: FastifyInstance, dependencies:
       has_more: window.length > limit,
       first_id: page[0]?.id ?? null,
       last_id: page.at(-1)?.id ?? null,
+      ...(note === undefined ? {} : { note }),
     };
   });
+}
+
+/**
+ * #J1: secret-free explanation when model discovery projects nothing. The
+ * wire shape stays Claude-compatible; the note is a diagnostic for the user
+ * (curl/CLI/debugging) — the client ignores the extra JSON field.
+ */
+export function discoveryNote(
+  registry: RegistryDocument,
+  universe: ModelUniverseSnapshot,
+  projections: readonly ModelProjection[],
+): string | undefined {
+  if (projections.length > 0) return undefined;
+  if (universe.bindings.length === 0) {
+    return "No enabled provider with a ready account pool is bound; model discovery is empty.";
+  }
+  const configured = universe.bindings.reduce((sum, binding) => sum + modelsForProvider(registry, binding.providerName).length, 0);
+  if (configured === 0) {
+    return "No reviewed model is available for the bound providers; model discovery is empty.";
+  }
+  return `All ${String(configured)} configured model(s) are EXPERIMENTAL without reviewed compatibility evidence. Enable gateway.modelDiscovery.experimentalModels=true to expose them, or wait for canary review.`;
 }
