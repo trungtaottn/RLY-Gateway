@@ -6,7 +6,7 @@ import { reasoningRequestFromWire } from "../core/reasoning.js";
 import { decideRoute, type RouteRecord } from "../core/router.js";
 import { conservativeTokenCount } from "../core/token-counting.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
-import type { AccountRecord, ProfileRecord, ProviderRecord } from "../control-plane/types.js";
+import type { AccountRecord, PolicyRevision, PoolRecord, PoolStrategy, ProfileRecord, ProviderRecord } from "../control-plane/types.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
@@ -77,11 +77,17 @@ export async function resolveProfileRoute(
 ): Promise<ResolvedProfileRoute> {
   const policy = dependencies.store.currentPolicy();
   if (!policy) throw new ProfileActivationError("profile-not-found");
-  const named = findProfileById(policy.snapshot.profiles, session.profileId)?.name ?? session.profileName;
-  const inspected = inspectLaunchableProfile(policy.snapshot.profiles, named);
-  const pool = policy.snapshot.pools.find((item) => item.id === inspected.poolId);
+  // #J2 contract A: profile-route resolution reads the session's FROZEN
+  // binding (model roles/policy + provider→pool execution target) overlaid on
+  // the live policy for accounts/ECR. A mid-session control-plane edit cannot
+  // silently change the model or execution target of an active session; a
+  // profile/pool/provider removed mid-session keeps serving the frozen target.
+  const sessionPolicy = applySessionBinding(policy, session);
+  const named = findProfileById(sessionPolicy.snapshot.profiles, session.profileId)?.name ?? session.profileName;
+  const inspected = inspectLaunchableProfile(sessionPolicy.snapshot.profiles, named);
+  const pool = sessionPolicy.snapshot.pools.find((item) => item.id === inspected.poolId);
   if (!pool) throw new ProfileActivationError("profile-has-no-pool");
-  const provider = policy.snapshot.providers.find((item) => item.id === pool.providerId);
+  const provider = sessionPolicy.snapshot.providers.find((item) => item.id === pool.providerId);
   if (!provider) throw new ProfileActivationError("profile-has-no-pool");
   // #71: a subagent request inherits the parent agent's frozen physical
   // model/family for #69 tier family affinity. Parent resolution never
@@ -156,7 +162,7 @@ export async function resolveProfileRoute(
   // never re-derives a role from the raw selector string (a bare `default` or
   // `inherit` is not a profile role). Capability policy and required
   // capabilities are still validated below, unchanged.
-  const activated = activateProfile(policy.snapshot.profiles, {
+  const activated = activateProfile(sessionPolicy.snapshot.profiles, {
     profileId: session.profileId,
     name: session.profileName,
     requestedModel: canonical.requestedModel,
@@ -254,7 +260,7 @@ export async function resolveProfileRoute(
   // parent model/family that scoped tier resolution. Never prompts or identity.
   const agentLinkage = agentTraceLinkage(agentContext, parentReference);
   const environment = dependencies.environment ?? process.env;
-  const members = policy.snapshot.accounts.filter((account) => pool.memberships.some((item) => item.accountId === account.id));
+  const members = sessionPolicy.snapshot.accounts.filter((account) => pool.memberships.some((item) => item.accountId === account.id));
   const snapshots = await credentialSnapshots(dependencies, members, environment);
   const effectiveRequest: CanonicalRequest = Object.freeze({
     ...canonical,
@@ -272,7 +278,7 @@ export async function resolveProfileRoute(
           request: effectiveRequest,
           select: {
             poolId: activated.poolId,
-            policy,
+            policy: sessionPolicy,
             required: dependencies.required ?? [],
             capabilities,
             modelId: activated.modelId,
@@ -329,8 +335,12 @@ export async function resolveProjectedModelRoute(
   }
   const policy = dependencies.store.currentPolicy();
   if (!policy) throw new ProfileActivationError("profile-not-found");
-  const pool = policy.snapshot.pools.find((item) => item.id === resolved.binding.poolId);
-  const provider = policy.snapshot.providers.find((item) => item.id === resolved.binding.providerId);
+  // #J2 contract A: the projection target's provider→pool also reads the
+  // frozen session binding, so a mid-session edit can never change the
+  // execution target of a projection request either.
+  const sessionPolicy = applySessionBinding(policy, session);
+  const pool = sessionPolicy.snapshot.pools.find((item) => item.id === resolved.binding.poolId);
+  const provider = sessionPolicy.snapshot.providers.find((item) => item.id === resolved.binding.providerId);
   if (pool === undefined || provider === undefined || !provider.enabled) {
     throw new ProfileActivationError(
       "model-unavailable",
@@ -452,7 +462,7 @@ export async function resolveProjectedModelRoute(
           request: effectiveRequest,
           select: {
             poolId: resolved.binding.poolId,
-            policy,
+            policy: sessionPolicy,
             required: dependencies.required ?? [],
             capabilities,
             modelId: modelEvidence.identity.upstreamModelId,
@@ -871,4 +881,71 @@ async function* invokeSelected(
     : { ...decision, credentialRef: parseCredentialRef(`env:${envName}`) };
   const adapter = createProviderAdapter({ provider, request: dependencies.fetch ?? fetch, environment });
   yield* adapter.invoke(request, envDecision, signal);
+}
+
+/**
+ * #J2 contract A: overlays the session's FROZEN binding (profile model
+ * roles/policy, provider→pool execution target, provider config) onto the
+ * LIVE policy revision. The overlay is authoritative for profile/pool/
+ * provider resolution; accounts (state/readiness/credentials) and the ECR
+ * stay live so revocations, pauses, and quarantines apply immediately. The
+ * returned revision keeps the live `revision`/`hash` (the base policy the
+ * session started from) while profile-route routing consumes the frozen
+ * targets — a mid-session edit, rename, or removal of the profile/pool/
+ * provider can never silently change an active session's model or execution
+ * target.
+ */
+function applySessionBinding(policy: PolicyRevision, session: LaunchSession): PolicyRevision {
+  const binding = session.binding;
+  const frozenProfile: ProfileRecord = {
+    id: binding.profile.id,
+    name: binding.profile.name,
+    harness: binding.profile.harness,
+    providerId: binding.pool.providerId,
+    poolId: binding.pool.id,
+    modelRoles: binding.profile.modelRoles,
+    capabilityPolicy: binding.profile.capabilityPolicy,
+    launchPolicy: binding.profile.launchPolicy,
+    version: 0,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  };
+  const frozenPool: PoolRecord = {
+    id: binding.pool.id,
+    name: binding.pool.name,
+    providerId: binding.pool.providerId,
+    strategy: binding.pool.strategy as PoolStrategy,
+    affinity: binding.pool.affinity,
+    retryBudget: binding.pool.retryBudget,
+    memberships: binding.pool.memberships.map((membership) => ({ poolId: binding.pool.id, accountId: membership.accountId, pinOrder: undefined })),
+    version: 0,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  };
+  const frozenProvider: ProviderRecord = {
+    id: binding.provider.id,
+    name: binding.provider.name,
+    integrationMode: binding.provider.integrationMode,
+    endpointPolicy: binding.provider.endpointPolicy,
+    capabilityEvidence: undefined,
+    requiredTermsRevision: undefined,
+    provenanceRef: undefined,
+    enabled: binding.provider.enabled,
+    version: 0,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  };
+  const upsert = <T extends { id: string }>(items: readonly T[], frozen: T): readonly T[] => [
+    ...items.filter((item) => item.id !== frozen.id),
+    frozen,
+  ];
+  return Object.freeze({
+    ...policy,
+    snapshot: Object.freeze({
+      ...policy.snapshot,
+      profiles: upsert(policy.snapshot.profiles, frozenProfile),
+      pools: upsert(policy.snapshot.pools, frozenPool),
+      providers: upsert(policy.snapshot.providers, frozenProvider),
+    }),
+  });
 }

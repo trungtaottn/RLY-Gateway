@@ -59,6 +59,42 @@ export type ModelUniverseSnapshot = Readonly<{
 }>;
 
 /**
+ * #J2 contract A: one frozen profile-route binding captured at launch-session
+ * issue time. Profile model roles/policy, the provider→pool execution target
+ * (strategy/retry/affinity/memberships) and the provider config are PINNED so
+ * a mid-session control-plane edit can never silently change the model or
+ * execution target of an active session — the same freeze the projection
+ * universe already had. Account state, credentials and ECR compatibility stay
+ * live (revocations/pauses/quarantine apply immediately).
+ */
+export type SessionPolicySnapshot = Readonly<{
+  profile: Readonly<{
+    id: string;
+    name: string;
+    harness: "claude" | "codex";
+    modelRoles: Readonly<Record<string, string>>;
+    capabilityPolicy: unknown;
+    launchPolicy: unknown;
+  }>;
+  pool: Readonly<{
+    id: string;
+    name: string;
+    providerId: string;
+    strategy: string;
+    retryBudget: number;
+    affinity: unknown;
+    memberships: readonly Readonly<{ accountId: string }>[];
+  }>;
+  provider: Readonly<{
+    id: string;
+    name: string;
+    integrationMode: "direct" | "oauth" | "bridge";
+    endpointPolicy: string | undefined;
+    enabled: boolean;
+  }>;
+}>;
+
+/**
  * Secret-free projected model entry presented to Claude Code discovery.
  * `id` is the user-selection handle; `upstreamModelId` is the exact physical
  * target under `providerName`. Never contains credentials, account identity,

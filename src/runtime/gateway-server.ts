@@ -5,6 +5,7 @@ import type { GatewayConfig } from "../config/schema.js";
 import type { CapabilityRequirement } from "../core/capabilities.js";
 import type { CanonicalRequest } from "../core/canonical-request.js";
 import type { ControlPlaneStore } from "../control-plane/store.js";
+import type { PolicyRevision, ProfileRecord } from "../control-plane/types.js";
 import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { registerLaunchSessionRoutes } from "../profiles/http.js";
@@ -14,7 +15,7 @@ import type { LaunchSessionRegistry } from "../profiles/sessions.js";
 import type { RouteTraceRing } from "../profiles/traces.js";
 import { createDirectRouteResolver, type ResolvedDirectRoute } from "../providers/direct/direct-upstream.js";
 import { directProviderRegistry, type RegistryDocument } from "../registry/model-registry.js";
-import { isProjectionId } from "../routing/model-projection/types.js";
+import { isProjectionId, type SessionPolicySnapshot } from "../routing/model-projection/types.js";
 import { compileModelUniverseSnapshot } from "../routing/model-projection/project.js";
 import { ResponseContinuationStore } from "../protocols/openai-responses/continuation.js";
 import { registerAnthropicMessagesRoute } from "../routes/anthropic-messages-route.js";
@@ -249,21 +250,67 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       // #73: during the update drain phase the old runtime refuses issuance of
       // new launch sessions (existing sessions keep running to completion).
       refuseIssuance,
-      // #72: pin the session's model universe (bindings + revisions) at issue
-      // time so discovery/reverse mapping stay stable for the active session.
-      compileModelUniverse: (profile) => {
+      // #72 + #J2 contract A: pin the session's model universe (bindings +
+      // revisions) AND the profile-route binding (model roles/policy +
+      // provider→pool execution target) at issue time so discovery and
+      // routing stay stable for the active session.
+      compileBinding: (profile) => {
         const policy = controlPlane.currentPolicy();
         const registry = options.modelRegistry ?? directProviderRegistry;
         if (policy === undefined) {
-          return { policyRevision: 0, policyHash: "", registryRevision: registry.registryRevision, bindings: [], experimentalModels: false };
+          return {
+            universe: { policyRevision: 0, policyHash: "", registryRevision: registry.registryRevision, bindings: [], experimentalModels: false },
+            policy: sessionPolicySnapshot(policy, profile),
+          };
         }
-        return compileModelUniverseSnapshot(policy, registry, {
-          profile,
-          experimentalModels: options.config?.gateway.modelDiscovery?.experimentalModels ?? false,
-        });
+        return {
+          universe: compileModelUniverseSnapshot(policy, registry, {
+            profile,
+            experimentalModels: options.config?.gateway.modelDiscovery?.experimentalModels ?? false,
+          }),
+          policy: sessionPolicySnapshot(policy, profile),
+        };
       },
     });
   }
+
+  /**
+   * #J2 contract A: captures the frozen profile-route binding at issue time
+   * from the CURRENT control-plane policy — the profile's model roles and
+   * launch/capability policy, its pool (strategy/retry/affinity/memberships),
+   * and the provider config. Account state, credentials and ECR stay live.
+   * An absent policy yields an empty binding (no resolvable execution target).
+   */
+  const sessionPolicySnapshot = (policy: PolicyRevision | undefined, profile: ProfileRecord): SessionPolicySnapshot => {
+    const pool = policy === undefined ? undefined : policy.snapshot.pools.find((item) => item.id === profile.poolId);
+    const provider = pool === undefined ? undefined : policy?.snapshot.providers.find((item) => item.id === pool.providerId);
+    return Object.freeze({
+      profile: Object.freeze({
+        id: profile.id,
+        name: profile.name,
+        harness: profile.harness,
+        modelRoles: Object.freeze({ ...profile.modelRoles }),
+        capabilityPolicy: profile.capabilityPolicy,
+        launchPolicy: profile.launchPolicy,
+      }),
+      pool: Object.freeze({
+        id: pool?.id ?? "",
+        name: pool?.name ?? "",
+        providerId: pool?.providerId ?? "",
+        strategy: pool?.strategy ?? "fill-first",
+        retryBudget: pool?.retryBudget ?? 0,
+        affinity: pool?.affinity,
+        memberships: Object.freeze((pool?.memberships ?? []).map((membership) => Object.freeze({ accountId: membership.accountId }))),
+      }),
+      provider: Object.freeze({
+        id: provider?.id ?? "",
+        name: provider?.name ?? "",
+        integrationMode: provider?.integrationMode ?? "direct",
+        endpointPolicy: provider?.endpointPolicy,
+        enabled: provider?.enabled ?? false,
+      }),
+    });
+  };
   const authorizeLease = async (
     request: { headers: RequestHeaders; params: { leaseId: string } },
     reply: { code: (status: number) => { send: (payload?: unknown) => unknown } },

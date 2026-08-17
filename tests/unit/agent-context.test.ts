@@ -9,6 +9,11 @@ function session(leaseId = "lease-1") {
     leaseId,
     viewId: "a1b2c3d4e5f60718",
     modelUniverse: { policyRevision: 1, policyHash: "h", registryRevision: 4, bindings: [], experimentalModels: false } as const,
+    binding: {
+      profile: { id: "profile-1", name: "clinepass", harness: "claude" as const, modelRoles: {}, capabilityPolicy: undefined, launchPolicy: undefined },
+      pool: { id: "pool-1", name: "pool", providerId: "prov-1", strategy: "fill-first", retryBudget: 0, affinity: undefined, memberships: [] },
+      provider: { id: "prov-1", name: "cline", integrationMode: "direct" as const, endpointPolicy: undefined, enabled: true },
+    },
   };
 }
 

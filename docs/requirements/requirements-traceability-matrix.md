@@ -604,3 +604,10 @@ When a requirement changes, update its owning document and this matrix in the sa
 | AT-290 / FR-033 / SR-F-038 | `src/protocols/openai-responses/decoder.ts` (`include` carried + fidelity note), `src/core/canonical-request.ts` (`include` field), `src/providers/direct/openai-responses-adapter.ts` (forwarded on first turn), decoder + adapter tests | Verified the first-turn `include` request survives to the provider — never dropped until an artifact existed |
 | AT-291 / FR-033 / SR-F-037 | `src/protocols/openai-responses/decoder.ts` (system message keeps every part), decoder + adapter tests | Verified multi-part system instructions are preserved in full (joined upstream) |
 | AT-292 / FR-022 / SR-F-028 | `tests/lifecycle/lease-manager.test.ts` (fake-timer soak + suspend/resume + post-expiry renew) | Verified renewals keep the lease alive across many TTL windows; a >TTL gap expires it and renew cannot recover (matches the black-box t+15s → 401) |
+
+## Phase J1/J2 executable evidence (discovery UX note + session freeze)
+
+| Acceptance | Evidence | Status |
+| --- | --- | --- |
+| AT-293 / FR-072 / SR-F-035 | `src/routes/anthropic-models-route.ts` (`discoveryNote`), `tests/lifecycle/gateway-models-route.test.ts` (#J1 UX test) | Verified an empty discovery returns the Claude-compatible wire shape PLUS a secret-free `note` (EXPERIMENTAL-without-review vs no-bound-provider + how to unblock); opt-in removes the note |
+| AT-294 / FR-025 / SR-F-027/035 | `src/routing/model-projection/types.ts` (`SessionPolicySnapshot`), `src/profiles/sessions.ts` (`binding`), `src/runtime/gateway-server.ts` (`sessionPolicySnapshot`), `src/profiles/resolve-route.ts` (`applySessionBinding`), `tests/lifecycle/profile-pool-route.test.ts` (#J2 test) | Verified a mid-session profile edit never changes an active session's model (no silent switch, no role-unmapped); a new session sees the change; accounts/ECR stay live |

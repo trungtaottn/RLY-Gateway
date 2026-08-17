@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { ModelUniverseSnapshot } from "../routing/model-projection/types.js";
+import type { ModelUniverseSnapshot, SessionPolicySnapshot } from "../routing/model-projection/types.js";
 import { deriveClaudeViewId } from "../runtime/claude-overlay.js";
 
 export type LaunchSession = Readonly<{
@@ -18,6 +18,14 @@ export type LaunchSession = Readonly<{
    * projection target.
    */
   modelUniverse: ModelUniverseSnapshot;
+  /**
+   * #J2 contract A: the frozen profile-route binding (model roles/policy +
+   * provider→pool execution target) captured at issue time. Profile-route
+   * resolution uses this snapshot instead of the live policy, so a mid-session
+   * control-plane edit never silently changes the model or execution target
+   * of an active session — accounts/credentials/ECR stay live.
+   */
+  binding: SessionPolicySnapshot;
 }>;
 
 function tokenHash(token: string): string {
@@ -30,7 +38,7 @@ export class LaunchSessionRegistry {
 
   public constructor(private readonly leaseActive: (leaseId: string) => boolean = () => true) {}
 
-  public issue(input: Readonly<{ profileId: string; profileName: string; leaseId: string; modelUniverse: ModelUniverseSnapshot }>): string {
+  public issue(input: Readonly<{ profileId: string; profileName: string; leaseId: string; modelUniverse: ModelUniverseSnapshot; binding: SessionPolicySnapshot }>): string {
     if (!this.leaseActive(input.leaseId)) throw new Error("lease-not-active");
     const token = randomBytes(32).toString("base64url");
     this.sessions.set(tokenHash(token), {
@@ -39,6 +47,7 @@ export class LaunchSessionRegistry {
       leaseId: input.leaseId,
       viewId: deriveClaudeViewId(input.profileId),
       modelUniverse: input.modelUniverse,
+      binding: input.binding,
     });
     return token;
   }
