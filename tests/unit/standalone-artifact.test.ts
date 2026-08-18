@@ -508,6 +508,13 @@ describe("pnpm dependency layout preservation (#35)", () => {
 });
 
 describe("standalone artifact CI workflow (#35)", () => {
+  it("consumes an explicit comma-separated target argument exactly once", () => {
+    const builder = readFileSync(join(process.cwd(), "scripts", "standalone", "build-standalone.mjs"), "utf8");
+    expect(builder).toContain("const targets = value();");
+    expect(builder).toContain('targets.split(",")');
+    expect(builder).not.toContain("else options.targets = value().split");
+  });
+
   it("runs on release publication and workflow_dispatch with the release tag as the canonical version input", () => {
     const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "standalone-artifacts.yml"), "utf8");
     expect(workflow).toContain("on:");

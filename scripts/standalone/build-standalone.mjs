@@ -72,10 +72,12 @@ function parseArgs(argv) {
     };
     switch (arg) {
       case "--target": options.targets.push(value()); break;
-      case "--targets":
-        if (value() === "all") options.targets = [...ALL_TARGETS];
-        else options.targets = value().split(",").map((item) => item.trim()).filter(Boolean);
+      case "--targets": {
+        const targets = value();
+        if (targets === "all") options.targets = [...ALL_TARGETS];
+        else options.targets = targets.split(",").map((item) => item.trim()).filter(Boolean);
         break;
+      }
       case "--out": options.out = value(); break;
       case "--build": options.build = true; break;
       case "--download": options.nodeMode = "download"; break;
