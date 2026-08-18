@@ -54,7 +54,7 @@ VERBOSE="${RLY_VERBOSE:-0}"
 # sha256 fingerprint computed by `rly install` verification). The private key
 # is ONLY the repository secret RLY_RELEASE_SIGNING_KEY.
 RELEASE_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA2B/B4lSjIq+glRCQKLlQl/MtKQqXqhr6wHyeqMPuBGo=
+MCowBQYDK2VwAyEAhbLJkqs+JHlKvo53l0Mu+OlnNoh9glFhbyY9i6d9IY0=
 -----END PUBLIC KEY-----
 "
 
