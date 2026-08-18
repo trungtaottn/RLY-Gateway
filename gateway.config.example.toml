@@ -1,0 +1,24 @@
+schemaVersion = 1
+
+[gateway]
+host = "127.0.0.1"
+port = 17871
+managementPort = 17872
+logLevel = "info"
+
+[routes.primary]
+provider = "openrouter"
+model = "replace-with-a-verified-model-id"
+credential = "env:OPENROUTER_API_KEY"
+
+[routes.fast]
+provider = "openrouter"
+model = "replace-with-a-verified-fast-model-id"
+credential = "env:OPENROUTER_API_KEY"
+
+[routes.reasoning]
+provider = "deepseek"
+model = "replace-with-a-verified-reasoning-model-id"
+credential = "env:DEEPSEEK_API_KEY"
+
+# Capabilities are reviewed in the built-in registry, not set in local config.

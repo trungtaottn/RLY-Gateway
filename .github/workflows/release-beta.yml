@@ -1,0 +1,58 @@
+name: Release Beta
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: ${{ github.actor != format('{0}[bot]', vars.RLY_RELEASE_ALIGNMENT_APP_SLUG) }}
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      notes: ${{ steps.release.outputs.notes }}
+      release-url: ${{ steps.release.outputs.release-url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/run-semantic-release.mjs
+  notify:
+    needs: release
+    if: ${{ always() && (needs.release.result == 'failure' || needs.release.outputs.released == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+      - id: slack
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RELEASE_STATUS: ${{ needs.release.result == 'success' && 'success' || 'failure' }}
+          RELEASE_LANE: beta
+          RELEASE_VERSION: ${{ needs.release.outputs.tag || 'not available' }}
+          RELEASE_BRANCH: dev
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_URL: ${{ needs.release.outputs.release-url || 'not available' }}
+          RELEASE_NOTES: ${{ needs.release.outputs.notes || 'Release metadata was unavailable.' }}
+        run: node scripts/send-release-slack-notification.mjs
+      - if: ${{ steps.slack.outcome == 'failure' }}
+        run: echo "::warning::Slack delivery failed after release handling; GitHub Release state was not changed."

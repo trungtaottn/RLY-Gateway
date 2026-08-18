@@ -1,0 +1,286 @@
+import { spawn } from "node:child_process";
+import { rm } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ShutdownController } from "./shutdown-controller.js";
+
+const CLAUDE_BASE_URL_VARIABLE = "ANTHROPIC_BASE_URL";
+const CLAUDE_AUTH_TOKEN_VARIABLE = "ANTHROPIC_AUTH_TOKEN";
+const CLAUDE_CONFIG_DIRECTORY_VARIABLE = "CLAUDE_CONFIG_DIR";
+const CLAUDE_GATEWAY_MODEL_DISCOVERY_VARIABLE = "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY";
+const CODEX_BASE_URL_VARIABLE = "OPENAI_BASE_URL";
+const CODEX_API_KEY_VARIABLE = "OPENAI_API_KEY";
+const CODEX_HOME_VARIABLE = "CODEX_HOME";
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
+
+export type ChildExit = Readonly<{ code: number | null; signal: NodeJS.Signals | null }>;
+
+export type ChildProcessLike = Readonly<{
+  once: {
+    (event: "close", listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
+    (event: "error", listener: (error: Error) => void): unknown;
+  };
+  kill: (signal?: NodeJS.Signals) => boolean;
+}>;
+
+export type ChildSpawner = (
+  executable: string,
+  args: readonly string[],
+  options: Readonly<{ cwd?: string; env: NodeJS.ProcessEnv; stdio: "inherit" }>,
+) => ChildProcessLike;
+
+export type SignalSource = Readonly<{
+  once: (signal: NodeJS.Signals, listener: () => void) => unknown;
+  removeListener: (signal: NodeJS.Signals, listener: () => void) => unknown;
+}>;
+
+export type LaunchClaudeOptions = Readonly<{
+  gatewayBaseUrl: string;
+  authToken: string;
+  args: readonly string[];
+  executable?: string;
+  environment?: Readonly<NodeJS.ProcessEnv>;
+  /**
+   * Durable RLY Claude config overlay directory (see claude-overlay.ts). The
+   * interactive launch contract always supplies this; when omitted the
+   * standalone-API fallback is a throwaway temp directory that is removed on
+   * child exit (historical isolation behavior).
+   */
+  configDirectory?: string;
+  /**
+   * Explicit RLY/profile settings env (#126, launch policy `env` tier): merged
+   * above the parent environment but below the child-only RLY gateway
+   * contract, so an explicit profile setting can never fight the gateway
+   * contract and is never persisted anywhere.
+   */
+  environmentOverrides?: Readonly<Record<string, string>>;
+  cwd?: string;
+  spawner?: ChildSpawner;
+  signalSource?: SignalSource;
+  abortSignal?: AbortSignal;
+  shutdownTimeoutMs?: number;
+}>;
+
+export type LaunchCodexOptions = LaunchClaudeOptions;
+
+/** Claude documents this print-mode flag; do not depend on undocumented state-directory variables. */
+function sessionIsolatedArgs(args: readonly string[]): readonly string[] {
+  const printMode = args.includes("-p") || args.includes("--print");
+  return printMode && !args.includes("--no-session-persistence")
+    ? [...args, "--no-session-persistence"]
+    : args;
+}
+
+function spawnChild(
+  executable: string,
+  args: readonly string[],
+  options: Readonly<{ cwd?: string; env: NodeJS.ProcessEnv; stdio: "inherit" }>,
+): ChildProcessLike {
+  return spawn(executable, args, options);
+}
+
+function waitForChildExit(child: ChildProcessLike): Promise<ChildExit> {
+  return new Promise((resolve, reject) => {
+    const onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+      resolve({ code, signal });
+    };
+    const onError = (error: Error): void => {
+      reject(error);
+    };
+    child.once("close", onClose);
+    child.once("error", onError);
+  });
+}
+
+function overlayChildEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+  assignments: NodeJS.ProcessEnv,
+  remove: string,
+): NodeJS.ProcessEnv {
+  const childEnvironment: NodeJS.ProcessEnv = { ...environment, ...assignments };
+  return Object.fromEntries(Object.entries(childEnvironment).filter(([key]) => key !== remove));
+}
+
+/**
+ * Creates a child-only Claude environment without mutating the parent process.
+ * `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` is child-only (#72): the
+ * gateway exposes `GET /v1/models`, so RLY-launched Claude sessions query the
+ * RLY gateway for their model universe instead of the Anthropic API.
+ *
+ * Merge order (high → low): child-only gateway contract, explicit profile
+ * settings env (`explicitEnv`), parent environment.
+ */
+export function createClaudeChildEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+  gatewayBaseUrl: string,
+  authToken: string,
+  configDirectory?: string,
+  explicitEnv?: Readonly<Record<string, string>>,
+): NodeJS.ProcessEnv {
+  return overlayChildEnvironment(
+    environment,
+    {
+      ...(explicitEnv ?? {}),
+      [CLAUDE_BASE_URL_VARIABLE]: gatewayBaseUrl,
+      [CLAUDE_AUTH_TOKEN_VARIABLE]: authToken,
+      [CLAUDE_GATEWAY_MODEL_DISCOVERY_VARIABLE]: "1",
+      ...(configDirectory === undefined ? {} : { [CLAUDE_CONFIG_DIRECTORY_VARIABLE]: configDirectory }),
+    },
+    "ANTHROPIC_API_KEY",
+  );
+}
+
+/** Creates a child-only Codex environment without mutating the parent process. */
+export function createCodexChildEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+  gatewayBaseUrl: string,
+  authToken: string,
+  homeDirectory?: string,
+  explicitEnv?: Readonly<Record<string, string>>,
+): NodeJS.ProcessEnv {
+  return overlayChildEnvironment(
+    environment,
+    {
+      ...(explicitEnv ?? {}),
+      [CODEX_BASE_URL_VARIABLE]: gatewayBaseUrl,
+      [CODEX_API_KEY_VARIABLE]: authToken,
+      ...(homeDirectory === undefined ? {} : { [CODEX_HOME_VARIABLE]: homeDirectory }),
+    },
+    "CODEX_API_KEY",
+  );
+}
+
+function installSignalForwarding(
+  source: SignalSource,
+  controller: ShutdownController,
+  completion: Promise<unknown>,
+  setStopSignal: (signal: NodeJS.Signals) => void,
+): () => void {
+  const signals: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+  const listeners = signals.map((signal) => ({
+    signal,
+    listener: (): void => {
+      setStopSignal(signal);
+      void controller.shutdown(completion);
+    },
+  }));
+  for (const { signal, listener } of listeners) source.once(signal, listener);
+  return (): void => {
+    for (const { signal, listener } of listeners) source.removeListener(signal, listener);
+  };
+}
+
+async function launchChild(
+  options: LaunchClaudeOptions,
+  executable: string,
+  environment: NodeJS.ProcessEnv,
+  args: readonly string[],
+  cleanup: () => Promise<void>,
+): Promise<ChildExit> {
+  let child: ChildProcessLike;
+  try {
+    child = (options.spawner ?? spawnChild)(executable, args, {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      env: environment,
+      stdio: "inherit",
+    });
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+  const exit = waitForChildExit(child);
+  let stopSignal: NodeJS.Signals = "SIGTERM";
+  const controller = new ShutdownController({
+    timeoutMs: options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    requestStop: () => { child.kill(stopSignal); },
+    forceStop: () => { child.kill("SIGKILL"); },
+  });
+  const removeSignalForwarding = installSignalForwarding(
+    options.signalSource ?? process,
+    controller,
+    exit,
+    (signal) => { stopSignal = signal; },
+  );
+  const cancel = (): void => { void controller.shutdown(exit); };
+  options.abortSignal?.addEventListener("abort", cancel, { once: true });
+  try {
+    if (options.abortSignal?.aborted) cancel();
+    return await exit;
+  } finally {
+    removeSignalForwarding();
+    options.abortSignal?.removeEventListener("abort", cancel);
+    await cleanup();
+  }
+}
+
+async function launchWithTempDirectory(
+  options: LaunchClaudeOptions,
+  prefix: string,
+  defaultExecutable: string,
+  createEnvironment: (
+    environment: Readonly<NodeJS.ProcessEnv>,
+    gatewayBaseUrl: string,
+    authToken: string,
+    configDirectory: string,
+    explicitEnv?: Readonly<Record<string, string>>,
+  ) => NodeJS.ProcessEnv,
+  args: readonly string[],
+): Promise<ChildExit> {
+  const configDirectory = mkdtempSync(join(tmpdir(), prefix));
+  return launchChild(
+    options,
+    options.executable ?? defaultExecutable,
+    createEnvironment(
+      options.environment ?? process["env"],
+      options.gatewayBaseUrl,
+      options.authToken,
+      configDirectory,
+      options.environmentOverrides,
+    ),
+    args,
+    () => rm(configDirectory, { recursive: true, force: true }),
+  );
+}
+
+/**
+ * Runs Claude in the foreground with gateway configuration scoped solely to
+ * the child. The interactive launch contract passes a durable RLY overlay via
+ * `configDirectory`; without it the standalone-API fallback is a throwaway
+ * temp directory (historical isolation behavior).
+ */
+export async function launchClaude(options: LaunchClaudeOptions): Promise<ChildExit> {
+  if (options.configDirectory !== undefined) {
+    return launchChild(
+      options,
+      options.executable ?? "claude",
+      createClaudeChildEnvironment(
+        options.environment ?? process["env"],
+        options.gatewayBaseUrl,
+        options.authToken,
+        options.configDirectory,
+        options.environmentOverrides,
+      ),
+      sessionIsolatedArgs(options.args),
+      () => Promise.resolve(),
+    );
+  }
+  return launchWithTempDirectory(
+    options,
+    "rly-gateway-claude-",
+    "claude",
+    createClaudeChildEnvironment,
+    sessionIsolatedArgs(options.args),
+  );
+}
+
+/** Runs Codex in the foreground with gateway configuration scoped solely to the child. */
+export async function launchCodex(options: LaunchCodexOptions): Promise<ChildExit> {
+  return launchWithTempDirectory(
+    options,
+    "rly-gateway-codex-",
+    "codex",
+    createCodexChildEnvironment,
+    options.args,
+  );
+}

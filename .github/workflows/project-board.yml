@@ -1,0 +1,32 @@
+name: Rly Gateway Backlog
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Issue URL to sync
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add item and set Status
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          chmod +x scripts/sync-project-board.sh
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            url="${{ inputs.url }}"
+          else
+            url="${{ github.event.issue.html_url }}"
+          fi
+          scripts/sync-project-board.sh "$url"

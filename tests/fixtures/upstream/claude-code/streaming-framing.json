@@ -1,0 +1,12 @@
+{
+  "schema": "rly-gateway/claude-code-streaming-framing/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "claude-code-2.1.229",
+  "purpose": "Pins the streaming event framing the Anthropic Messages gateway must produce for the supported baseline (#24 gate A2).",
+  "eventOrder": ["message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"],
+  "notes": [
+    "content_block_delta carries text_delta / thinking_delta / input_json_delta deltas.",
+    "message_delta carries usage and the final stop_reason; message_stop terminates the stream.",
+    "Event sequence and request provenance must be monotonic and consistent; client abort propagates to the upstream signal."
+  ]
+}

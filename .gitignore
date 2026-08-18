@@ -1,0 +1,33 @@
+node_modules/
+dist/
+out/
+coverage/
+.DS_Store
+*.log
+*.tsbuildinfo
+.rly/
+# Legacy state remains private until every existing installation has migrated.
+.agent-gateway/
+.[e]nv*
+*.local.toml
+gateway.config.toml
+gateway.live.toml
+.*local*
+
+# Local execution plans
+plans
+
+# Private project authority and agent instructions stay local-only.
+/docs/
+/AGENTS.md
+/CLAUDE.md
+
+# Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Release signing private keys are secrets — never commit.
+signing-private-key.pem
+**/signing-private-key.pem

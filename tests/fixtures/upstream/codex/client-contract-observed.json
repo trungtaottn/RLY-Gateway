@@ -1,0 +1,16 @@
+{
+  "schema": "rly-gateway/codex-cli-observed/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "codex-cli-observed",
+  "observedVersion": "0.147.0-alpha.6.5",
+  "client": "codex-cli",
+  "fixtureRevision": "codex-cli-observed-contract-v1",
+  "purpose": "Observed (NOT tested) Codex CLI contract. Codex CLI is an explicit `rly run codex` escape hatch through the OpenAI Responses boundary; it becomes a tested baseline only after the Codex E2E gate passes (#24). Observed versions are never auto-supported.",
+  "boundary": {
+    "launch": { "baseUrlEnv": "OPENAI_BASE_URL", "apiKeyEnv": "OPENAI_API_KEY", "homeEnv": "CODEX_HOME" },
+    "protocol": "openai-responses",
+    "events": ["response.created", "response.in_progress", "response.output_item.added", "response.output_text.delta", "response.output_item.done", "response.completed"],
+    "cancellationPropagates": true
+  },
+  "note": "RLY pins only the OpenAI Responses boundary it ships. A newly installed Codex version reports unknown/not-tested until the fake-upstream E2E and any live gate pass; binary presence is found, never compatible."
+}

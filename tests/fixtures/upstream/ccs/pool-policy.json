@@ -1,0 +1,24 @@
+{
+  "artifactId": "ccs-8.9.0",
+  "kind": "pool-policy-shape",
+  "strategies": ["round-robin", "fill-first"],
+  "sessionAffinity": {
+    "enabled": false,
+    "ttlSeconds": 0
+  },
+  "cooling": {
+    "enabled": true,
+    "reasonClass": "quota-or-error"
+  },
+  "retry": {
+    "budget": 1,
+    "allowedAfterFirstByte": false,
+    "allowedAfterToolEvent": false
+  },
+  "eligibility": [
+    "not-paused",
+    "auth-ready",
+    "not-cooling",
+    "capability-compatible"
+  ]
+}

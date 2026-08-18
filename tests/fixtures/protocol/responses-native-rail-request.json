@@ -1,0 +1,32 @@
+{
+  "purpose": "Conformance corpus fixture (#121): exact outbound wire semantics of the native Responses rail for a multi-turn continuation request — previous_response_id forwarded, reasoning encrypted-content artifact preserved from the fidelity envelope, include[] requested, tools and ordered tool/reasoning input items reconstructed without flattening. All values synthetic.",
+  "protocol": "openai-responses",
+  "rail": "native",
+  "scenario": "continuation-request",
+  "canonicalRequest": {
+    "requestedModel": "fixture-model",
+    "continuation": { "previousResponseId": "resp_prev" },
+    "messages": [
+      { "role": "assistant", "content": [{ "type": "reasoning", "id": "rs_prev", "text": "redacted fixture summary" }] },
+      { "role": "assistant", "content": [{ "type": "tool-call", "id": "call_prev", "name": "fixture_tool", "input": { "value": 1 } }] },
+      { "role": "user", "content": [{ "type": "tool-result", "toolCallId": "call_prev", "content": [{ "type": "text", "text": "fixture result" }], "isError": false }] }
+    ],
+    "tools": [{ "name": "fixture_tool", "inputSchema": { "type": "object" } }],
+    "stream": true
+  },
+  "fidelityArtifacts": [
+    { "kind": "openai-reasoning-encrypted-content", "association": "rs_prev", "value": "synthetic-encrypted-prev" }
+  ],
+  "expectedOutboundBody": {
+    "model": "fixture-model",
+    "input": [
+      { "type": "reasoning", "id": "rs_prev", "summary": [{ "type": "summary_text", "text": "redacted fixture summary" }], "encrypted_content": "synthetic-encrypted-prev" },
+      { "type": "function_call", "call_id": "call_prev", "name": "fixture_tool", "arguments": "{\"value\":1}" },
+      { "type": "function_call_output", "call_id": "call_prev", "output": "fixture result" }
+    ],
+    "tools": [{ "type": "function", "name": "fixture_tool", "parameters": { "type": "object" } }],
+    "stream": false,
+    "previous_response_id": "resp_prev",
+    "include": ["reasoning.encrypted_content"]
+  }
+}

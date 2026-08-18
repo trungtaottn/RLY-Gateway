@@ -1,0 +1,17 @@
+{
+  "artifactId": "claude-proxy-6c21df81",
+  "kind": "helper-role-remap",
+  "profileRoles": {
+    "primary": "fixture-provider:fixture-primary",
+    "fast": "fixture-provider:fixture-fast",
+    "reasoning": "fixture-provider:fixture-reasoning"
+  },
+  "shortcutShape": {
+    "alias": "fast",
+    "resolved": "fixture-provider:fixture-fast"
+  },
+  "invariants": [
+    "helper-stays-in-selected-profile",
+    "no-silent-provider-substitution"
+  ]
+}
