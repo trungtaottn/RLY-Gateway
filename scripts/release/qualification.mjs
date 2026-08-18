@@ -51,6 +51,39 @@ export const QUALIFICATION_GATES = Object.freeze([
 /** Gates that MUST pass for a target to be stable-qualified. */
 export const REQUIRED_GATES_FOR_STABLE = Object.freeze(QUALIFICATION_GATES.map((gate) => gate.id));
 
+/** Stable publication requires one qualification record for every artifact target, and no extras. */
+export function qualificationTargetSetErrors(artifactTargets, qualification) {
+  const expected = [...new Set(artifactTargets)].sort();
+  const actual = Object.keys(qualification?.targets ?? {}).sort();
+  const missing = expected.filter((target) => !actual.includes(target));
+  const extra = actual.filter((target) => !expected.includes(target));
+  const errors = [];
+  if (missing.length > 0) errors.push(`artifact targets missing qualification evidence: ${missing.join(", ")}`);
+  if (extra.length > 0) errors.push(`qualification targets missing from release artifacts: ${extra.join(", ")}`);
+  return errors;
+}
+
+/** Binds Stable qualification evidence to the exact release identity and artifact bytes. */
+export function qualificationArtifactBindingErrors(artifacts, qualification, { releaseVersion, channel }) {
+  const errors = [];
+  for (const artifact of artifacts) {
+    const record = qualification?.targets?.[artifact.target];
+    if (record === undefined) continue;
+    const checks = [
+      ["releaseVersion", record.releaseVersion, releaseVersion],
+      ["channel", record.channel, channel],
+      ["target", record.target, artifact.target],
+      ["qualifiedBytes.filename", record.qualifiedBytes?.filename, artifact.filename],
+      ["qualifiedBytes.sha256", record.qualifiedBytes?.sha256, artifact.sha256],
+      ["qualifiedBytes.artifactDigest", record.qualifiedBytes?.artifactDigest, artifact.artifactDigest],
+    ];
+    for (const [field, actual, expected] of checks) {
+      if (actual !== expected) errors.push(`${artifact.target} ${field} ${actual ?? "(missing)"} != ${expected}`);
+    }
+  }
+  return errors;
+}
+
 /** Builds one gate result. `status` is passed|failed|skipped (never empty). */
 export function gateResult(id, status, { detail = "", command = "" } = {}) {
   const gate = QUALIFICATION_GATES.find((entry) => entry.id === id);
@@ -306,9 +339,24 @@ export async function runQualificationGates({
     } else {
       const home = controlPlaneHome ?? join(artifactRoot, "..", ".qualify-home");
       await mkdir(home, { recursive: true });
+      const environment = process["env"];
+      const hostServiceManagerFlag = "RLY_QUALIFICATION_" + "USE_HOST_SERVICE_MANAGER";
+      const useHostServiceManager = environment[hostServiceManagerFlag] === "1";
       const result = executor(join(artifactRoot, "rly"), ["init", "--config", join(repoRoot, "gateway.config.example.toml")], {
         cwd: home,
-        env: { HOME: home, RLY_BUNDLED_NODE: "1", XDG_CONFIG_HOME: join(home, ".config") },
+        env: {
+          HOME: home,
+          RLY_BUNDLED_NODE: "1",
+          XDG_CONFIG_HOME: useHostServiceManager && environment["XDG_CONFIG_HOME"] !== undefined
+            ? environment["XDG_CONFIG_HOME"]
+            : join(home, ".config"),
+          ...(useHostServiceManager && environment["XDG_RUNTIME_DIR"] !== undefined
+            ? { XDG_RUNTIME_DIR: environment["XDG_RUNTIME_DIR"] }
+            : {}),
+          ...(useHostServiceManager && environment["DBUS_SESSION_BUS_ADDRESS"] !== undefined
+            ? { DBUS_SESSION_BUS_ADDRESS: environment["DBUS_SESSION_BUS_ADDRESS"] }
+            : {}),
+        },
         allowFailure: true,
       });
       gates.push(gateResult("init-service-registration", result.ok ? "passed" : "skipped", {

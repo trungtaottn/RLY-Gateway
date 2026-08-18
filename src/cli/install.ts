@@ -267,7 +267,9 @@ export async function firstInstall(
   // The durable default config (schema defaults + the durable control-plane
   // directory) so `rly config` works from any working directory afterwards.
   const config = gatewayConfigSchema.parse({ schemaVersion: 1, gateway: {}, controlPlane: { dataDirectory: options.controlPlaneDirectory } });
-  await writeFile(durableConfigPath, `${stringify(config)}\n`, { mode: 0o600 });
+  if (!(await isReadable(durableConfigPath))) {
+    await writeFile(durableConfigPath, `${stringify(config)}\n`, { mode: 0o600 });
+  }
   // An explicit `--config` is honored only when the file actually exists
   // (operator/dev path); a clean first install always uses the durable config.
   const explicitConfigPath = resolve(options.configPath);
@@ -385,8 +387,14 @@ export async function runInstallCommand(
   }
 
   const existing = await readInstallation(controlPlaneDirectory);
-  if (existing === undefined) {
-    const result = await firstInstall({ home, controlPlaneDirectory, candidate, configPath: options.configPath }, dependencies);
+  const activeTarget = await readPrivateSymlinkTarget(join(controlPlaneDirectory, "runtime", "refs", "active")).catch(() => undefined);
+  if (existing === undefined || activeTarget === undefined) {
+    const result = await firstInstall({
+      home,
+      controlPlaneDirectory,
+      candidate,
+      configPath: existing?.configPath ?? options.configPath,
+    }, dependencies);
     if (result.code !== 0) {
       console.log(JSON.stringify({ ok: false, error: "the per-user service could not be registered; inspect the service log" }));
       return result.code;
@@ -434,4 +442,3 @@ export async function runInstallCommand(
   }));
   return 0;
 }
-

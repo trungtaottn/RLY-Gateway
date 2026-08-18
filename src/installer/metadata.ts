@@ -32,7 +32,7 @@ export const RELEASE_MANIFEST_FILENAME = "rly-release.json";
 /**
  * Deterministic monotonic counter for a release version on a channel
  * (mirror of `channelVersionFor`): beta `1.0.0-beta.<n>` → n, stable
- * `1.0.<n>` → n. Returns null when the version is not a valid version for
+ * SemVer → a monotonic rank. Returns null when the version is not valid for
  * that channel.
  */
 export function channelVersionFor(releaseVersion: string, channel: ReleaseChannel): number | null {
@@ -40,8 +40,13 @@ export function channelVersionFor(releaseVersion: string, channel: ReleaseChanne
     const match = /^\d+\.\d+\.\d+-beta\.(\d+)$/.exec(releaseVersion);
     return match === null ? null : Number(match[1]);
   }
-  const match = /^1\.0\.(\d+)$/.exec(releaseVersion);
-  return match === null ? null : Number(match[1]);
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(releaseVersion);
+  if (match === null) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (major > 999 || minor > 999 || patch > 999) return null;
+  return (major * 1_000_000) + (minor * 1_000) + patch;
 }
 
 /** The git tag for a release version (release tags are prefixed `v`). */

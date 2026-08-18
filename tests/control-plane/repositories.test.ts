@@ -26,7 +26,7 @@ describe("control-plane repositories", () => {
         name: "codex",
         integrationMode: "oauth",
         requiredTermsRevision: "terms-1",
-        provenanceRef: "docs/provenance.md",
+        provenanceRef: "provenance/artifacts.json",
       }, "cli");
       const account = store.createAccount({
         pseudonym: "acct-001",

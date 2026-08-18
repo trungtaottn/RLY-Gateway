@@ -92,6 +92,7 @@ describe("rly uninstall CLI (#129)", () => {
     await expect(lstat(join(controlPlane, "runtime"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(lstat(join(controlPlane, "installer"))).rejects.toMatchObject({ code: "ENOENT" });
     // Durable user data preserved.
+    await expect(lstat(join(controlPlane, "installation.json"))).resolves.toBeDefined();
     await expect(lstat(join(controlPlane, "credentials"))).resolves.toBeDefined();
     await expect(lstat(join(controlPlane, "control-plane.sqlite"))).resolves.toBeDefined();
     const payload = JSON.parse(String(output.mock.calls.at(-1)?.[0])) as { preserved: string; service: { unregistered: boolean } };

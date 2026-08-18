@@ -17,6 +17,8 @@ import {
 
 export type SystemdUserOptions = Readonly<{
   home?: string;
+  /** XDG config root; defaults to XDG_CONFIG_HOME, then ~/.config. */
+  configHome?: string;
   serviceName?: string;
   runner?: ServiceCommandRunner;
   logPath?: string;
@@ -71,6 +73,7 @@ export class SystemdUserAdapter implements ServiceManagerAdapter {
   readonly platform: ServicePlatform = "linux";
   readonly serviceName: string;
   readonly #home: string;
+  readonly #configHome: string;
   readonly #runner: ServiceCommandRunner;
   readonly #logPath: string | undefined;
   readonly #workingDirectory: string | undefined;
@@ -78,13 +81,14 @@ export class SystemdUserAdapter implements ServiceManagerAdapter {
   public constructor(options: SystemdUserOptions = {}) {
     this.serviceName = options.serviceName ?? RLY_SERVICE_NAME;
     this.#home = options.home ?? homedir();
+    this.#configHome = options.configHome ?? process["env"]["XDG_CONFIG_HOME"] ?? join(this.#home, ".config");
     this.#runner = options.runner ?? defaultServiceCommandRunner;
     this.#logPath = options.logPath;
     this.#workingDirectory = options.workingDirectory;
   }
 
   get #unitDirectory(): string {
-    return join(this.#home, ".config", "systemd", "user");
+    return join(this.#configHome, "systemd", "user");
   }
 
   get #unitPath(): string {

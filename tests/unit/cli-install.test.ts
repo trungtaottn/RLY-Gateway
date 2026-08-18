@@ -1,12 +1,14 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseInstallArgs, runInstallCommand } from "../../src/cli/install.js";
+import { runUninstallCommand } from "../../src/cli/uninstall.js";
 import { DEFAULT_ORIGIN } from "../../src/installer/metadata.js";
 import { writeInstallation } from "../../src/storage/installation.js";
 import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
 import type { VerifiedCandidate } from "../../src/installer/types.js";
+import type { ServiceManagerAdapter } from "../../src/service-manager/types.js";
 
 const directories: string[] = [];
 
@@ -108,6 +110,59 @@ describe("rly install CLI (#129)", () => {
     const { readFile } = await import("node:fs/promises");
     const configText = await readFile(join(homeDir, ".rly", "gateway.config.toml"), "utf8");
     expect(configText).toContain("dataDirectory");
+  });
+
+  it("completes the documented beta reset without overwriting config or credentials", async () => {
+    const homeDir = await directory("rly-home-");
+    const controlPlane = join(homeDir, ".rly");
+    const externalConfig = join(homeDir, "config", "gateway.config.toml");
+    const configText = "schemaVersion = 1\n[gateway]\nport = 18765\n";
+    await mkdir(join(homeDir, "config"), { recursive: true });
+    await writeFile(externalConfig, configText, { mode: 0o600 });
+    await mkdir(join(controlPlane, "credentials"), { recursive: true });
+    const credentialPath = join(controlPlane, "credentials", "account-1.json");
+    await writeFile(credentialPath, "{\"secret\":\"preserved\"}\n", { mode: 0o600 });
+    await writeInstallation(controlPlane, {
+      schemaVersion: 1,
+      version: RUNTIME_VERSION,
+      configPath: externalConfig,
+      platform: "linux",
+      serviceName: "rly-gateway",
+      registeredAt: new Date().toISOString(),
+    });
+    const installationPath = join(controlPlane, "installation.json");
+    const savedInstallation = await readFile(installationPath, "utf8");
+    const serviceManager: ServiceManagerAdapter = {
+      platform: "linux",
+      serviceName: "rly-gateway",
+      isSupported: () => true,
+      isRegistered: () => Promise.resolve(true),
+      register: () => Promise.resolve(undefined),
+      unregister: () => Promise.resolve(undefined),
+      start: () => Promise.resolve(undefined),
+      restart: () => Promise.resolve(undefined),
+      stop: () => Promise.resolve(undefined),
+      status: () => Promise.resolve("stopped"),
+    };
+    expect(await runUninstallCommand(
+      { configPath: externalConfig, purge: false, yes: false, home: homeDir },
+      { createServiceManager: () => serviceManager },
+    )).toBe(0);
+    // Old beta uninstallers removed this record. The documented reset backs
+    // it up before uninstall and restores it before running the new bootstrap.
+    await unlink(installationPath);
+    await writeFile(installationPath, savedInstallation, { mode: 0o600 });
+    const output = vi.fn();
+    vi.spyOn(console, "log").mockImplementation(output);
+    const runInit = vi.fn().mockResolvedValue(0);
+    const code = await runInstallCommand(
+      { configPath: "/ignored/gateway.config.toml", channel: "stable", channelExplicit: true, origin: DEFAULT_ORIGIN, home: homeDir },
+      { acquire: vi.fn().mockResolvedValue({ ...candidate("0.1.0"), channel: "stable" }), runInit },
+    );
+    expect(code).toBe(0);
+    expect(runInit).toHaveBeenCalledWith(externalConfig, expect.objectContaining({ home: homeDir }));
+    await expect(readFile(externalConfig, "utf8")).resolves.toBe(configText);
+    await expect(readFile(credentialPath, "utf8")).resolves.toContain("preserved");
   });
 
   it("repairs an existing installation idempotently and reports an update handoff", async () => {

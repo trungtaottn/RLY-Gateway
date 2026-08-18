@@ -35,7 +35,7 @@ on:
         required: false
         type: string
       targets:
-        description: "Comma-separated targets; empty = all (darwin-arm64,darwin-x64,linux-x64,linux-arm64)"
+        description: "Comma-separated targets; empty = linux-x64 for Stable, all experimental targets for Beta"
         required: false
         type: string
       channel:
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-          ref: ${{ github.event.release && github.event.release.target_commitish || github.ref }}
+          ref: ${{ github.event.release && github.event.release.tag_name || github.ref }}
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 11.16.0
@@ -84,9 +84,21 @@ jobs:
         env:
           RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RLY_RELEASE_CHANNEL: ${{ steps.version.outputs.channel }}
-          TARGETS: ${{ inputs.targets || '' }}
+          INPUT_TARGETS: ${{ inputs.targets || '' }}
         run: |
-          ARGS=(--build --targets "${TARGETS:-all}")
+          TARGETS="${INPUT_TARGETS:-}"
+          if [ -z "${TARGETS}" ]; then
+            if [ "${RLY_RELEASE_CHANNEL}" = "stable" ]; then
+              TARGETS="linux-x64"
+            else
+              TARGETS="all"
+            fi
+          fi
+          if [ "${RLY_RELEASE_CHANNEL}" = "stable" ] && [ "${TARGETS}" != "linux-x64" ]; then
+            echo "Stable publication on ubuntu-latest is restricted to the qualified linux-x64 target; requested: ${TARGETS}" >&2
+            exit 1
+          fi
+          ARGS=(--build --targets "${TARGETS}")
           node scripts/standalone/build-standalone.mjs "${ARGS[@]}"
       - name: Verify artifact matrix (allowlist, identity, digest, smoke from unpacked tarball)
         env:
@@ -102,6 +114,28 @@ jobs:
             tar -xzf "$tarball" -C "$TMP/$target_dir"
             node scripts/standalone/verify-artifact.mjs --artifact "$TMP/$target_dir" --expected-version "${VERSION}" --smoke
           done
+      - name: Sign exact artifact bytes before qualification
+        env:
+          RLY_RELEASE_SIGNING_KEY: ${{ secrets.RLY_RELEASE_SIGNING_KEY }}
+        run: |
+          node scripts/release/sign-artifacts.mjs \
+            --release-dir out/standalone \
+            --signing-key env:RLY_RELEASE_SIGNING_KEY
+      - name: Provision the user service manager for Stable qualification
+        if: ${{ steps.version.outputs.channel == 'stable' }}
+        run: |
+          set -euo pipefail
+          USER_ID="$(id -u)"
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@${USER_ID}.service"
+          mkdir -p "$HOME/.config/systemd/user"
+          echo "XDG_CONFIG_HOME=$HOME/.config" >> "$GITHUB_ENV"
+          echo "XDG_RUNTIME_DIR=/run/user/${USER_ID}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${USER_ID}/bus" >> "$GITHUB_ENV"
+          echo "RLY_QUALIFICATION_USE_HOST_SERVICE_MANAGER=1" >> "$GITHUB_ENV"
+          XDG_RUNTIME_DIR="/run/user/${USER_ID}" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${USER_ID}/bus" \
+            systemctl --user show-environment >/dev/null
       - name: Qualify exact artifact bytes (supported CI target)
         env:
           RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -118,6 +152,13 @@ jobs:
             target="${target_dir#rly-${VERSION}-}"
             node scripts/release/qualify.mjs --release-dir out/standalone --target "${target}" --version "${VERSION}" --channel "${CHANNEL}"
           done
+      - name: Clean up the qualification service manager state
+        if: ${{ always() && steps.version.outputs.channel == 'stable' }}
+        run: |
+          systemctl --user disable --now rly-gateway.service || true
+          rm -f "$HOME/.config/systemd/user/rly-gateway.service"
+          systemctl --user daemon-reload || true
+          sudo loginctl disable-linger "$USER" || true
       - name: Publish signed release supply chain (manifest, SBOM, provenance, signatures, channel metadata)
         env:
           RLY_RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -158,4 +199,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/*.sig out/standalone/*.sbom.json out/standalone/rly-release.json out/standalone/rly-release.json.sig out/standalone/rly-provenance.json out/standalone/rly-provenance.json.sig out/standalone/rly-channel-*.json out/standalone/rly-channel-*.json.sig out/standalone/rly-qualification.json out/standalone/artifacts.json --clobber
+          gh release upload "$RELEASE_TAG" scripts/install.sh out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/*.sig out/standalone/*.sbom.json out/standalone/rly-release.json out/standalone/rly-release.json.sig out/standalone/rly-provenance.json out/standalone/rly-provenance.json.sig out/standalone/rly-channel-*.json out/standalone/rly-channel-*.json.sig out/standalone/rly-qualification.json out/standalone/artifacts.json --clobber

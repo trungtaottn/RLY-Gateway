@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { readInstallation, INSTALLATION_FILE_NAME } from "../storage/installation.js";
+import { readInstallation } from "../storage/installation.js";
 import { RLY_STATE_DIRECTORY_NAME, LOG_DIRECTORY, SERVICE_LOG_NAME } from "../storage/paths.js";
 import { createServiceManager } from "../service-manager/index.js";
 import { bootstrapDirectory } from "../runtime/bootstrap.js";
@@ -17,7 +17,9 @@ import { readPrivateSymlinkTarget, removePrivateSymlinkIfPresent } from "../stor
  *
  * Default: stop/disable/remove the RLY-owned launchd/systemd definition, then
  * remove the installed executable/bootstrap artifacts (`bootstrap/`,
- * `runtime/`, `installer/`, installation + update state) inside the RLY home.
+ * `runtime/`, `installer/`, update state) inside the RLY home. The secret-free
+ * installation record is retained so a fresh trusted installer can recover an
+ * internal or external config path without guessing or overwriting it.
  *
  * `--purge --yes`: explicit destructive removal of the ENTIRE RLY control
  * plane (`~/.rly` by default). Unambiguous intent is required (`--purge`
@@ -94,7 +96,6 @@ export function installArtifactPaths(controlPlaneDirectory: string): ReadonlyArr
     { path: bootstrapDirectory(controlPlaneDirectory), kind: "bootstrap" },
     { path: join(controlPlaneDirectory, "runtime"), kind: "runtime-store" },
     { path: join(controlPlaneDirectory, INSTALLER_STATE_DIRECTORY), kind: "installer-state" },
-    { path: join(controlPlaneDirectory, INSTALLATION_FILE_NAME), kind: "installation-record" },
     { path: join(controlPlaneDirectory, UPDATE_STATE_FILE_NAME), kind: "update-state" },
     { path: join(controlPlaneDirectory, UPDATE_LOCK_FILE_NAME), kind: "update-lock" },
   ];

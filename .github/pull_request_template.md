@@ -1,39 +1,37 @@
-## Summary
+## Outcome
 
-<!-- User-visible outcome and why this issue needs it. 1–3 sentences. -->
+<!-- Describe the user-visible or maintainer-visible result in 1–3 sentences. -->
 
 Closes #
 
 ## Changes
 
-- <!-- concern → owning paths; group by concern, not by file -->
+- <!-- Group changes by concern. -->
 
-## Requirements
+## Verification
 
-<!-- FR/SR/AT IDs touched, or "none" after checking docs/requirements/. -->
+- [ ] Focused tests: `command` — result
+- [ ] `pnpm verify` — result, or explain why it could not run
+- [ ] User-facing flow exercised when behavior changed
 
-- none
+## Compatibility
 
-## Testing and evidence
-
-- <!-- exact command + closing result; skipped/unavailable ≠ pass -->
+- Clients/providers/models affected:
+- Streaming, tools, reasoning, usage, errors, and stop behavior checked:
+- Configuration or migration impact:
 
 ## Security and privacy
 
-<!-- Required when credentials, sessions, logs, fixtures, or redaction paths changed. Otherwise "none". -->
+- [ ] No credentials, identities, prompts, responses, or machine-local paths added
+- [ ] Logs, traces, fixtures, and management DTOs remain secret-free
+- [ ] Credential, listener, session, or update trust boundaries are unchanged, or reviewed below
 
-- none
+## Documentation and release impact
 
-## Breaking changes / migration
-
-<!-- Public contracts, schemas, config, or CLI. Write "none" only after checking. -->
-
-- none
-
-## Out of scope / follow-ups
-
-<!-- Leftover work and the issue that owns it. Delete if none. -->
+- Public README or community guidance updated: yes / no / not needed
+- Breaking change: yes / no
+- Release note:
 
 ## Review notes
 
-<!-- Risky spots and how to verify them. Delete if none. -->
+<!-- Call out risky code, residual gaps, or exact manual verification. -->

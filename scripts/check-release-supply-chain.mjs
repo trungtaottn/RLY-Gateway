@@ -11,7 +11,7 @@
 //   - the standalone artifact workflow runs exact-byte qualification, the
 //     signed publish step, and the release verifier;
 //   - no private signing key material is tracked;
-//   - release/supply-chain/installation docs identify exact-byte
+//   - the public release surface identifies exact-byte
 //     qualification as the publication authority.
 //
 // Run as part of `pnpm test:release` (the release gate).
@@ -82,8 +82,11 @@ async function main() {
   }
 
   const standalone = await readFile(join(ROOT, ".github", "workflows", "standalone-artifacts.yml"), "utf8");
-  for (const step of ["scripts/release/qualify.mjs", "scripts/release/publish.mjs", "scripts/release/verify-release.mjs", "RLY_RELEASE_SIGNING_KEY"]) {
+  for (const step of ["scripts/release/sign-artifacts.mjs", "scripts/release/qualify.mjs", "scripts/release/publish.mjs", "scripts/release/verify-release.mjs", "scripts/install.sh", "RLY_RELEASE_SIGNING_KEY"]) {
     if (!standalone.includes(step)) errors.push(`standalone-artifacts.yml is missing the ${step} supply-chain step/secret`);
+  }
+  if (standalone.indexOf("scripts/release/sign-artifacts.mjs") > standalone.indexOf("scripts/release/qualify.mjs")) {
+    errors.push("standalone-artifacts.yml must sign exact artifact bytes before qualification");
   }
 
   // 3. No private signing key material is tracked.
@@ -99,13 +102,11 @@ async function main() {
     errors.push("scripts/release/signing-private-key.pem exists in the worktree — NEVER commit it");
   }
 
-  // 4. Docs identify exact-byte qualification as the publication authority.
-  const docFiles = ["docs/release-governance.md", "docs/SPEC.md", "docs/ARCHITECTURE.md"];
-  for (const doc of docFiles) {
-    const contents = await readFile(join(ROOT, doc), "utf8");
-    if (!/exact-byte qualification/i.test(contents)) {
-      errors.push(`${doc} does not identify exact-byte qualification as the publication authority`);
-    }
+  // 4. The public release surface names the publication authority without
+  // requiring the private project documentation tree in a clean checkout.
+  const readme = await readFile(join(ROOT, "README.md"), "utf8");
+  if (!/exact-byte qualification is the\s+publication authority/i.test(readme)) {
+    errors.push("README.md does not identify exact-byte qualification as the publication authority");
   }
 
   if (errors.length > 0) {

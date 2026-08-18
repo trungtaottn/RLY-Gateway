@@ -14,6 +14,7 @@ import {
   checkAllowlist,
   exactGitTag,
   hostTarget,
+  resolveNodeDistributionRoot,
   pinnedNodeVersion,
   resolveReleaseVersion,
   sha256Of,
@@ -23,6 +24,19 @@ import {
   treeDigest,
   verifyArtifactDirectory,
 } from "../../scripts/standalone/pack.mjs";
+
+describe("Node distribution archive layout", () => {
+  it("resolves exactly one extracted top-level directory containing bin/node", async () => {
+    const scratch = await directory();
+    const root = join(scratch, "unexpected-runtime-name");
+    await mkdir(join(root, "bin"), { recursive: true });
+    await writeFile(join(root, "bin", "node"), "binary");
+    expect(await resolveNodeDistributionRoot(scratch)).toBe(root);
+    await mkdir(join(scratch, "second", "bin"), { recursive: true });
+    await writeFile(join(scratch, "second", "bin", "node"), "binary");
+    await expect(resolveNodeDistributionRoot(scratch)).rejects.toThrow("exactly one top-level directory");
+  });
+});
 
 type BuildIdentityMeta = {
   semanticVersion: string;
@@ -106,8 +120,7 @@ async function fixtureRuntimeRoot(overrides: { extraFiles?: Array<[string, strin
     engines: { node: ">=24 <25" },
   }, null, 2));
   await writeFile(join(root, "LICENSE"), "MIT License\nCopyright (c) 2026 Trung Tao\n");
-  await mkdir(join(root, "docs"), { recursive: true });
-  await writeFile(join(root, "docs", "third-party-notices.md"), "# Third-party notices\n\nMIT License\n");
+  await writeFile(join(root, "THIRD_PARTY_NOTICES.md"), "# Third-party notices\n\nMIT License\n");
   await mkdir(join(root, "dist", "cli"), { recursive: true });
   await writeFile(join(root, "dist", "cli", "main.js"), [
     'import { readFileSync } from "node:fs";',
@@ -127,9 +140,16 @@ async function fixtureRuntimeRoot(overrides: { extraFiles?: Array<[string, strin
   return root;
 }
 
-function localNode(): FixtureNode {
+async function localNode(): Promise<FixtureNode> {
   const version = execFileSync(process.execPath, ["--version"], { encoding: "utf8" }).trim().replace(/^v/, "");
-  return { bin: process.execPath, license: undefined, version, source: "local" };
+  const dir = await directory();
+  const bin = join(dir, "node");
+  // Homebrew's executable depends on a sibling libnode dylib. A relocatable
+  // wrapper keeps this unit test focused on the RLY launcher; release artifacts
+  // still exercise the downloaded, self-contained Node distribution.
+  await writeFile(bin, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+  await chmod(bin, 0o755);
+  return { bin, license: undefined, version, source: "host-wrapper-fixture" };
 }
 
 /** Tiny executable used as the bundled node in hermetic tests (no real binary). */
@@ -360,7 +380,7 @@ describe("clean-artifact smoke (#35)", () => {
   it("executes rly --version from the unpacked artifact using the bundled node", async () => {
     const host = hostTarget();
     if (host === null) return;
-    const { artifactDir } = await assembleFixture({ target: host, node: localNode() });
+    const { artifactDir } = await assembleFixture({ target: host, node: await localNode() });
     const identity = await smokeRun(artifactDir);
     expect(identity.product).toBe("rly-gateway");
     expect(identity.version).toBe("1.2.3");
@@ -370,7 +390,7 @@ describe("clean-artifact smoke (#35)", () => {
   it("runs from any working directory (no invoking-CWD dependence)", async () => {
     const host = hostTarget();
     if (host === null) return;
-    const { artifactDir } = await assembleFixture({ target: host, node: localNode() });
+    const { artifactDir } = await assembleFixture({ target: host, node: await localNode() });
     const output = execFileSync(join(artifactDir, "rly"), ["--version"], {
       cwd: tmpdir(),
       encoding: "utf8",
@@ -427,14 +447,13 @@ describe("launcher and manifest shape (#35)", () => {
 describe("pnpm dependency layout preservation (#35)", () => {
   it("preserves relative in-tree symlinks (pnpm layout) and digests them deterministically", async () => {
     const root = await directory();
-    await mkdir(join(root, "docs"), { recursive: true });
     await mkdir(join(root, "dist", "cli"), { recursive: true });
     await mkdir(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules"), { recursive: true });
     await mkdir(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify"), { recursive: true });
     await mkdir(join(root, "node_modules", ".pnpm", "avvio@9", "node_modules", "avvio"), { recursive: true });
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "rly-gateway", version: "1.2.3", type: "module" }));
     await writeFile(join(root, "LICENSE"), "MIT\n");
-    await writeFile(join(root, "docs", "third-party-notices.md"), "notices\n");
+    await writeFile(join(root, "THIRD_PARTY_NOTICES.md"), "notices\n");
     await writeFile(join(root, "dist", "cli", "main.js"), "export const x = 1;\n");
     await writeFile(join(root, "dist", "rly-build.json"), `${JSON.stringify(IDENTITY, null, 2)}\n`);
     await writeFile(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify", "package.json"), JSON.stringify({ name: "fastify", main: "index.js" }));
@@ -503,6 +522,19 @@ describe("pnpm dependency layout preservation (#35)", () => {
 });
 
 describe("standalone artifact CI workflow (#35)", () => {
+  it("consumes an explicit comma-separated target argument exactly once", () => {
+    const builder = readFileSync(join(process.cwd(), "scripts", "standalone", "build-standalone.mjs"), "utf8");
+    expect(builder).toContain("const targets = value();");
+    expect(builder).toContain('targets.split(",")');
+    expect(builder).not.toContain("else options.targets = value().split");
+  });
+
+  it("retains downloaded Node bytes until artifact assembly finishes", () => {
+    const builder = readFileSync(join(process.cwd(), "scripts", "standalone", "build-standalone.mjs"), "utf8");
+    expect(builder).toContain("cleanup: () => rm(scratch");
+    expect(builder.indexOf("result = await assembleArtifact")).toBeLessThan(builder.indexOf("await node.cleanup?.()"));
+  });
+
   it("runs on release publication and workflow_dispatch with the release tag as the canonical version input", () => {
     const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "standalone-artifacts.yml"), "utf8");
     expect(workflow).toContain("on:");
@@ -512,6 +544,8 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(workflow).toContain("release-version");
     expect(workflow).toContain("RLY_RELEASE_VERSION");
     expect(workflow).toContain("RELEASE_TAG");
+    expect(workflow).toContain("github.event.release.tag_name || github.ref");
+    expect(workflow).not.toContain("github.event.release.target_commitish || github.ref");
   });
 
   it("builds the full matrix, verifies every artifact, and uploads tarballs + sha256 + manifest + supply chain", () => {
@@ -530,9 +564,16 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(workflow).toContain("node-version: 24");
     expect(workflow).toContain("pnpm install --frozen-lockfile");
     expect(workflow).toContain("scripts/release/qualify.mjs");
+    expect(workflow).toContain("scripts/release/sign-artifacts.mjs");
     expect(workflow).toContain("scripts/release/publish.mjs");
     expect(workflow).toContain("scripts/release/verify-release.mjs");
     expect(workflow).toContain("RLY_RELEASE_SIGNING_KEY");
+    expect(workflow.indexOf("scripts/release/sign-artifacts.mjs")).toBeLessThan(workflow.indexOf("scripts/release/qualify.mjs"));
+    expect(workflow).toContain('TARGETS="linux-x64"');
+    expect(workflow).toContain('Stable publication on ubuntu-latest is restricted to the qualified linux-x64 target');
+    expect(workflow).toContain("RLY_QUALIFICATION_USE_HOST_SERVICE_MANAGER=1");
+    expect(workflow).toContain("systemctl --user show-environment");
+    expect(workflow).toContain("systemctl --user disable --now rly-gateway.service");
   });
 });
 

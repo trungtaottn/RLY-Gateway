@@ -35,6 +35,7 @@ import {
   copyEntryDeref,
   exactGitTag,
   hostTarget,
+  resolveNodeDistributionRoot,
   pinnedNodeVersion,
   readJson,
   resolveReleaseVersion,
@@ -72,10 +73,12 @@ function parseArgs(argv) {
     };
     switch (arg) {
       case "--target": options.targets.push(value()); break;
-      case "--targets":
-        if (value() === "all") options.targets = [...ALL_TARGETS];
-        else options.targets = value().split(",").map((item) => item.trim()).filter(Boolean);
+      case "--targets": {
+        const targets = value();
+        if (targets === "all") options.targets = [...ALL_TARGETS];
+        else options.targets = targets.split(",").map((item) => item.trim()).filter(Boolean);
         break;
+      }
       case "--out": options.out = value(); break;
       case "--build": options.build = true; break;
       case "--download": options.nodeMode = "download"; break;
@@ -127,8 +130,7 @@ async function prepareRuntimeStaging() {
   const staging = await mkdtemp(join(tmpdir(), "rly-runtime-staging-"));
   await cp(join(ROOT, "package.json"), join(staging, "package.json"));
   await cp(join(ROOT, "LICENSE"), join(staging, "LICENSE"));
-  await mkdir(join(staging, "docs"), { recursive: true });
-  await cp(join(ROOT, "docs", "third-party-notices.md"), join(staging, "docs", "third-party-notices.md"));
+  await cp(join(ROOT, "THIRD_PARTY_NOTICES.md"), join(staging, "THIRD_PARTY_NOTICES.md"));
   await cp(join(ROOT, "dist"), join(staging, "dist"), { recursive: true });
   await installProdDependencies(staging);
   return staging;
@@ -160,15 +162,22 @@ async function downloadNode(target) {
     await writeFile(archive, Buffer.from(tarball));
     const extract = join(scratch, "extracted");
     await mkdir(extract);
-    run("tar", ["-xzf", archive, "-C", extract, "--strip-components=1"]);
-    const nodeBin = join(extract, "bin", "node");
+    run("tar", ["-xzf", archive, "-C", extract]);
+    const distributionRoot = await resolveNodeDistributionRoot(extract);
+    const nodeBin = join(distributionRoot, "bin", "node");
     const actualVersion = run(nodeBin, ["--version"], { stdio: "pipe" }).trim();
     if (actualVersion !== `v${PINNED}`) {
       throw new Error(`extracted node version ${actualVersion} != pinned v${PINNED}`);
     }
-    return { bin: nodeBin, license: join(extract, "LICENSE"), version: PINNED };
-  } finally {
+    return {
+      bin: nodeBin,
+      license: join(distributionRoot, "LICENSE"),
+      version: PINNED,
+      cleanup: () => rm(scratch, { recursive: true, force: true }),
+    };
+  } catch (error) {
     await rm(scratch, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -176,7 +185,7 @@ async function acquireNode(options, target) {
   if (options.nodeMode === "local" || options.nodeMode === "path") {
     const source = options.nodeMode === "path" ? options.nodePath : process.execPath;
     const version = run(source, ["--version"], { stdio: "pipe" }).trim().replace(/^v/, "");
-    return { bin: source, license: undefined, version, source: options.nodeMode };
+    return { bin: source, license: undefined, version, source: options.nodeMode, cleanup: undefined };
   }
   const downloaded = await downloadNode(target);
   return { ...downloaded, source: "download" };
@@ -238,16 +247,21 @@ async function main() {
   try {
     for (const target of options.targets) {
       const node = await acquireNode(options, target);
-      const result = await assembleArtifact({
-        staging,
-        target,
-        node,
-        identityMeta: distBuildMeta,
-        releaseVersion,
-        outDir,
-        sourceDateEpoch: options.sourceDateEpoch,
-        verbose: options.verbose,
-      });
+      let result;
+      try {
+        result = await assembleArtifact({
+          staging,
+          target,
+          node,
+          identityMeta: distBuildMeta,
+          releaseVersion,
+          outDir,
+          sourceDateEpoch: options.sourceDateEpoch,
+          verbose: options.verbose,
+        });
+      } finally {
+        await node.cleanup?.();
+      }
       const verification = await verifyArtifactDirectory(join(outDir, `rly-${releaseVersion}-${target}`), {
         target,
         expectedVersion: releaseVersion,

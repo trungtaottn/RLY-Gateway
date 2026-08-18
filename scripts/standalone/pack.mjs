@@ -92,6 +92,24 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
   return TARGET_MATRIX[target] === undefined ? null : target;
 }
 
+/** Resolves the single extracted Node distribution root that owns bin/node. */
+export async function resolveNodeDistributionRoot(extractDirectory) {
+  const entries = await readdir(extractDirectory, { withFileTypes: true });
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const root = join(extractDirectory, entry.name);
+    const node = await lstat(join(root, "bin", "node")).catch(() => undefined);
+    if (node?.isFile()) candidates.push(root);
+  }
+  if (candidates.length !== 1) {
+    throw new Error(
+      `Node distribution archive must contain exactly one top-level directory with bin/node; found ${String(candidates.length)} among [${entries.map((entry) => entry.name).sort().join(", ")}]`,
+    );
+  }
+  return candidates[0];
+}
+
 /**
  * Positive package allowlist (#35). Top-level entries are exact; only the
  * documented bootstrap/runtime/asset files may exist. Everything else fails
@@ -104,7 +122,7 @@ export const TOP_LEVEL_ALLOWLIST = Object.freeze([
   "node_modules/", // bundled runtime dependencies (prod install, symlinks dereferenced)
   "package.json", // runtime metadata consumed by the #94 initial deployment
   "LICENSE",
-  "docs/", // licenses/notices only
+  "THIRD_PARTY_NOTICES.md",
   "rly.json", // release-candidate manifest (#73/#93 candidate contract)
   "rly-build.json", // exact build identity (#94), same bytes as dist/rly-build.json
   "rly-artifact.json", // artifact metadata (platform, bundled node, digest, file list)
@@ -112,9 +130,6 @@ export const TOP_LEVEL_ALLOWLIST = Object.freeze([
 
 /** Inside `bin/` only the bundled node binary and its license notice. */
 export const BIN_ALLOWLIST = Object.freeze(["node", "node.LICENSE"]);
-
-/** Inside `docs/` only licenses/notices. */
-export const DOCS_ALLOWLIST = Object.freeze(["third-party-notices.md"]);
 
 /**
  * Forbidden path markers (matched case-insensitively against the full
@@ -264,9 +279,6 @@ export async function checkAllowlist(root) {
     if (entry.type === "special") violations.push(`special file in artifact: ${entry.path}`);
     if (entry.path.startsWith("bin/") && entry.path !== "bin" && !BIN_ALLOWLIST.includes(entry.path.slice("bin/".length))) {
       violations.push(`unexpected file under bin/: ${entry.path}`);
-    }
-    if (entry.path.startsWith("docs/") && entry.path !== "docs" && !DOCS_ALLOWLIST.includes(entry.path.slice("docs/".length))) {
-      violations.push(`unexpected file under docs/: ${entry.path}`);
     }
     const marker = forbiddenMatch(entry.path);
     if (marker !== undefined) violations.push(`forbidden path marker (${marker}): ${entry.path}`);
@@ -616,7 +628,7 @@ export async function tarballForTree(root, sourceDateEpoch) {
 
 /**
  * Assembles one standalone artifact directory from a prepared runtime root
- * (package.json + LICENSE + docs/third-party-notices.md + dist + node_modules
+ * (package.json + LICENSE + THIRD_PARTY_NOTICES.md + dist + node_modules
  * real files). Adds the bundled node, self-locating launcher, exact build
  * identity (`rly-build.json`), candidate manifest (`rly.json`), artifact
  * metadata (`rly-artifact.json`), enforces the positive allowlist, and
@@ -645,7 +657,7 @@ export async function assembleStandaloneArtifact({
   } else {
     await writeFile(
       join(artifactDir, "bin", "node.LICENSE"),
-      `Bundled Node.js ${node.version}\n\nNode.js is distributed under the MIT License (https://github.com/nodejs/node/blob/main/LICENSE).\nSee also docs/third-party-notices.md for the full dependency license inventory.\n`,
+      `Bundled Node.js ${node.version}\n\nNode.js is distributed under the MIT License (https://github.com/nodejs/node/blob/main/LICENSE).\nSee also THIRD_PARTY_NOTICES.md for the full dependency license inventory.\n`,
     );
   }
 
