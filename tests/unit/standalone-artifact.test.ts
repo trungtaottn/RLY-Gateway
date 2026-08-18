@@ -14,7 +14,7 @@ import {
   checkAllowlist,
   exactGitTag,
   hostTarget,
-  nodeDistributionDirectoryName,
+  resolveNodeDistributionRoot,
   pinnedNodeVersion,
   resolveReleaseVersion,
   sha256Of,
@@ -26,10 +26,15 @@ import {
 } from "../../scripts/standalone/pack.mjs";
 
 describe("Node distribution archive layout", () => {
-  it("resolves the official top-level directory from gzip and xz archive names", () => {
-    expect(nodeDistributionDirectoryName("node-v24.19.0-linux-x64.tar.gz")).toBe("node-v24.19.0-linux-x64");
-    expect(nodeDistributionDirectoryName("node-v24.19.0-linux-x64.tar.xz")).toBe("node-v24.19.0-linux-x64");
-    expect(() => nodeDistributionDirectoryName("node.zip")).toThrow("unsupported Node distribution archive name");
+  it("resolves exactly one extracted top-level directory containing bin/node", async () => {
+    const scratch = await directory();
+    const root = join(scratch, "unexpected-runtime-name");
+    await mkdir(join(root, "bin"), { recursive: true });
+    await writeFile(join(root, "bin", "node"), "binary");
+    expect(await resolveNodeDistributionRoot(scratch)).toBe(root);
+    await mkdir(join(scratch, "second", "bin"), { recursive: true });
+    await writeFile(join(scratch, "second", "bin", "node"), "binary");
+    await expect(resolveNodeDistributionRoot(scratch)).rejects.toThrow("exactly one top-level directory");
   });
 });
 

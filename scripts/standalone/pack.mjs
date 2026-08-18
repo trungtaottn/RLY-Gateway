@@ -92,13 +92,22 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
   return TARGET_MATRIX[target] === undefined ? null : target;
 }
 
-/** Top-level directory carried by an official Node binary distribution archive. */
-export function nodeDistributionDirectoryName(archiveName) {
-  const directory = archiveName.replace(/\.tar\.(?:gz|xz)$/, "");
-  if (directory === archiveName || directory.length === 0) {
-    throw new Error(`unsupported Node distribution archive name: ${archiveName}`);
+/** Resolves the single extracted Node distribution root that owns bin/node. */
+export async function resolveNodeDistributionRoot(extractDirectory) {
+  const entries = await readdir(extractDirectory, { withFileTypes: true });
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const root = join(extractDirectory, entry.name);
+    const node = await lstat(join(root, "bin", "node")).catch(() => undefined);
+    if (node?.isFile()) candidates.push(root);
   }
-  return directory;
+  if (candidates.length !== 1) {
+    throw new Error(
+      `Node distribution archive must contain exactly one top-level directory with bin/node; found ${String(candidates.length)} among [${entries.map((entry) => entry.name).sort().join(", ")}]`,
+    );
+  }
+  return candidates[0];
 }
 
 /**
