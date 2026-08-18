@@ -92,6 +92,15 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
   return TARGET_MATRIX[target] === undefined ? null : target;
 }
 
+/** Top-level directory carried by an official Node binary distribution archive. */
+export function nodeDistributionDirectoryName(archiveName) {
+  const directory = archiveName.replace(/\.tar\.(?:gz|xz)$/, "");
+  if (directory === archiveName || directory.length === 0) {
+    throw new Error(`unsupported Node distribution archive name: ${archiveName}`);
+  }
+  return directory;
+}
+
 /**
  * Positive package allowlist (#35). Top-level entries are exact; only the
  * documented bootstrap/runtime/asset files may exist. Everything else fails

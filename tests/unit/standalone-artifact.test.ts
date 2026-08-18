@@ -14,6 +14,7 @@ import {
   checkAllowlist,
   exactGitTag,
   hostTarget,
+  nodeDistributionDirectoryName,
   pinnedNodeVersion,
   resolveReleaseVersion,
   sha256Of,
@@ -23,6 +24,14 @@ import {
   treeDigest,
   verifyArtifactDirectory,
 } from "../../scripts/standalone/pack.mjs";
+
+describe("Node distribution archive layout", () => {
+  it("resolves the official top-level directory from gzip and xz archive names", () => {
+    expect(nodeDistributionDirectoryName("node-v24.19.0-linux-x64.tar.gz")).toBe("node-v24.19.0-linux-x64");
+    expect(nodeDistributionDirectoryName("node-v24.19.0-linux-x64.tar.xz")).toBe("node-v24.19.0-linux-x64");
+    expect(() => nodeDistributionDirectoryName("node.zip")).toThrow("unsupported Node distribution archive name");
+  });
+});
 
 type BuildIdentityMeta = {
   semanticVersion: string;

@@ -73,6 +73,7 @@ export function readJson(path: string): Promise<unknown>;
 export function pinnedNodeVersion(): Promise<string>;
 export function targetStatus(target: string): MatrixEntry;
 export function hostTarget(platform?: string, arch?: string): string | null;
+export function nodeDistributionDirectoryName(archiveName: string): string;
 export function forbiddenMatch(path: string): string | undefined;
 export function isSafeRelativeSymlink(entryPath: string, target: string): boolean;
 export function isTestArtifactPath(name: string): boolean;

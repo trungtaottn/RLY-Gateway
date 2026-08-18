@@ -35,6 +35,7 @@ import {
   copyEntryDeref,
   exactGitTag,
   hostTarget,
+  nodeDistributionDirectoryName,
   pinnedNodeVersion,
   readJson,
   resolveReleaseVersion,
@@ -161,13 +162,14 @@ async function downloadNode(target) {
     await writeFile(archive, Buffer.from(tarball));
     const extract = join(scratch, "extracted");
     await mkdir(extract);
-    run("tar", ["-xzf", archive, "-C", extract, "--strip-components=1"]);
-    const nodeBin = join(extract, "bin", "node");
+    run("tar", ["-xzf", archive, "-C", extract]);
+    const distributionRoot = join(extract, nodeDistributionDirectoryName(distName));
+    const nodeBin = join(distributionRoot, "bin", "node");
     const actualVersion = run(nodeBin, ["--version"], { stdio: "pipe" }).trim();
     if (actualVersion !== `v${PINNED}`) {
       throw new Error(`extracted node version ${actualVersion} != pinned v${PINNED}`);
     }
-    return { bin: nodeBin, license: join(extract, "LICENSE"), version: PINNED };
+    return { bin: nodeBin, license: join(distributionRoot, "LICENSE"), version: PINNED };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
