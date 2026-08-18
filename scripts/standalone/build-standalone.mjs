@@ -169,9 +169,15 @@ async function downloadNode(target) {
     if (actualVersion !== `v${PINNED}`) {
       throw new Error(`extracted node version ${actualVersion} != pinned v${PINNED}`);
     }
-    return { bin: nodeBin, license: join(distributionRoot, "LICENSE"), version: PINNED };
-  } finally {
+    return {
+      bin: nodeBin,
+      license: join(distributionRoot, "LICENSE"),
+      version: PINNED,
+      cleanup: () => rm(scratch, { recursive: true, force: true }),
+    };
+  } catch (error) {
     await rm(scratch, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -179,7 +185,7 @@ async function acquireNode(options, target) {
   if (options.nodeMode === "local" || options.nodeMode === "path") {
     const source = options.nodeMode === "path" ? options.nodePath : process.execPath;
     const version = run(source, ["--version"], { stdio: "pipe" }).trim().replace(/^v/, "");
-    return { bin: source, license: undefined, version, source: options.nodeMode };
+    return { bin: source, license: undefined, version, source: options.nodeMode, cleanup: undefined };
   }
   const downloaded = await downloadNode(target);
   return { ...downloaded, source: "download" };
@@ -241,16 +247,21 @@ async function main() {
   try {
     for (const target of options.targets) {
       const node = await acquireNode(options, target);
-      const result = await assembleArtifact({
-        staging,
-        target,
-        node,
-        identityMeta: distBuildMeta,
-        releaseVersion,
-        outDir,
-        sourceDateEpoch: options.sourceDateEpoch,
-        verbose: options.verbose,
-      });
+      let result;
+      try {
+        result = await assembleArtifact({
+          staging,
+          target,
+          node,
+          identityMeta: distBuildMeta,
+          releaseVersion,
+          outDir,
+          sourceDateEpoch: options.sourceDateEpoch,
+          verbose: options.verbose,
+        });
+      } finally {
+        await node.cleanup?.();
+      }
       const verification = await verifyArtifactDirectory(join(outDir, `rly-${releaseVersion}-${target}`), {
         target,
         expectedVersion: releaseVersion,

@@ -529,6 +529,12 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(builder).not.toContain("else options.targets = value().split");
   });
 
+  it("retains downloaded Node bytes until artifact assembly finishes", () => {
+    const builder = readFileSync(join(process.cwd(), "scripts", "standalone", "build-standalone.mjs"), "utf8");
+    expect(builder).toContain("cleanup: () => rm(scratch");
+    expect(builder.indexOf("result = await assembleArtifact")).toBeLessThan(builder.indexOf("await node.cleanup?.()"));
+  });
+
   it("runs on release publication and workflow_dispatch with the release tag as the canonical version input", () => {
     const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "standalone-artifacts.yml"), "utf8");
     expect(workflow).toContain("on:");
