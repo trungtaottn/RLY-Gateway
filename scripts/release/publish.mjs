@@ -35,6 +35,7 @@ import { buildProvenance, validateProvenance } from "./provenance.mjs";
 import { buildChannelMetadata, validateChannelMetadata, qualificationStatusForChannel } from "./channel.mjs";
 import { signJson, signDigestStatement, publicKeyFingerprint } from "./signing.mjs";
 import { assertReleaseImmutable } from "./immutability.mjs";
+import { qualificationArtifactBindingErrors, qualificationTargetSetErrors } from "./qualification.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_PUBLIC_KEY = join(ROOT, "scripts", "release", "signing-public-key.pem");
@@ -161,6 +162,24 @@ async function main() {
   const publicKey = await readFile(resolve(options.publicKey), "utf8");
 
   const { collected } = await collectArtifacts(releaseDir, options.version);
+  const qualification = await readQualification(options.qualification, releaseDir, outDir);
+  if (options.channel === "stable") {
+    const targetErrors = qualificationTargetSetErrors(collected.map((artifact) => artifact.target), qualification);
+    const bindingErrors = qualificationArtifactBindingErrors(
+      collected.map((artifact) => ({
+        target: artifact.target,
+        filename: artifact.name,
+        sha256: artifact.sha256,
+        artifactDigest: artifact.artifactDigest,
+      })),
+      qualification,
+      { releaseVersion: options.version, channel: options.channel },
+    );
+    const qualificationErrors = [...targetErrors, ...bindingErrors];
+    if (qualificationErrors.length > 0) {
+      throw new Error(`stable qualification evidence mismatch:\n  - ${qualificationErrors.join("\n  - ")}`);
+    }
+  }
 
   const identity = collected[0].buildMeta;
   // Source commit / build id default to the EXACT build identity embedded in
@@ -256,7 +275,6 @@ async function main() {
   await writeJson(join(outDir, "rly-provenance.json.sig"), signJson(privateKey, provenance));
 
   // 4. Signed channel metadata (TUF-style separation of metadata from artifacts).
-  const qualification = await readQualification(options.qualification, releaseDir, outDir);
   const qualificationByTarget = qualification?.targets ?? {};
   const qualificationRef = qualification === undefined ? undefined : "rly-qualification.json";
   const artifactDigests = Object.fromEntries(

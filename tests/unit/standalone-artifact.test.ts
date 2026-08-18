@@ -517,6 +517,8 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(workflow).toContain("release-version");
     expect(workflow).toContain("RLY_RELEASE_VERSION");
     expect(workflow).toContain("RELEASE_TAG");
+    expect(workflow).toContain("github.event.release.tag_name || github.ref");
+    expect(workflow).not.toContain("github.event.release.target_commitish || github.ref");
   });
 
   it("builds the full matrix, verifies every artifact, and uploads tarballs + sha256 + manifest + supply chain", () => {
@@ -535,9 +537,16 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(workflow).toContain("node-version: 24");
     expect(workflow).toContain("pnpm install --frozen-lockfile");
     expect(workflow).toContain("scripts/release/qualify.mjs");
+    expect(workflow).toContain("scripts/release/sign-artifacts.mjs");
     expect(workflow).toContain("scripts/release/publish.mjs");
     expect(workflow).toContain("scripts/release/verify-release.mjs");
     expect(workflow).toContain("RLY_RELEASE_SIGNING_KEY");
+    expect(workflow.indexOf("scripts/release/sign-artifacts.mjs")).toBeLessThan(workflow.indexOf("scripts/release/qualify.mjs"));
+    expect(workflow).toContain('TARGETS="linux-x64"');
+    expect(workflow).toContain('Stable publication on ubuntu-latest is restricted to the qualified linux-x64 target');
+    expect(workflow).toContain("RLY_QUALIFICATION_USE_HOST_SERVICE_MANAGER=1");
+    expect(workflow).toContain("systemctl --user show-environment");
+    expect(workflow).toContain("systemctl --user disable --now rly-gateway.service");
   });
 });
 

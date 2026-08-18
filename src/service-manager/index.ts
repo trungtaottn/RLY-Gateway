@@ -13,6 +13,7 @@ import {
 export type CreateServiceManagerOptions = Readonly<{
   platform?: NodeJS.Platform;
   home?: string;
+  configHome?: string;
   runner?: ServiceCommandRunner;
   logPath?: string;
   workingDirectory?: string;
@@ -34,6 +35,7 @@ export function createServiceManager(options: CreateServiceManagerOptions = {}):
   if (platform === "linux") {
     return new SystemdUserAdapter({
       ...(options.home === undefined ? {} : { home: options.home }),
+      ...(options.configHome === undefined ? {} : { configHome: options.configHome }),
       ...(options.serviceName === undefined ? {} : { serviceName: options.serviceName }),
       ...(options.runner === undefined ? {} : { runner: options.runner }),
       ...(options.logPath === undefined ? {} : { logPath: options.logPath }),

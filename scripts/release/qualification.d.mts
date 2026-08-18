@@ -31,6 +31,16 @@ export const QUALIFICATION_RESULTS: readonly string[];
 export const QUALIFICATION_GATES: ReadonlyArray<{ id: string; name: string; description: string }>;
 export const REQUIRED_GATES_FOR_STABLE: readonly string[];
 
+export function qualificationTargetSetErrors(
+  artifactTargets: readonly string[],
+  qualification: { targets?: Record<string, unknown> } | undefined,
+): string[];
+export function qualificationArtifactBindingErrors(
+  artifacts: ReadonlyArray<{ target: string; filename: string; sha256: string; artifactDigest: string }>,
+  qualification: { targets?: Record<string, Partial<QualificationDocument>> } | undefined,
+  identity: { releaseVersion: string; channel: string },
+): string[];
+
 export function gateResult(id: string, status: string, args?: { detail?: string; command?: string }): QualificationGateResult;
 export function runCommand(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; allowFailure?: boolean; timeoutMs?: number }): { ok: boolean; output: string };
 export function extractTarball(tarballPath: string, destDir: string): Promise<string>;

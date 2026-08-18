@@ -24,6 +24,23 @@ afterEach(async () => {
 const ORIGIN = "https://github.com/trungtaottn/RLY-Gateway";
 
 describe("verified remote acquisition (#129)", () => {
+  it("acquires the first public Stable v0.1.0 release", async () => {
+    const releaseDir = await directory("rly-fixture-");
+    const staging = await directory("rly-staging-");
+    const fixture = await buildReleaseFixture({ releaseDir, version: "0.1.0", channel: "stable" });
+    const candidate = await acquireVerifiedCandidate({
+      origin: ORIGIN,
+      channel: "stable",
+      target: "linux-x64",
+      stagingDirectory: staging,
+      fetchImpl: fixtureFetch(fixture),
+      publicKeyPem: fixture.publicKeyPem,
+      now: fixture.publishedAt,
+    });
+    expect(candidate.version).toBe("0.1.0");
+    expect(candidate.channel).toBe("stable");
+  });
+
   it("acquires the exact artifact through the signed metadata chain", async () => {
     const releaseDir = await directory("rly-fixture-");
     const staging = await directory("rly-staging-");
@@ -215,6 +232,23 @@ describe("verified remote acquisition (#129)", () => {
       fetchImpl: fixtureFetch(fixture),
       publicKeyPem: fixture.publicKeyPem,
       now: fixture.publishedAt,
+    })).rejects.toMatchObject({ code: "channel-signature-invalid" });
+  });
+
+  it("fails closed when a prerelease client trusts a different release key", async () => {
+    const releaseDir = await directory("rly-fixture-");
+    const oldKeyFixtureDir = await directory("rly-old-key-");
+    const staging = await directory("rly-staging-");
+    const current = await buildReleaseFixture({ releaseDir, version: "0.1.0", channel: "stable" });
+    const old = await buildReleaseFixture({ releaseDir: oldKeyFixtureDir, version: "1.0.0-beta.39", channel: "beta" });
+    await expect(acquireVerifiedCandidate({
+      origin: ORIGIN,
+      channel: "stable",
+      target: "linux-x64",
+      stagingDirectory: staging,
+      fetchImpl: fixtureFetch(current),
+      publicKeyPem: old.publicKeyPem,
+      now: current.publishedAt,
     })).rejects.toMatchObject({ code: "channel-signature-invalid" });
   });
 

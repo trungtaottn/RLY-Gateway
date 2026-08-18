@@ -36,13 +36,13 @@ Claude Code / Codex CLI
 - Install a self-contained per-user runtime. Released artifacts bundle their
   own pinned Node.js runtime and do not require sudo, npm, or pnpm.
 
-## Supported systems
+## Release availability
 
-RLY publishes artifacts for macOS Apple Silicon, macOS Intel, Linux x86-64,
-and Linux ARM64. The resident service uses a macOS LaunchAgent or
-`systemd --user` on Linux. Linux installations therefore require a reachable
-user systemd manager. RLY does not enable lingering and does not install a root
-service.
+The v0.1.0 Stable release publishes a qualified Linux x86-64 artifact. macOS
+Apple Silicon, macOS Intel, and Linux ARM64 builds remain experimental and are
+not published to Stable until each target passes the same exact-byte gates on
+a matching provisioned runner. The resident Linux service requires a reachable
+`systemd --user` manager. RLY does not enable lingering or install a root service.
 
 ## Install
 
@@ -177,6 +177,38 @@ configuration and credential state. Full removal is explicit and destructive:
 rly uninstall
 rly uninstall --purge --yes
 ```
+
+### Prerelease signing-key reset
+
+The private beta builds used a prerelease signing key that v0.1.0 intentionally
+replaces. An installed `v1.0.0-beta.*` client therefore cannot update in place
+to v0.1.0; signature verification fails closed before activation. Preserve the
+installation record and durable state, download a fresh v0.1.0 bootstrap, then
+reinstall. Current releases preserve the secret-free installation record by
+default; legacy beta uninstallers remove it, so beta users must preserve and
+restore that record to retain an external custom config path:
+
+```bash
+(
+  set -eu
+  test -f "$HOME/.rly/installation.json"
+  RLY_INSTALL_RECORD="$(mktemp)"
+  trap 'rm -f "$RLY_INSTALL_RECORD"' EXIT HUP INT TERM
+  cp "$HOME/.rly/installation.json" "$RLY_INSTALL_RECORD"
+  rly uninstall
+  mkdir -p "$HOME/.rly"
+  cp "$RLY_INSTALL_RECORD" "$HOME/.rly/installation.json"
+  chmod 600 "$HOME/.rly/installation.json"
+  curl -fsSLO https://github.com/trungtaottn/RLY-Gateway/releases/download/v0.1.0/install.sh
+  sh install.sh --channel stable --version 0.1.0
+  rly doctor
+)
+```
+
+Do not use `rly uninstall --purge --yes` for this reset: purge destroys RLY
+configuration, accounts, credentials, and its control-plane database. The
+service is unavailable during reinstall; verify providers and profiles before
+resuming work.
 
 ## Security and privacy
 

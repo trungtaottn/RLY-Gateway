@@ -33,7 +33,7 @@ import { validateProvenance, verifyProvenanceSubjects } from "./provenance.mjs";
 import { validateChannelMetadata, evaluateChannelMetadata } from "./channel.mjs";
 import { verifyJsonSignature, verifyDigestStatement, publicKeyFingerprint } from "./signing.mjs";
 import { detectAssetReplacement } from "./immutability.mjs";
-import { qualificationBlocksStable } from "./qualification.mjs";
+import { qualificationArtifactBindingErrors, qualificationBlocksStable, qualificationTargetSetErrors } from "./qualification.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_PUBLIC_KEY = join(ROOT, "scripts", "release", "signing-public-key.pem");
@@ -185,6 +185,15 @@ async function main() {
     if (qualification === undefined) {
       errors.push("stable channel requires rly-qualification.json evidence (exact-byte qualification is the publication authority)");
     } else {
+      errors.push(...qualificationTargetSetErrors(
+        (manifest?.artifacts ?? []).map((artifact) => artifact.target),
+        qualification,
+      ));
+      errors.push(...qualificationArtifactBindingErrors(
+        manifest?.artifacts ?? [],
+        qualification,
+        { releaseVersion: manifest?.releaseVersion, channel: options.channel },
+      ));
       for (const target of Object.keys(qualification.targets ?? {}).sort()) {
         const blockers = qualificationBlocksStable(qualification.targets[target]);
         if (blockers.length > 0) {

@@ -30,7 +30,7 @@ export const CHANNEL_METADATA_FILENAME = (channel) => `rly-channel-${channel}.js
 /**
  * Deterministic monotonic counter for a release version on a channel:
  *   beta   `1.0.0-beta.<n>`  -> n
- *   stable `1.0.<n>`         -> n
+ *   stable `<major>.<minor>.<patch>` -> a monotonic SemVer rank
  * Returns null when the version is not a valid version for that channel.
  */
 export function channelVersionFor(releaseVersion, channel) {
@@ -39,8 +39,13 @@ export function channelVersionFor(releaseVersion, channel) {
     return match === null ? null : Number(match[1]);
   }
   if (channel === "stable") {
-    const match = /^1\.0\.(\d+)$/.exec(releaseVersion);
-    return match === null ? null : Number(match[1]);
+    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(releaseVersion);
+    if (match === null) return null;
+    const major = Number(match[1]);
+    const minor = Number(match[2]);
+    const patch = Number(match[3]);
+    if (major > 999 || minor > 999 || patch > 999) return null;
+    return (major * 1_000_000) + (minor * 1_000) + patch;
   }
   return null;
 }

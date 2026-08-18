@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { detectDefinition, isLegacyDefinition, reconcileDefinition, renderExpectedDefinition } from "../../src/service-manager/reconcile.js";
 import type { ServiceDefinitionInput, ServiceManagerAdapter, ServiceStatus } from "../../src/service-manager/types.js";
 import { createHash } from "node:crypto";
+import { SystemdUserAdapter } from "../../src/service-manager/systemd-user.js";
 
 const directories: string[] = [];
 
@@ -64,6 +65,13 @@ function rendered(adapter: FakeAdapter): string {
 }
 
 describe("service-definition reconciliation (#94)", () => {
+  it("places systemd user units under the XDG config root when provided", async () => {
+    const home = await directory();
+    const configHome = await directory();
+    const adapter = new SystemdUserAdapter({ home, configHome });
+    expect(adapter.definitionPath).toBe(join(configHome, "systemd", "user", "rly-gateway.service"));
+  });
+
   it("renders the RLY-owned expected definition content", () => {
     const adapter = new FakeAdapter(join("/tmp", "rly-gateway.service"));
     const content = renderExpectedDefinition(adapter, expected);

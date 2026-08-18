@@ -82,8 +82,11 @@ async function main() {
   }
 
   const standalone = await readFile(join(ROOT, ".github", "workflows", "standalone-artifacts.yml"), "utf8");
-  for (const step of ["scripts/release/qualify.mjs", "scripts/release/publish.mjs", "scripts/release/verify-release.mjs", "scripts/install.sh", "RLY_RELEASE_SIGNING_KEY"]) {
+  for (const step of ["scripts/release/sign-artifacts.mjs", "scripts/release/qualify.mjs", "scripts/release/publish.mjs", "scripts/release/verify-release.mjs", "scripts/install.sh", "RLY_RELEASE_SIGNING_KEY"]) {
     if (!standalone.includes(step)) errors.push(`standalone-artifacts.yml is missing the ${step} supply-chain step/secret`);
+  }
+  if (standalone.indexOf("scripts/release/sign-artifacts.mjs") > standalone.indexOf("scripts/release/qualify.mjs")) {
+    errors.push("standalone-artifacts.yml must sign exact artifact bytes before qualification");
   }
 
   // 3. No private signing key material is tracked.

@@ -21,6 +21,7 @@ import {
   verifyJsonSignature,
   verifySignature,
 } from "../../scripts/release/signing.mjs";
+import type { SignatureEnvelope } from "../../scripts/release/signing.mjs";
 import {
   buildReleaseManifest,
   releaseManifestArtifactDigests,
@@ -40,7 +41,9 @@ import {
 import {
   deriveQualificationResult,
   gateResult,
+  qualificationArtifactBindingErrors,
   qualificationBlocksStable,
+  qualificationTargetSetErrors,
   runQualificationGates,
 } from "../../scripts/release/qualification.mjs";
 import { assertReleaseImmutable, detectAssetReplacement } from "../../scripts/release/immutability.mjs";
@@ -391,10 +394,11 @@ describe("signed channel metadata (#128)", () => {
   it("assigns monotonic per-channel version counters", () => {
     expect(channelVersionFor("1.0.0-beta.33", "beta")).toBe(33);
     expect(channelVersionFor("1.0.0-beta.2", "beta")).toBe(2);
-    expect(channelVersionFor("1.0.3", "stable")).toBe(3);
-    expect(channelVersionFor("1.0.10", "stable")).toBe(10);
+    expect(channelVersionFor("0.1.0", "stable")).toBe(1_000);
+    expect(channelVersionFor("1.0.3", "stable")).toBe(1_000_003);
+    expect(channelVersionFor("1.0.10", "stable")).toBe(1_000_010);
     expect(channelVersionFor("1.0.0-beta.33", "stable")).toBeNull();
-    expect(channelVersionFor("1.2.0", "stable")).toBeNull();
+    expect(channelVersionFor("1.2.0", "stable")).toBe(1_002_000);
   });
 
   it("builds valid metadata mapping the channel to exact digests with explicit staleness/freeze", () => {
@@ -521,6 +525,44 @@ describe("exact-byte qualification (#128)", () => {
     expect(qualificationBlocksStable(null).length).toBeGreaterThan(0);
   });
 
+  it("requires an exact target-set match between artifacts and qualification evidence", () => {
+    expect(qualificationTargetSetErrors(["linux-x64"], { targets: { "linux-x64": {} } })).toEqual([]);
+    expect(qualificationTargetSetErrors(["linux-x64", "darwin-arm64"], { targets: { "linux-x64": {} } })).toEqual([
+      "artifact targets missing qualification evidence: darwin-arm64",
+    ]);
+    expect(qualificationTargetSetErrors(["linux-x64"], { targets: { "linux-x64": {}, "darwin-arm64": {} } })).toEqual([
+      "qualification targets missing from release artifacts: darwin-arm64",
+    ]);
+  });
+
+  it("binds Stable qualification to the exact version, channel, filename, and digests", () => {
+    const artifact = {
+      target: "linux-x64",
+      filename: "rly-0.1.0-linux-x64.tar.gz",
+      sha256: "a".repeat(64),
+      artifactDigest: "b".repeat(64),
+    };
+    const exact = {
+      releaseVersion: "0.1.0",
+      channel: "stable",
+      target: "linux-x64",
+      qualifiedBytes: { filename: artifact.filename, sha256: artifact.sha256, artifactDigest: artifact.artifactDigest },
+    };
+    expect(qualificationArtifactBindingErrors([artifact], { targets: { "linux-x64": exact } }, { releaseVersion: "0.1.0", channel: "stable" })).toEqual([]);
+    const stale = {
+      ...exact,
+      releaseVersion: "9.9.9",
+      qualifiedBytes: { filename: "wrong.tar.gz", sha256: "c".repeat(64), artifactDigest: "d".repeat(64) },
+    };
+    const errors = qualificationArtifactBindingErrors([artifact], { targets: { "linux-x64": stale } }, { releaseVersion: "0.1.0", channel: "stable" });
+    expect(errors).toEqual(expect.arrayContaining([
+      "linux-x64 releaseVersion 9.9.9 != 0.1.0",
+      "linux-x64 qualifiedBytes.filename wrong.tar.gz != rly-0.1.0-linux-x64.tar.gz",
+      `linux-x64 qualifiedBytes.sha256 ${"c".repeat(64)} != ${"a".repeat(64)}`,
+      `linux-x64 qualifiedBytes.artifactDigest ${"d".repeat(64)} != ${"b".repeat(64)}`,
+    ]));
+  });
+
   it("runs the matrix against the exact bytes with an injected executor", async () => {
     const assembled = await assembleFixtureArtifact();
     const { artifactDir } = assembled;
@@ -634,6 +676,16 @@ describe("publish + verify pipeline integration (#128)", () => {
     await writeFile(join(keys, "private.pem"), pair.privateKey);
     await writeFile(join(keys, "public.pem"), pair.publicKey);
 
+    const preSign = run([
+      "scripts/release/sign-artifacts.mjs",
+      "--release-dir", releaseDir,
+      "--signing-key", join(keys, "private.pem"),
+    ]);
+    expect(preSign.status, preSign.stderr).toBe(0);
+    const preSignedEnvelope = JSON.parse(readFileSync(join(releaseDir, `${RELEASE.filename}.sig`), "utf8")) as SignatureEnvelope;
+    const exactTarballSha = sha256Of(readFileSync(join(releaseDir, RELEASE.filename)));
+    expect(verifyDigestStatement(pair.publicKey, exactTarballSha, preSignedEnvelope)).toBe(true);
+
     const publishArgs = [
       "scripts/release/publish.mjs",
       "--release-dir", releaseDir,
@@ -699,6 +751,30 @@ describe("publish + verify pipeline integration (#128)", () => {
     const second = run(base);
     expect(second.status).not.toBe(0);
     expect(second.stderr).toMatch(/immutability violation/);
+  });
+
+  it("fails closed when Stable artifact and qualification target sets differ", async () => {
+    const releaseDir = await buildReleaseDir();
+    const keys = await directory();
+    const pair = generateSigningKeyPair();
+    await writeFile(join(keys, "private.pem"), pair.privateKey);
+    await writeFile(join(releaseDir, "rly-qualification.json"), `${JSON.stringify({
+      qualificationSchemaVersion: 1,
+      targets: { "darwin-arm64": { result: "qualified" } },
+    }, null, 2)}\n`);
+    const result = run([
+      "scripts/release/publish.mjs",
+      "--release-dir", releaseDir,
+      "--version", IDENTITY.semanticVersion,
+      "--channel", "stable",
+      "--source-commit", IDENTITY.commitRevision,
+      "--build-id", IDENTITY.buildId,
+      "--signing-key", join(keys, "private.pem"),
+    ]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("stable qualification evidence mismatch");
+    expect(result.stderr).toContain("artifact targets missing qualification evidence: linux-x64");
+    expect(result.stderr).toContain("qualification targets missing from release artifacts: darwin-arm64");
   });
 });
 
