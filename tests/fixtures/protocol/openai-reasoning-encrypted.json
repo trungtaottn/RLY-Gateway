@@ -1,0 +1,15 @@
+{
+  "purpose": "Synthetic field-level fixture (#119): an OpenAI Responses request whose reasoning input item carries item identity plus opaque encrypted continuation content that must survive decode into the fidelity envelope and continuation storage. Encrypted content is a synthetic placeholder, never a real credential or token.",
+  "request": {
+    "model": "fixture-model",
+    "previous_response_id": "resp_fixture",
+    "input": [
+      {
+        "type": "reasoning",
+        "id": "rs_fixture",
+        "summary": [{ "type": "summary_text", "text": "redacted fixture summary" }],
+        "encrypted_content": "synthetic-encrypted-content-value"
+      }
+    ]
+  }
+}

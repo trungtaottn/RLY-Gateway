@@ -1,0 +1,27 @@
+{
+  "artifactId": "opencodex-2.11.1",
+  "kind": "secret-free-management-dto",
+  "account": {
+    "pseudonym": "acct-fixture-001",
+    "provider": "codex",
+    "state": "ready",
+    "credentialHandle": "cred-fixture-001",
+    "generation": 3,
+    "quotaClass": "ok"
+  },
+  "absentFields": [
+    "accessToken",
+    "refreshToken",
+    "authorization",
+    "email",
+    "prompt",
+    "response"
+  ],
+  "auth": {
+    "listener": "127.0.0.1:17872",
+    "cli": "instance-bearer",
+    "browser": "single-use-fragment-to-httponly-cookie",
+    "origin": "exact-loopback",
+    "csrf": "required-on-mutation"
+  }
+}

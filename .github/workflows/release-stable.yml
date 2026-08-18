@@ -1,0 +1,81 @@
+name: Release Stable
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      notes: ${{ steps.release.outputs.notes }}
+      release-url: ${{ steps.release.outputs.release-url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/run-semantic-release.mjs
+  align-dev:
+    needs: release
+    if: ${{ needs.release.result == 'success' && needs.release.outputs.released == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      status: ${{ steps.align.outputs.status }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - id: alignment-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ vars.RLY_RELEASE_ALIGNMENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RLY_RELEASE_ALIGNMENT_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - id: align
+        env:
+          GITHUB_TOKEN: ${{ steps.alignment-token.outputs.token }}
+        run: node scripts/align-stable-release.mjs
+  notify:
+    needs: [release, align-dev]
+    if: ${{ always() && (needs.release.result == 'failure' || needs.release.outputs.released == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+      - id: slack
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RELEASE_STATUS: ${{ needs.release.result == 'success' && needs.align-dev.result == 'success' && 'success' || 'failure' }}
+          RELEASE_LANE: stable
+          RELEASE_VERSION: ${{ needs.release.outputs.tag || 'not available' }}
+          RELEASE_BRANCH: main
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_URL: ${{ needs.release.outputs.release-url || 'not available' }}
+          RELEASE_NOTES: ${{ needs.release.outputs.notes || 'Release metadata was unavailable.' }}
+          ALIGNMENT_STATUS: ${{ needs.align-dev.result == 'success' && needs.align-dev.outputs.status || 'failed or not required' }}
+        run: node scripts/send-release-slack-notification.mjs
+      - if: ${{ steps.slack.outcome == 'failure' }}
+        run: echo "::warning::Slack delivery failed after release handling; GitHub Release and branch state were not rolled back."

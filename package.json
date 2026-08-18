@@ -1,0 +1,57 @@
+{
+  "name": "rly-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protocol-preserving personal gateway: Claude Code as the coding harness, RLY profiles as aliases, Codex CLI as an explicit escape hatch",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "rly": "dist/cli/main.js"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "build": "node scripts/write-build-identity.mjs && tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli/main.ts",
+    "start": "node dist/cli/main.js",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:contract": "vitest run tests/contract --passWithNoTests",
+    "test:integration": "vitest run tests/integration --passWithNoTests",
+    "test:lifecycle": "vitest run tests/lifecycle",
+    "test:privacy": "vitest run tests/privacy && node scripts/check-privacy.mjs",
+    "test:browser": "playwright test",
+    "test:release": "node scripts/check-ci-workflow.mjs && node scripts/check-license.mjs && node scripts/check-release-supply-chain.mjs && node scripts/package-release.mjs && node scripts/clean-install-smoke.mjs",
+    "artifact:build": "node scripts/standalone/build-standalone.mjs --build",
+    "artifact:verify": "node scripts/standalone/verify-artifact.mjs",
+    "artifact:qualify": "node scripts/release/qualify.mjs",
+    "release:publish": "node scripts/release/publish.mjs",
+    "release:verify": "node scripts/release/verify-release.mjs",
+    "test:standalone": "vitest run tests/unit/standalone-artifact.test.ts",
+    "test:release-supply-chain": "vitest run tests/unit/release-supply-chain.test.ts",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:browser && pnpm build && pnpm test:privacy && pnpm test:release"
+  },
+  "dependencies": {
+    "fastify": "^5.11.3",
+    "smol-toml": "^1.8.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^12.0.9",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "@types/node": "^24.10.0",
+    "eslint": "^10.8.1",
+    "semantic-release": "^25.0.9",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  }
+}

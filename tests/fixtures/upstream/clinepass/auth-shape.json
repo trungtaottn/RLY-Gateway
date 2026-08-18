@@ -1,0 +1,11 @@
+{
+  "schema": "cline-oauth-v1",
+  "source": "synthetic ClinePass auth.json envelope",
+  "requiredKeys": ["tokens.access_token", "tokens.refresh_token"],
+  "optionalKeys": ["tokens.expires_at"],
+  "tokens": {
+    "access_token": "<omitted>",
+    "refresh_token": "<omitted>",
+    "expires_at": "2026-08-14T00:00:00.000Z"
+  }
+}

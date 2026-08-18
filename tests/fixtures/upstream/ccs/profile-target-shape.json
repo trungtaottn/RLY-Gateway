@@ -1,0 +1,24 @@
+{
+  "artifactId": "ccs-8.9.0",
+  "kind": "profile-target-separation",
+  "profile": {
+    "id": "profile-fixture-codex",
+    "target": "claude-code",
+    "provider": "codex",
+    "accountBinding": "policy-only"
+  },
+  "target": {
+    "id": "claude-code",
+    "detect": "binary-on-path",
+    "launch": "transient-child-env"
+  },
+  "modelRoles": {
+    "primary": "fixture-provider:fixture-primary",
+    "fast": "fixture-provider:fixture-fast",
+    "reasoning": "fixture-provider:fixture-reasoning"
+  },
+  "invariants": [
+    "profile-does-not-preselect-account",
+    "no-persistent-global-config"
+  ]
+}

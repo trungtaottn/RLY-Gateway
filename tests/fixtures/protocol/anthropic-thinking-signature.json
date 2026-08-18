@@ -1,0 +1,19 @@
+{
+  "purpose": "Synthetic field-level fixture (#119): an Anthropic Messages request whose assistant thinking block carries a wire-significant signature that must survive decode into the fidelity envelope. Signature value is a synthetic placeholder, never a real credential or token.",
+  "request": {
+    "model": "fixture-model",
+    "max_tokens": 128,
+    "stream": true,
+    "messages": [
+      { "role": "user", "content": "redacted fixture turn" },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "thinking", "thinking": "redacted fixture reasoning", "signature": "synthetic-thinking-signature-value" },
+          { "type": "tool_use", "id": "tool_fixture", "name": "fixture_tool", "input": {} }
+        ]
+      },
+      { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "tool_fixture", "content": "redacted fixture result" }] }
+    ]
+  }
+}

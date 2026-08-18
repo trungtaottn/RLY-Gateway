@@ -1,0 +1,9 @@
+{
+  "purpose": "Synthetic field-level fixture (#119): an Anthropic Messages request carrying an unknown additive top-level field. The fidelity envelope must record an intentionally-ignored disposition for the field instead of silently discarding required continuation state. The additive value is a synthetic placeholder.",
+  "request": {
+    "model": "fixture-model",
+    "max_tokens": 128,
+    "messages": [{ "role": "user", "content": "redacted fixture turn" }],
+    "foo_additive_field": "synthetic-additive-value"
+  }
+}

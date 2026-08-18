@@ -1,0 +1,59 @@
+name: PR validation
+
+on:
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-commit:
+    name: conventional-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a Conventional Commit-compatible PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ ! "$PR_TITLE" =~ ^(build|chore|ci|docs|feat|fix|perf|refactor|revert|test)(\([a-z0-9._/-]+\))?(!)?:\ .+ ]]; then
+            echo "PR title must use Conventional Commit syntax for the squash merge message." >&2
+            exit 1
+          fi
+
+  verify:
+    name: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The bootstrap installer (scripts/install.sh) verifies the artifact's
+      # Ed25519 digest statement with OpenSSL `pkeyutl -rawin`, which macOS's
+      # LibreSSL does not support. Homebrew OpenSSL 3 is provisioned so the
+      # installer-shell tests exercise the REAL verification path.
+      - name: Install OpenSSL 3 (Ed25519 pkeyutl -rawin for installer tests)
+        run: brew install openssl@3
+      - run: pnpm exec playwright install chromium
+      - run: pnpm verify
+
+  required-ci:
+    name: required-ci
+    if: ${{ always() }}
+    needs: [conventional-commit, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject failed, cancelled, or skipped validation
+        env:
+          TITLE_RESULT: ${{ needs.conventional-commit.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          test "$TITLE_RESULT" = success
+          test "$VERIFY_RESULT" = success

@@ -1,0 +1,25 @@
+{
+  "schema": "rly-gateway/claude-code-reasoning-shape/1",
+  "kind": "redacted-synthetic-fixture",
+  "baseline": "claude-code-2.1.229",
+  "path": "anthropic-messages",
+  "purpose": "Pins the supported Claude Code baseline request shape for session/subagent reasoning effort through the Anthropic Messages gateway path (#70). The decoder is based on this pinned shape, not an assumed field name.",
+  "deliberateFields": {
+    "thinking.type": "Evidenced control: session/subagent reasoning mode (enabled | adaptive | disabled). Continued from the existing decoder behavior.",
+    "effort": "Optional documented additive field carrying subagent/session effort (low|medium|high|xhigh|max). When absent, no source effort is assumed; the canonical ReasoningRequest keeps sourceEffort fidelity for same-family exact translation. Other unknown additive fields are deliberately recorded as ignored, never silently consumed."
+  },
+  "request": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 8192,
+    "thinking": { "type": "enabled" },
+    "effort": "high",
+    "messages": [{ "role": "user", "content": "redacted fixture" }]
+  },
+  "expectedCanonical": {
+    "inference.thinking": "enabled",
+    "inference.reasoning.intent": "DEEP",
+    "inference.reasoning.sourceMode": "enabled",
+    "inference.reasoning.sourceEffort": "high",
+    "inference.reasoning.explicit": true
+  }
+}

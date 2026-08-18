@@ -1,0 +1,10 @@
+{
+  "artifactId": "ccs-8.9.0",
+  "kind": "quota-class-order",
+  "classes": [
+    { "id": "healthy", "rank": 0, "eligible": true },
+    { "id": "warning", "rank": 1, "eligible": true },
+    { "id": "unknown", "rank": 2, "eligible": true },
+    { "id": "exhausted", "rank": 3, "eligible": false }
+  ]
+}
