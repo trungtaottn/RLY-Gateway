@@ -555,6 +555,8 @@ describe("standalone artifact CI workflow (#35)", () => {
     expect(workflow).toContain("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
     expect(workflow).toContain("gh release upload");
     expect(workflow).toContain("out/standalone/*.tar.gz");
+    expect(workflow).toContain("out/standalone/*.tar.gz.sig");
+    expect(workflow).not.toContain("out/standalone/*.sha256 out/standalone/*.sig");
     expect(workflow).toContain("artifacts.json");
   });
 
