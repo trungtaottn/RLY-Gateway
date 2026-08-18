@@ -1,371 +1,227 @@
 # RLY Gateway
 
-Personal, protocol-preserving gateway and local multi-provider control plane. Claude Code is the coding harness; RLY profiles are the aliases (`rly <profile>`); Codex CLI is an explicit `rly run codex` escape hatch.
+[![PR validation](https://github.com/trungtaottn/RLY-Gateway/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/trungtaottn/RLY-Gateway/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-## Project status
+RLY Gateway is a local, protocol-preserving gateway for running Claude Code and
+Codex CLI through explicit provider, account-pool, and model policies. It keeps
+credentials and runtime state on the user's machine, binds its data and
+management APIs to loopback, and leaves native Claude and Codex configuration
+untouched.
 
-The foundation, Anthropic Messages boundary, direct-provider Claude route,
-authenticated control-plane/management contract, project-owned credential
-broker, deterministic account pools, Claude Code profile integration, the
-Codex CLI Responses harness, the resident runtime service/bootstrap, the
-standalone runtime artifact pipeline, the signed release supply chain
-(canonical release manifest, SBOM/provenance, Ed25519 signing, signed channel
-metadata, exact-byte qualification), and the verified installer/updater/
-uninstaller acquisition lifecycle (`rly install`, `rly update --channel`,
-`rly uninstall`, `scripts/install.sh`) are implemented. Remaining next-focus
-work is Codex OAuth and ClinePass through Claude Code; see
-[BACKLOG.md](./docs/BACKLOG.md) and [TASKLIST](./docs/TASKLIST.md).
+```text
+Claude Code / Codex CLI
+          ↓
+  RLY profile and model policy
+          ↓
+ provider + eligible account pool
+          ↓
+ direct, OAuth, or reviewed interop adapter
+```
 
-## Distribution
+## Highlights
 
-Standalone RLY-owned runtime artifacts are the **primary production
-distribution** (#35): self-contained packages that bundle the exact pinned
-Node runtime and install/run without a user-provisioned Node/npm/pnpm
-toolchain or a source checkout. GitHub Releases is the artifact origin
-(`rly-<version>-<target>.tar.gz` + sha256 + `artifacts.json`); npm/Homebrew,
-if introduced, are secondary convenience channels pointing at the same
-canonical artifact lineage. External Node is a development concern only. See
-`scripts/standalone/`, `docs/ARCHITECTURE.md`, and `docs/release-governance.md`.
+- Launch named Claude profiles with `rly <profile>` such as `rly codex` or
+  `rly deepseek`.
+- Route Anthropic Messages and OpenAI Responses without flattening streaming,
+  tools, reasoning, usage, or stop semantics.
+- Keep provider, physical model, account pool, and reasoning policy as separate
+  decisions.
+- Discover Claude-compatible `claude-rly-*` model projections through the
+  authenticated `/v1/models` gateway surface.
+- Inspect the actual request-time provider and physical model with
+  `rly route-trace`.
+- Manage providers, accounts, pools, profiles, quota, and traces through a
+  loopback-only Config UI.
+- Install a self-contained per-user runtime. Released artifacts bundle their
+  own pinned Node.js runtime and do not require sudo, npm, or pnpm.
+
+## Supported systems
+
+RLY publishes artifacts for macOS Apple Silicon, macOS Intel, Linux x86-64,
+and Linux ARM64. The resident service uses a macOS LaunchAgent or
+`systemd --user` on Linux. Linux installations therefore require a reachable
+user systemd manager. RLY does not enable lingering and does not install a root
+service.
 
 ## Install
 
-A clean per-user install needs no source checkout, npm, pnpm, or a
-user-provisioned Node, and never requires sudo. Two equivalent paths:
+The stable bootstrap verifies signed channel metadata, the signed release
+manifest, the artifact checksum, its Ed25519 signature, and its unpacked tree
+before installation.
 
 ```bash
-# 1. documented bootstrap installer (curl/tar/sha256sum|shasum/OpenSSL 3 only)
-sh <(curl -fsSL https://github.com/trungtaottn/RLY-Gateway/releases/latest/download/install.sh)
-#   or, after a release:  sh install.sh --channel stable
-
-# 2. from any running RLY (dev checkout or an existing artifact)
-rly install --channel beta      # stable default; beta for prereleases
-rly install --channel stable --target linux-x64 --version 1.0.0
+curl -fsSLO https://github.com/trungtaottn/RLY-Gateway/releases/latest/download/install.sh
+sh install.sh --channel stable
 ```
 
-`rly install` resolves the channel through the **signed** release metadata
-(#128): it downloads `rly-channel-<channel>.json` + `rly-release.json` (both
-Ed25519-verified against the committed release public key), evaluates
-rollback/staleness/freeze, selects the exact platform artifact, and verifies
-the sha256 + artifact signature + unpacked-tree digest **before installing
-anything**. A mismatch fails before any mutation. The bootstrap installer
-verifies the artifact digest chain in-shell and lets the verified binary
-re-verify the full signature chain before the install proceeds. Install
-locations are deterministic and user-private:
-
-- control plane: `~/.rly`
-- stable RLY-owned bootstrap (the ONLY service execution identity, never
-  `dist/cli/init.js`): `~/.rly/bootstrap/rly-gateway`
-- user launcher symlink: `~/.local/bin/rly` → the bootstrap (refuses a
-  foreign occupant; add `~/.local/bin` to PATH once)
-
-The first install registers the per-user service (macOS LaunchAgent
-`com.rly.gateway` / Linux `systemd --user`, never root), starts it, and
-guides `rly config` to add providers/accounts/pools/profiles. Re-running
-`rly install` is a repair: it verifies ownership/build identity and repairs
-missing/stale bootstrap + service definitions idempotently without touching
-provider/account configuration.
-
-## Update
+Requirements are limited to `curl`, `tar`, a SHA-256 utility, and OpenSSL 3
+with Ed25519 `pkeyutl -rawin` support. On macOS, install OpenSSL 3 first:
 
 ```bash
-rly update --channel beta       # acquire + verify + STAGE the newest beta
-rly update                      # activate the staged candidate (Wave 4)
-rly update --channel stable     # explicit auditable channel switch
-rly update --install-only       # stage a local candidate without activating
+brew install openssl@3
 ```
 
-`rly update` reports the current exact build, the candidate exact
-build/channel, verification state, and pending/activation status.
-**INSTALL != ACTIVATE**: acquisition installs and verifies a candidate and
-hands a `VerifiedCandidate` to Wave 4 — it never changes the serving `active`
-reference and never restarts the resident service. Run plain `rly update` to
-complete the safe zero-downtime activation (drain → restart → verify →
-rollback on failure; #73/#92/#93). Channel switches are explicit
-(`--channel beta|stable|current`) and recorded in
-`~/.rly/installer/acquisition-log.json`; rollback protection refuses channel
-metadata older than the highest observed version.
-
-## Uninstall
-
-```bash
-rly uninstall                  # remove ONLY RLY-owned service + product artifacts
-rly uninstall --purge --yes    # DESTROY the whole RLY control plane (explicit)
-```
-
-Default uninstall stops/disables and removes the RLY-owned launchd/systemd
-definition plus the installed artifacts (`bootstrap/`, `runtime/`,
-`installer/`, installation + update state) and **preserves `~/.rly`
-configuration, accounts, and credential state**. `--purge --yes` is the
-explicit destructive removal of the entire RLY control plane; it never
-removes unrelated native Claude/Codex configuration.
-
-## Release supply chain
-
-The artifact lineage is published through a signed release supply chain
-(#128): a canonical release manifest (`rly-release.json`), per-artifact SBOMs
-and provenance referencing the exact artifact digest, Ed25519 signatures, and
-signed channel metadata (`rly-channel-<channel>.json`) mapping beta/stable to
-exact digests — **exact-byte qualification is the publication authority** (a
-release is promoted only on evidence produced by installing and exercising
-the exact artifact digest later published). The signing private key lives only
-in the repository secret `RLY_RELEASE_SIGNING_KEY`; the public key is
-committed at `scripts/release/signing-public-key.pem`. See
-`scripts/release/` and `docs/release-governance.md`.
-
-## Start here
-
-| Document | Authority |
-| --- | --- |
-| [SPEC.md](./docs/SPEC.md) | Product contract, scope, requirements, acceptance criteria |
-| [Requirements pack](./docs/requirements/README.md) | Vision, BRD, SRS, FRS, use cases, stories, RTM, and Acceptance Test Cases |
-| [TASKLIST.md](./docs/TASKLIST.md) | Current committed work and phase progress |
-| [BACKLOG.md](./docs/BACKLOG.md) | Uncommitted future work |
-| [ROADMAP.md](./docs/ROADMAP.md) | Milestones and release sequence |
-| [ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Durable system boundaries and contracts |
-| [TECH-STACK.md](./docs/TECH-STACK.md) | Approved runtime, tooling, and quality gates |
-| [Project decisions](./docs/project-decisions.md) | Accepted product and operational defaults |
-| [Implementation plan](./plans/260813-1239-claude-first-personal-gateway/plan.md) | Detailed execution state and phase gates |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | Daily development workflow |
-| [AGENTS.md](./AGENTS.md) | Required reading/update contract for coding agents |
-
-## Product shape
+The installer writes only to user-owned locations:
 
 ```text
-Claude Code (`rly <profile>`)
-        ↓
-client protocol adapter + required capabilities
-        ↓
-versioned control-plane policy
-        ↓
-request-time account eligibility and selection
-        ↓
-immutable EffectiveRoute + credential generation
-        ↓
-direct / OAuth / interoperability / bridge adapter
+~/.rly                 control plane, runtime and logs
+~/.local/bin/rly       stable launcher symlink
 ```
 
-## Safety invariants
+Add `~/.local/bin` to `PATH` if it is not already present.
 
-- No persistent mutation of global Claude or Codex configuration by default.
-- RLY-launched Claude sessions use durable RLY-owned, profile-scoped Claude configuration views under `~/.rly/claude/views/<view-id>` (native `~/.claude` stays read/compose-only input; RLY session/model state persists per profile; a plain `claude` launch is never affected).
-- No credential scraping from another client.
-- Credential import is explicit and read-only by default; project-owned records become canonical.
-- No account rotation after the first response byte or tool event.
-- No blind process termination or automatic port increment.
-- No prompt, response, token, email, or account identity in default logs.
-- Existing gateway boundaries on ports `10100`, `8317`, and `17870` are never managed by this project.
+## First run
 
-## Local setup
-
-Requirements: Node.js 24 and pnpm 11.16. **These are development requirements
-only** — released standalone artifacts bundle their own pinned Node runtime and
-need neither.
+Initialize the per-user service and open the local Config UI:
 
 ```bash
-pnpm install --frozen-lockfile
-cp gateway.config.example.toml gateway.config.toml
-pnpm dev doctor
-pnpm dev status
-pnpm verify
+rly init
+rly config
 ```
 
-The example route contains placeholder model IDs and requires no credential for `doctor`. `pnpm dev` runs the source checkout; an installed package exposes the `rly` executable shown below. Do not commit the local configuration or place a raw secret in it; credential fields contain references such as `env:OPENROUTER_API_KEY`.
+In Config UI:
 
-Fresh-install model discovery (`GET /v1/models`) is empty by default: every shipped model is EXPERIMENTAL without reviewed compatibility evidence and `gateway.modelDiscovery.experimentalModels` defaults to `false`. The discovery response carries a secret-free `note` explaining exactly this and how to unblock; enable the opt-in to expose EXPERIMENTAL models (exact-model pins keep working regardless), or await canary review evidence. A session's profile-route model/pool/provider is frozen at launch (#J2 contract A) — a mid-session profile edit applies to NEW sessions only, while account/credential/ECR changes apply immediately.
+1. Add a provider.
+2. Add or import an account using a pseudonym.
+3. Create a provider-scoped account pool.
+4. Create a Claude or Codex profile and map its model roles.
+5. Launch the profile by name.
 
-RLY stores its durable local control-plane state in `~/.rly`. On its first start after this rename, RLY atomically migrates a complete legacy `~/.agent-gateway` tree only when `~/.rly` is absent. If both roots exist, RLY stops without modifying either directory; back up or move one root before retrying.
+```bash
+rly <profile>
+```
 
-Project-owned Gemini OAuth uses `RLY_GEMINI_OAUTH_CLIENT_ID`. There is no default client id and no Gemini CLI / Code Assist impersonation. Opt-in live smoke: `RLY_LIVE_GEMINI_OAUTH=1`. Cline create requires an explicit loopback or HTTPS `endpointPolicy` (never ports `10100`, `8317`, or `17870`). OpenCode Go and Alibaba have adapters but no reviewed TOML model routes yet; Alibaba stays terms-gated.
+For example, a Claude profile named `codex` launches with `rly codex`.
+`rly run codex` is different: it launches Codex CLI directly through the RLY
+gateway. Provider names are not harness names.
 
-## Current CLI
+## Model identity and switching
+
+RLY deliberately separates three values:
+
+| Value | Meaning |
+| --- | --- |
+| Requested selector | The role, native alias, exact model ID, or `claude-rly-*` projection sent by the client |
+| Resolved target | The provider and physical model selected by the frozen session policy |
+| Executed target | The request-time decision recorded before account selection |
+
+Claude's model picker is an intent surface; `rly route-trace` is execution
+evidence. Model projections have provider-aware display names and reversible
+IDs. A model selection applies inside the current session universe. Editing a
+profile changes new sessions only; it never silently mutates a running
+session's frozen provider/model policy.
+
+Fresh installations may show an empty model list because unreviewed models are
+classified as experimental. Enable experimental discovery explicitly in the
+gateway configuration or promote models through reviewed compatibility
+evidence. Exact configured model routes continue to work independently of
+picker visibility.
+
+## Common commands
 
 ```bash
 rly init
 rly config
 rly config status
-rly config providers list
-rly config providers create --name codex --mode oauth
-rly config accounts list
-rly config accounts login --provider-id <id> --pseudonym acct-1
-rly config accounts import --provider-id <id> --pseudonym acct-1 --source /path/to/auth.json --source-fingerprint <sha256>
-rly config accounts revoke --id <id> --version <n>
-rly config accounts refresh --id <id> --version <n>
-rly config pools create --name codex-pool --provider-id <id> --strategy fill-first --accounts <a>,<b>
-rly config profiles create --name codex --harness claude --provider-id <id> --pool-id <pool> --roles '{"primary":"gpt-5.4"}'
+rly status
+rly doctor
+rly quota
+rly route-trace
+
+rly <profile>
+rly run claude --profile <profile> --
+rly run codex -- --help
+
 rly gateway status
 rly gateway stop
 rly gateway start
-rly install [--channel beta|stable|current] [--target <t>] [--version <v>] [--artifact <tarball> --metadata-dir <dir>]
-rly update [--candidate <dir>] [--version <v>] [--channel beta|stable|current] [--origin <url>] [--target <t>] [--install-only] [--force] [--wait-timeout <ms>]
-rly uninstall [--purge --yes]
-rly doctor
-rly status
-rly quota
-rly route-trace
-rly admin providers list
-rly admin credentials preview --source /path/to/auth.json --provider-id <id>
-rly admin credentials import --source /path/to/auth.json --provider-id <id> --pseudonym acct-1 --source-fingerprint <sha256>
-rly admin credentials login --provider-id <id> --pseudonym acct-1
-rly admin accounts select --id <id> --version <n>
-rly admin accounts revoke --id <id> --version <n>
-rly admin ui
-rly <profile>
-rly <profile> -- -p fixture
-rly run claude --profile <name> -- --help
-rly run codex -- --help
+
+rly update --channel stable
+rly uninstall
+rly uninstall --purge --yes
 ```
 
-`rly init` bootstraps the per-user installation: it settles the durable `~/.rly` home, validates the control-plane store, registers the per-user service idempotently (macOS LaunchAgent `com.rly.gateway` or Linux `systemd --user`, never root), starts the resident runtime, and waits for an attested compatible instance. The resident runtime stays alive after Claude/Codex sessions close and is reused by `rly <profile>`, config, and diagnostics; the foreground launcher remains the fallback when no service is initialized. On macOS the LaunchAgent starts again at login/reboot, restarts crashes within launchd's bounded throttle policy, and writes its stdout/stderr into `~/.rly/logs/service.log`; on Linux the `systemd --user` unit (`~/.config/systemd/user/rly-gateway.service`) starts again whenever the user's systemd manager starts, restarts crashes under a bounded `StartLimit`/`Restart` policy, and appends its stdout/stderr to `~/.rly/logs/service.log`. A session without a reachable user systemd manager (containers, minimal distros, WSL without systemd) fails actionably and RLY never auto-enables `loginctl enable-linger`. Re-running `rly init` repairs a changed/stale definition without duplicating the service. `rly gateway status` reports runtime readiness plus service label/load state/pid (and enabled state on Linux); `rly gateway stop` shuts the resident runtime down through the attested in-process shutdown. No credential, token, or account identity is ever written into the service definition, logs, or diagnostics.
-
-`rly update` runs the safe zero-downtime update lifecycle: candidate installation and activation are separate durable states. With `--candidate <dir> [--version <v>]` a verified local candidate is installed while the current resident runtime keeps serving; `--channel beta|stable|current` performs #129 verified remote acquisition (signed channel metadata + release manifest, exact artifact digest/signature/tree verification) and STAGES the verified candidate — INSTALL != ACTIVATE, the serving `active` reference and the resident service are never changed by acquisition. Existing Claude sessions keep running on the old process until they drain (launch-session count, not TCP), `--force` is the explicit destructive path, and activation restarts only the attested resident runtime through the per-user service manager, verifies the new runtime identity/readiness, and rolls back to the previous known-good version on failure. `rly status`/`rly doctor` expose allowlisted update metadata (state, current/pending/previous version, active sessions, CLI↔runtime compatibility).
-
-`rly config` is the primary user-facing control plane after `rly init`: it resolves the durable configuration from the `~/.rly` installation record (no `gateway.config.toml` in the current directory is required), ensures or recovers the resident runtime, and productizes the existing management surface. Bare `rly config` (or `rly config ui`) opens the local loopback config UI — providers, accounts, pools, profiles, health/quota, audit, and route traces — and prints the URL; `--headless` prints the bootstrap URL without opening a browser. `rly config status` prints a secret-free summary (runtime state, policy revision, resource counts, health). Focused shortcuts `rly config providers|accounts|pools|profiles` create/list through the same management API that `rly admin` uses, so both surfaces observe exactly one policy revision. Credential login/import/refresh/revoke reuse the credential broker and persist only handle/generation metadata. Closing the config UI never stops the resident runtime. `rly admin` remains the advanced/operator surface over the same endpoints.
-
-`rly <profile>` is the canonical launch: it starts or reuses the attested local gateway and launches Claude Code with that profile (for example `rly codex`, `rly clinepass`, `rly deepseek`). Provider names are not harnesses. `rly run claude --profile <name>` remains compatibility. `rly run codex` launches Codex CLI and is not a profile alias. `--profile` cannot be combined with a bare profile token or with `--route`. Each profile launch gets a lease-scoped child token so concurrent profiles do not share request identity. The same instance also binds the management listener on `127.0.0.1:17872`. `status` reports `not-running`, `attested-compatible`, `occupied-foreign`, or `stale-record`; only the compatible state is considered running. `doctor` validates configuration and profile/target readiness without exposing sensitive validation details. `quota` prints pseudonym and quota class only. `route-trace` prints profile name, decision reason, and selected pseudonym only. `admin` talks to the running management listener with the separate per-instance bearer. Providers, accounts, pools, and profiles support create/list/update; pause/resume apply only to accounts. Credential import is explicit and read-only; login starts a PKCE loopback callback on `127.0.0.1:17873`. Select pins one ready account onto the Anthropic route when no profile is active; revoke removes usable project-owned credential files. `admin ui` issues a single-use fragment URL for a browser session on the management listener. There is no ownership-bypassing `serve` command. Reserved commands are `status`, `doctor`, `quota`, `route-trace`, `admin`, `run`, `init`, `install`, `uninstall`, `update`, `gateway`, and `config`; a colliding profile name must use `rly run claude --profile`. Unknown profiles fail closed.
-
-With configured direct routes or a selected Codex OAuth account, the lifecycle
-server also exposes authenticated Anthropic Messages and token-count endpoints.
-Configured routes are explicit `primary`, `fast`, and `reasoning` mappings; the
-gateway never auto-selects a model. Credential fields are `env:` or `handle:`
-references, never raw secrets.
-
-## Codex subscription through Claude Code
-
-Canonical launch is `rly codex`: Claude Code using a RLY Claude profile named `codex` against a Codex OAuth pool. `rly run codex` is Codex CLI and is not this path. `--profile` and `--route` stay exclusive.
-
-1. Bootstrap once, then open the config control plane:
+Headless control-plane examples:
 
 ```bash
-rly init
-rly config
-```
-
-`rly config` opens the local config UI (add providers/accounts/pools/profiles there), or use the focused shortcuts below. `rly config` resolves the durable configuration from `~/.rly` and recovers the resident runtime when it is not already running.
-
-2. Create the Codex OAuth provider:
-
-```bash
+rly config providers list
 rly config providers create --name codex --mode oauth
-```
-
-3. Add accounts by PKCE login or explicit import. Do not paste access tokens, refresh tokens, emails, or account ids into the shell, docs, or tickets.
-
-```bash
 rly config accounts login --provider-id <provider-id> --pseudonym acct-1
+rly config pools create --name codex-pool --provider-id <provider-id> \
+  --strategy fill-first --accounts <account-id>
+rly config profiles create --name codex --harness claude \
+  --provider-id <provider-id> --pool-id <pool-id> \
+  --roles '{"primary":"gpt-5.4","fast":"gpt-5.4","reasoning":"gpt-5.4"}'
 ```
 
-Or import a local Codex `auth.json` after previewing the fingerprint:
+Never paste access tokens, refresh tokens, account identities, prompts, or
+responses into commands, issues, or diagnostic attachments.
+
+## Updates and uninstall
+
+RLY separates acquisition from activation:
 
 ```bash
-rly admin credentials preview --source /path/to/auth.json --provider-id <provider-id>
-rly config accounts import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
+rly update --channel stable   # acquire, verify and stage
+rly update                    # activate with drain, verify and rollback
 ```
 
-Repeat login or import for each additional OAuth account you want in the pool.
+Existing sessions keep using the old runtime until they drain. Failed
+activation rolls back to the previous known-good runtime.
 
-4. Create a pool that contains those account ids, then a Claude harness profile named `codex` whose model roles are reviewed Codex ids (today `gpt-5.4`):
+Default uninstall removes RLY-owned service and runtime artifacts but preserves
+configuration and credential state. Full removal is explicit and destructive:
 
 ```bash
-rly config pools create --name codex-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id>
-rly config profiles create --name codex --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"gpt-5.4","fast":"gpt-5.4","reasoning":"gpt-5.4"}'
+rly uninstall
+rly uninstall --purge --yes
 ```
 
-5. Launch Claude Code through that profile:
+## Security and privacy
+
+- Data and management listeners bind to `127.0.0.1`.
+- Management mutations require authentication, Origin/CSRF validation, and
+  optimistic versions.
+- Credentials are referenced by environment variable or project-owned handle;
+  raw values do not enter Git or SQLite.
+- Prompt and response bodies are not logged by default.
+- Account rotation stops after the first response byte or tool event.
+- RLY never kills a foreign process merely because it owns a configured port.
+- Native `~/.claude` and Codex configuration are read/compose inputs, not RLY
+  mutation targets.
+
+Report vulnerabilities privately as described in [SECURITY.md](./SECURITY.md).
+
+## Development
+
+Source development requires Node.js 24 and pnpm 11.16:
 
 ```bash
-rly codex
-rly run claude --profile codex --
-```
-
-The second form is compatibility only. Unknown required capabilities fail closed. Codex models are not remapped onto OpenRouter or other provider evidence.
-
-## ClinePass through Claude Code
-
-Canonical launch is `rly clinepass`: Claude Code using a RLY Claude profile named `clinepass` against a ClinePass credential pool. Catalog/provider id stays `cline`. RLY owns imported credentials; import is one-time and read-only. Continuous Cline store lock/writeback/restore is not default. `--profile` and `--route` stay exclusive.
-
-1. Bootstrap once, then open the config control plane (`rly config` opens the local UI; the focused shortcuts below work headless):
-
-```bash
-rly init
-rly config
-```
-
-2. Create the Cline provider with an explicit loopback or HTTPS endpoint (never ports `10100`, `8317`, or `17870`):
-
-```bash
-rly config providers create --name cline --mode oauth --endpoint https://api.example.invalid/v1
-```
-
-3. Preview then import a local Cline `auth.json`. Preview without `--provider-id` is rejected. Do not paste access tokens, refresh tokens, emails, or account ids into the shell, docs, or tickets. Import does not write the Cline store.
-
-```bash
-rly admin credentials preview --source /path/to/auth.json --provider-id <provider-id>
-rly config accounts import --source /path/to/auth.json --provider-id <provider-id> --pseudonym acct-1 --source-fingerprint <sha256>
-```
-
-Repeat preview+import for each additional Cline account you want in the pool.
-
-4. Create a pool that contains those account ids, then a Claude harness profile named `clinepass` whose model roles are reviewed Cline ids (today `claude-sonnet-4-5`):
-
-```bash
-rly config pools create --name clinepass-pool --provider-id <provider-id> --strategy fill-first --accounts <account-id>,<account-id>
-rly config profiles create --name clinepass --harness claude --provider-id <provider-id> --pool-id <pool-id> --roles '{"primary":"claude-sonnet-4-5","fast":"claude-sonnet-4-5","reasoning":"claude-sonnet-4-5"}'
-```
-
-5. Launch Claude Code through that profile:
-
-```bash
-rly clinepass
-rly run claude --profile clinepass --
-```
-
-The second form is compatibility only. Unknown required capabilities fail closed. Cline models are not remapped onto Codex, OpenRouter, or other provider evidence. Opt-in live smoke: `RLY_LIVE_CLINEPASS=1` (plus `RLY_LIVE_CLINE_HANDLE` and `RLY_LIVE_CLINE_ENDPOINT`); skipped ≠ pass.
-
-## Verification
-
-```bash
+pnpm install --frozen-lockfile
+cp gateway.config.example.toml gateway.config.toml
 pnpm exec playwright install chromium
-pnpm test:unit
-pnpm test:lifecycle
-pnpm test:privacy
-pnpm test:browser
-pnpm lint
-pnpm typecheck
-pnpm build
+pnpm dev doctor
+pnpm verify
 ```
 
-`pnpm verify` includes `pnpm test:browser`. Install Chromium once with `pnpm exec playwright install chromium` before a clean-clone verify.
+The public branch model is:
 
-Contract and integration script names already exist and intentionally allow zero tests until their owning phases add real protocol/provider behavior.
+- `dev`: active development and pull-request target
+- `main`: stable, releasable snapshots
 
-## Release lanes
+See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 
-`dev` is the Beta lane and `main` is the Stable lane. Full verification runs once on PRs targeting either lane; trusted post-merge updates release without repeating the suite. The first future public Stable baseline is a separate clean-snapshot operation that keeps historical private development commits private. After that bootstrap, normal promotion preserves branch ancestry.
+## Release integrity
 
-Git tags and GitHub Releases are the release record. `dev` creates `-beta.N` prereleases and `main` creates stable releases through semantic-release; the package stays private and is never published to npm.
-
-After a Stable release, `release-stable.yml` may move `dev` to the released
-`main` SHA only after it proves that `dev` is an ancestor and both trees are
-identical. The update is an API fast-forward (`force: false`), creates no
-commit or PR. GitHub does not allow the built-in Actions integration to bypass
-a personal repository ruleset, so the owner must install a dedicated GitHub App
-on this repository only, grant it only Contents read/write, and configure:
-
-- Repository variable `RLY_RELEASE_ALIGNMENT_APP_CLIENT_ID` and secret
-  `RLY_RELEASE_ALIGNMENT_APP_PRIVATE_KEY` for the installation token.
-- Repository variable `RLY_RELEASE_ALIGNMENT_APP_SLUG` containing the app slug
-  without `[bot]`; Beta skips its release job when this app performs the
-  alignment, so no second Beta release or Slack message is created. Full CI
-  stays PR-only.
-- A replacement `dev` branch ruleset that preserves PR-only, strict
-  `required-ci`, deletion prevention, and non-fast-forward prevention for all
-  actors, with an `always` bypass only for that installed app. Do not use a PAT
-  or a broad workflow bypass.
-
-Set the repository Actions secret `SLACK_WEBHOOK_URL` to enable release
-messages. Missing Slack configuration is reported by the workflow and never
-rolls back a GitHub Release, tag, or ref.
+GitHub Releases are the canonical distribution channel. A stable release
+contains platform tarballs, checksums, signatures, SBOMs, provenance, signed
+channel metadata, qualification evidence, and `install.sh`. Published artifact
+bytes are built from the tagged commit. Exact-byte qualification is the
+publication authority.
 
 ## License
 
-MIT. Adapted upstream code, when introduced, must be recorded in [`docs/provenance.md`](./docs/provenance.md) with its original notice, pinned artifact hash, and a row in the [adaptation matrix](./docs/source-adaptation-matrix.md).
+RLY Gateway is released under the [MIT License](./LICENSE). Required upstream
+notices and frozen source provenance are retained in
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) and [`provenance/`](./provenance/).

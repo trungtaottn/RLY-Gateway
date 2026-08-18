@@ -1,10 +1,15 @@
 # Security Policy
 
-No public release exists yet. Security fixes apply to the current `main` branch during bootstrap.
+Security fixes are supported for the latest release and the current `main`
+branch. Older prereleases and development snapshots are not supported.
 
 ## Reporting
 
-Report suspected vulnerabilities privately to the repository owner. Do not include live credentials, real prompts, responses, or account identity in an issue or diagnostic artifact.
+Report suspected vulnerabilities privately through GitHub's private
+vulnerability reporting for this repository. If that surface is unavailable,
+contact the repository owner privately. Do not include live credentials, real
+prompts, responses, or account identity in a public issue or diagnostic
+artifact.
 
 ## Security model
 
@@ -19,7 +24,8 @@ Report suspected vulnerabilities privately to the repository owner. Do not inclu
 - Prompt and response bodies are not logged by default.
 - Account pools filter eligibility before selection and cannot rotate after the first response byte or tool event.
 
-See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and the accepted ADRs for trust boundaries.
+The controls below define the supported public trust boundary. Implementation
+changes that weaken one of these controls require an explicit security review.
 
 ## Management UI threat model
 
