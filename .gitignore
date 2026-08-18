@@ -17,6 +17,11 @@ gateway.live.toml
 # Local execution plans
 plans
 
+# Private project authority and agent instructions stay local-only.
+/docs/
+/AGENTS.md
+/CLAUDE.md
+
 # Playwright artifacts
 test-results/
 playwright-report/
@@ -26,4 +31,3 @@ playwright/.cache/
 # Release signing private keys are secrets — never commit.
 signing-private-key.pem
 **/signing-private-key.pem
-

@@ -7,7 +7,7 @@ matching notice below and add the destination path in that commit.
 
 ## CCS
 
-Source: `@kaitranntt/ccs@8.9.0` (`docs/provenance/artifacts.json` id `ccs-8.9.0`).
+Source: `@kaitranntt/ccs@8.9.0` (`provenance/artifacts.json` id `ccs-8.9.0`).
 
 ```text
 MIT License

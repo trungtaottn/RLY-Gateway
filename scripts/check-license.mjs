@@ -14,9 +14,9 @@ if (!copyright.includes("Trung Tao")) {
   process.stderr.write("LICENSE copyright was flipped\n");
   process.exitCode = 1;
 }
-const notices = await readFile(resolve(root, "docs/third-party-notices.md"), "utf8");
-const provenance = await readFile(resolve(root, "docs/provenance.md"), "utf8");
-if (!notices.includes("MIT License") || !provenance.includes("provenance/artifacts.json")) {
+const notices = await readFile(resolve(root, "THIRD_PARTY_NOTICES.md"), "utf8");
+const provenance = JSON.parse(await readFile(resolve(root, "provenance/artifacts.json"), "utf8"));
+if (!notices.includes("MIT License") || !Array.isArray(provenance.artifacts) || provenance.artifacts.length === 0) {
   process.stderr.write("license or provenance inventory is incomplete\n");
   process.exitCode = 1;
 }

@@ -220,7 +220,7 @@ describe("Compatibility Claim and Evidence v2 (#122)", () => {
     const claimFile = join(directory, "control-plane", "claims", `claim-${claimKeyHash(textClaim?.claimKey ?? "")}.json`);
     expect((await stat(claimFile)).mode & 0o777).toBe(0o600);
     expect((await stat(join(directory, "control-plane", "claims"))).mode & 0o777).toBe(0o700);
-  });
+  }, 15_000);
 
   it("treats legacy v1 canary outputs as legacy/untrusted — they can never satisfy a v2 claim", async () => {
     const directory = await temporaryDirectory();

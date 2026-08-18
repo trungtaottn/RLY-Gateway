@@ -106,8 +106,7 @@ async function fixtureRuntimeRoot(overrides: { extraFiles?: Array<[string, strin
     engines: { node: ">=24 <25" },
   }, null, 2));
   await writeFile(join(root, "LICENSE"), "MIT License\nCopyright (c) 2026 Trung Tao\n");
-  await mkdir(join(root, "docs"), { recursive: true });
-  await writeFile(join(root, "docs", "third-party-notices.md"), "# Third-party notices\n\nMIT License\n");
+  await writeFile(join(root, "THIRD_PARTY_NOTICES.md"), "# Third-party notices\n\nMIT License\n");
   await mkdir(join(root, "dist", "cli"), { recursive: true });
   await writeFile(join(root, "dist", "cli", "main.js"), [
     'import { readFileSync } from "node:fs";',
@@ -127,9 +126,16 @@ async function fixtureRuntimeRoot(overrides: { extraFiles?: Array<[string, strin
   return root;
 }
 
-function localNode(): FixtureNode {
+async function localNode(): Promise<FixtureNode> {
   const version = execFileSync(process.execPath, ["--version"], { encoding: "utf8" }).trim().replace(/^v/, "");
-  return { bin: process.execPath, license: undefined, version, source: "local" };
+  const dir = await directory();
+  const bin = join(dir, "node");
+  // Homebrew's executable depends on a sibling libnode dylib. A relocatable
+  // wrapper keeps this unit test focused on the RLY launcher; release artifacts
+  // still exercise the downloaded, self-contained Node distribution.
+  await writeFile(bin, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+  await chmod(bin, 0o755);
+  return { bin, license: undefined, version, source: "host-wrapper-fixture" };
 }
 
 /** Tiny executable used as the bundled node in hermetic tests (no real binary). */
@@ -360,7 +366,7 @@ describe("clean-artifact smoke (#35)", () => {
   it("executes rly --version from the unpacked artifact using the bundled node", async () => {
     const host = hostTarget();
     if (host === null) return;
-    const { artifactDir } = await assembleFixture({ target: host, node: localNode() });
+    const { artifactDir } = await assembleFixture({ target: host, node: await localNode() });
     const identity = await smokeRun(artifactDir);
     expect(identity.product).toBe("rly-gateway");
     expect(identity.version).toBe("1.2.3");
@@ -370,7 +376,7 @@ describe("clean-artifact smoke (#35)", () => {
   it("runs from any working directory (no invoking-CWD dependence)", async () => {
     const host = hostTarget();
     if (host === null) return;
-    const { artifactDir } = await assembleFixture({ target: host, node: localNode() });
+    const { artifactDir } = await assembleFixture({ target: host, node: await localNode() });
     const output = execFileSync(join(artifactDir, "rly"), ["--version"], {
       cwd: tmpdir(),
       encoding: "utf8",
@@ -427,14 +433,13 @@ describe("launcher and manifest shape (#35)", () => {
 describe("pnpm dependency layout preservation (#35)", () => {
   it("preserves relative in-tree symlinks (pnpm layout) and digests them deterministically", async () => {
     const root = await directory();
-    await mkdir(join(root, "docs"), { recursive: true });
     await mkdir(join(root, "dist", "cli"), { recursive: true });
     await mkdir(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules"), { recursive: true });
     await mkdir(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify"), { recursive: true });
     await mkdir(join(root, "node_modules", ".pnpm", "avvio@9", "node_modules", "avvio"), { recursive: true });
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "rly-gateway", version: "1.2.3", type: "module" }));
     await writeFile(join(root, "LICENSE"), "MIT\n");
-    await writeFile(join(root, "docs", "third-party-notices.md"), "notices\n");
+    await writeFile(join(root, "THIRD_PARTY_NOTICES.md"), "notices\n");
     await writeFile(join(root, "dist", "cli", "main.js"), "export const x = 1;\n");
     await writeFile(join(root, "dist", "rly-build.json"), `${JSON.stringify(IDENTITY, null, 2)}\n`);
     await writeFile(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify", "package.json"), JSON.stringify({ name: "fastify", main: "index.js" }));

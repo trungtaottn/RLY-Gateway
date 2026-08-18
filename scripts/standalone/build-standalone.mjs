@@ -127,8 +127,7 @@ async function prepareRuntimeStaging() {
   const staging = await mkdtemp(join(tmpdir(), "rly-runtime-staging-"));
   await cp(join(ROOT, "package.json"), join(staging, "package.json"));
   await cp(join(ROOT, "LICENSE"), join(staging, "LICENSE"));
-  await mkdir(join(staging, "docs"), { recursive: true });
-  await cp(join(ROOT, "docs", "third-party-notices.md"), join(staging, "docs", "third-party-notices.md"));
+  await cp(join(ROOT, "THIRD_PARTY_NOTICES.md"), join(staging, "THIRD_PARTY_NOTICES.md"));
   await cp(join(ROOT, "dist"), join(staging, "dist"), { recursive: true });
   await installProdDependencies(staging);
   return staging;

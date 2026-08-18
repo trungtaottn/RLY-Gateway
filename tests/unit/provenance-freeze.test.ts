@@ -46,11 +46,11 @@ function headingSlug(heading: string): string {
 }
 
 describe("source provenance freeze", () => {
-  const artifactsDoc = readJson("docs/provenance/artifacts.json") as { artifacts: Artifact[] };
-  const matrix = readJson("docs/provenance/adaptation-matrix.json") as Matrix;
+  const artifactsDoc = readJson("provenance/artifacts.json") as { artifacts: Artifact[] };
+  const matrix = readJson("provenance/adaptation-matrix.json") as Matrix;
   const artifacts = new Map(artifactsDoc.artifacts.map((artifact) => [artifact.id, artifact]));
   const noticeHeadings = new Set(
-    readFileSync(join(root, "docs/third-party-notices.md"), "utf8")
+    readFileSync(join(root, "THIRD_PARTY_NOTICES.md"), "utf8")
       .split("\n")
       .filter((line) => line.startsWith("## "))
       .map((line) => headingSlug(line.slice(3))),
@@ -63,7 +63,7 @@ describe("source provenance freeze", () => {
       expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
       expect(artifact.license).toBe("MIT");
       expect(artifact.copyright.length).toBeGreaterThan(10);
-      expect(artifact.noticeFile.startsWith("docs/third-party-notices.md#")).toBe(true);
+      expect(artifact.noticeFile.startsWith("THIRD_PARTY_NOTICES.md#")).toBe(true);
       const fragment = artifact.noticeFile.split("#")[1] ?? "";
       expect(fragment.length).toBeGreaterThan(0);
       expect(noticeHeadings.has(fragment), artifact.noticeFile).toBe(true);

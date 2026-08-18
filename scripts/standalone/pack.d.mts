@@ -66,7 +66,6 @@ export const TARGET_MATRIX: Readonly<Record<string, MatrixEntry>>;
 export const ALL_TARGETS: readonly string[];
 export const TOP_LEVEL_ALLOWLIST: readonly string[];
 export const BIN_ALLOWLIST: readonly string[];
-export const DOCS_ALLOWLIST: readonly string[];
 export const FORBIDDEN_PATH_PATTERNS: readonly RegExp[];
 export const PNPM_METADATA_FILES: readonly string[];
 

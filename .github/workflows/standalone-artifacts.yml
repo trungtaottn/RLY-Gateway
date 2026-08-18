@@ -158,4 +158,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/*.sig out/standalone/*.sbom.json out/standalone/rly-release.json out/standalone/rly-release.json.sig out/standalone/rly-provenance.json out/standalone/rly-provenance.json.sig out/standalone/rly-channel-*.json out/standalone/rly-channel-*.json.sig out/standalone/rly-qualification.json out/standalone/artifacts.json --clobber
+          gh release upload "$RELEASE_TAG" scripts/install.sh out/standalone/*.tar.gz out/standalone/*.sha256 out/standalone/*.sig out/standalone/*.sbom.json out/standalone/rly-release.json out/standalone/rly-release.json.sig out/standalone/rly-provenance.json out/standalone/rly-provenance.json.sig out/standalone/rly-channel-*.json out/standalone/rly-channel-*.json.sig out/standalone/rly-qualification.json out/standalone/artifacts.json --clobber
