@@ -17,6 +17,9 @@ describe("management UI page", () => {
     expect(html).toContain("Health / quota");
     expect(html).toContain("Audit");
     expect(html).toContain("Route traces");
+    expect(html).toContain("Direct env account");
+    expect(html).toContain("Credential env name");
+    expect(html).toContain("Stores the variable name only");
     expect(html).toContain('for="view-select"');
     expect(html).toContain("Skip to main content");
     expect(html).toContain("aria-live");

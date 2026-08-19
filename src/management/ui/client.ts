@@ -230,7 +230,14 @@ export function managementUiScript(): string {
         "<button type=\\"button\\" data-acct=\\"" + escapeHtml(item.id) + "\\" data-act=\\"refresh\\">Refresh</button>" +
         "<button type=\\"button\\" class=\\"danger\\" data-acct=\\"" + escapeHtml(item.id) + "\\" data-act=\\"revoke\\">Revoke</button>" +
         "</td></tr>";
-    }), "No accounts. Import via path or start OAuth.") +
+    }), "No accounts. Import via path, start OAuth, or bind a direct env reference.") +
+      "<form class=\\"editor\\" id=\\"env-form\\">" +
+      "<h2>Direct env account</h2>" +
+      field("e-pseudo", "Pseudonym", "required") +
+      selectField("e-provider", "Provider", optionList((cache.providers || []).filter(function (item) { return item.integrationMode === "direct"; }), "id", "name")) +
+      field("e-env", "Credential env name", "required placeholder=\\"OPENROUTER_API_KEY\\" autocomplete=\\"off\\"") +
+      "<button type=\\"submit\\" class=\\"primary\\">Create</button>" +
+      "<p class=\\"hint\\">Stores the variable name only. Never paste a secret.</p></form>" +
       "<form class=\\"editor\\" id=\\"terms-form\\">" +
       "<h2>Acknowledge terms</h2>" +
       selectField("t-account", "Account", optionList(items, "id", "pseudonym")) +
@@ -258,6 +265,7 @@ export function managementUiScript(): string {
       if (!account) return;
       mutateAccount(account.id, { version: account.version, termsRevision: $("t-revision").value });
     });
+    $("env-form").addEventListener("submit", createEnvAccount);
     $("i-preview").addEventListener("click", previewImport);
     $("import-form").addEventListener("submit", runImport);
     $("login-form").addEventListener("submit", startLogin);
@@ -297,6 +305,24 @@ export function managementUiScript(): string {
 
   function postAccount(id, act, version, btn) {
     return accountRequest(btn, api("/v1/accounts/" + id + "/" + act, "POST", { version: version }), "Account " + act + " completed.");
+  }
+
+  function createEnvAccount(event) {
+    event.preventDefault();
+    var name = $("e-env").value.trim();
+    if (!/^[A-Z][A-Z0-9_]{2,127}$/.test(name)) {
+      status("Credential env name must be an environment variable name.", "alert");
+      return;
+    }
+    api("/v1/accounts", "POST", {
+      providerId: $("e-provider").value,
+      pseudonym: $("e-pseudo").value,
+      credentialRef: "env:" + name
+    }).then(function (result) {
+      if (!result.ok) return handleError(result, load);
+      status("Direct env account created.");
+      return load();
+    });
   }
 
   var importFingerprint = "";
@@ -465,12 +491,13 @@ export function managementUiScript(): string {
   }
 
   function renderTraces() {
-    $("panel").innerHTML = table(["When","Request","Profile","Strategy","Selected","Candidates"], (cache.traces || []).map(function (item) {
+    $("panel").innerHTML = table(["When","Request","Profile","Strategy","Reason","Selected","Candidates"], (cache.traces || []).map(function (item) {
       var selected = item.selected ? item.selected.accountPseudonym + " g" + item.selected.credentialGeneration : "";
+      var reason = item.modelSelection && item.modelSelection.reason ? item.modelSelection.reason : (item.sourceRule || "");
       var candidates = (item.candidates || []).map(function (c) {
         return c.accountPseudonym + (c.eligible ? " eligible" : " " + (c.reasons || []).join(","));
       }).join("; ");
-      return "<tr>" + cell(item.decidedAt) + cell(item.requestId) + cell(item.profileName) + cell(item.strategy) + cell(selected) + cell(candidates) + "</tr>";
+      return "<tr>" + cell(item.decidedAt) + cell(item.requestId) + cell(item.profileName) + cell(item.strategy) + cell(reason) + cell(selected) + cell(candidates) + "</tr>";
     }), "No route traces in this instance.");
   }
 

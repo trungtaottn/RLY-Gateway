@@ -146,6 +146,9 @@ Headless control-plane examples:
 
 ```bash
 rly config providers list
+rly config providers create --name openrouter --mode direct
+rly config accounts create --provider-id <provider-id> --pseudonym acct-1 \
+  --credential-env OPENROUTER_API_KEY
 rly config providers create --name codex --mode oauth
 rly config accounts login --provider-id <provider-id> --pseudonym acct-1
 rly config pools create --name codex-pool --provider-id <provider-id> \

@@ -21,8 +21,9 @@ import { createModelProjectionTrace, resolveProjection } from "../routing/model-
 import type { ModelProjectionTrace } from "../routing/model-projection/types.js";
 import { toRouteDecision, type EffectiveRoute } from "../routing/effective-route.js";
 import type { CredentialSnapshot } from "../routing/eligibility/reasons.js";
+import { createDecisionTrace } from "../routing/eligibility/trace.js";
 import { isModelSelectionError } from "../routing/model-selection/errors.js";
-import { selectModel } from "../routing/model-selection/selector.js";
+import { createModelSelectionTrace, selectModel } from "../routing/model-selection/selector.js";
 import type { ModelSelectionResult, ReasoningRequirement } from "../routing/model-selection/types.js";
 import { streamPoolRequest } from "../routing/pools/execute.js";
 import type { RouteSelector } from "../routing/pools/selector.js";
@@ -128,15 +129,29 @@ export async function resolveProfileRoute(
   // registry, BEFORE any account/pool selection. The selected physical model is
   // frozen into the effective request/route; account failover can never change it.
   const reasoningRequest = canonical.inference.reasoning ?? reasoningRequestFromWire({});
-  const selection = selectModelForRequest(
-    resolvedModelId,
-    provider.name,
-    dependencies.required ?? [],
-    canonical,
-    directProviderRegistry,
-    effectiveSnapshot,
-    dependencies.compatibility?.policy.allowQuarantineBypass,
-  );
+  let selection: ModelSelectionResult;
+  try {
+    selection = selectModelForRequest(
+      resolvedModelId,
+      provider.name,
+      dependencies.required ?? [],
+      canonical,
+      directProviderRegistry,
+      effectiveSnapshot,
+      dependencies.compatibility?.policy.allowQuarantineBypass,
+    );
+  } catch (error) {
+    recordPreSelectionFailure({
+      traces: dependencies.traces,
+      session,
+      policy,
+      pool,
+      request: canonical,
+      error,
+      attemptedLogicalId: `${provider.name}/${resolvedModelId}`,
+    });
+    throw error;
+  }
   const modelEvidence = selection.model;
   // Stage 1b (#70): translate the canonical reasoning intent into the selected
   // model's native control through the provider-owned boundary, BEFORE account
@@ -360,15 +375,29 @@ export async function resolveProjectedModelRoute(
     canonical,
     registry,
   );
-  const selection = selectModelForRequest(
-    resolved.evidence.identity.upstreamModelId,
-    provider.name,
-    dependencies.required ?? [],
-    canonical,
-    registry,
-    effectiveSnapshot,
-    dependencies.compatibility?.policy.allowQuarantineBypass,
-  );
+  let selection: ModelSelectionResult;
+  try {
+    selection = selectModelForRequest(
+      resolved.evidence.identity.upstreamModelId,
+      provider.name,
+      dependencies.required ?? [],
+      canonical,
+      registry,
+      effectiveSnapshot,
+      dependencies.compatibility?.policy.allowQuarantineBypass,
+    );
+  } catch (error) {
+    recordPreSelectionFailure({
+      traces: dependencies.traces,
+      session,
+      policy,
+      pool,
+      request: canonical,
+      error,
+      attemptedLogicalId: resolved.evidence.logicalId,
+    });
+    throw error;
+  }
   const modelEvidence = selection.model;
   // Stage 1b (#70): translate the canonical reasoning intent into the selected
   // model's native control; fail closed on untranslatable explicit intents.
@@ -492,6 +521,38 @@ export async function resolveProjectedModelRoute(
 
 function envCredentialName(handle: string): string | undefined {
   return handle.startsWith("env:") ? handle.slice(4) : undefined;
+}
+
+/** Secret-free pre-account-selection failure evidence for `rly route-trace`. */
+function recordPreSelectionFailure(input: Readonly<{
+  traces: RouteTraceRing;
+  session: LaunchSession;
+  policy: PolicyRevision;
+  pool: PoolRecord;
+  request: CanonicalRequest;
+  error: unknown;
+  attemptedLogicalId: string;
+}>): void {
+  if (!(input.error instanceof ProfileActivationError)) return;
+  const reason = input.error.modelFailure ?? input.error.tierFailure ?? input.error.intentFailure ?? input.error.code;
+  input.traces.push(
+    createDecisionTrace({
+      requestId: input.request.id,
+      policyRevision: input.policy.revision,
+      policyHash: input.policy.hash,
+      strategy: input.pool.strategy,
+      sourceRule: `model-selection:${reason}`,
+      candidates: [],
+      decidedAt: new Date().toISOString(),
+    }),
+    input.session.profileName,
+    createModelSelectionTrace({
+      source: "exact",
+      selectedLogicalId: input.attemptedLogicalId,
+      reason,
+      candidates: [],
+    }),
+  );
 }
 
 function translationFailureCode(code: "unsupported-reasoning" | "no-budget-policy"): "reasoning-translation-unsupported" | "reasoning-budget-policy-missing" {
