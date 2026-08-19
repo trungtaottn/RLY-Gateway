@@ -74,7 +74,7 @@ export const TARGET_MATRIX = Object.freeze({
   "linux-arm64": {
     nodeDistFor: (version) => `node-v${version}-linux-arm64.tar.gz`,
     status: "experimental",
-    reason: "built deterministically on Linux CI; smoke-testing requires a provisioned Linux arm64 runner",
+    reason: "exact-byte gates run on ubuntu-24.04-arm; Stable publication stays linux-x64 until systemd user-manager qualification is accepted",
   },
 });
 
