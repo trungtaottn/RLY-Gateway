@@ -123,6 +123,16 @@ describe("profile pool route", () => {
       ? issuedBody.token
       : "";
     expect(token).not.toBe("instance-secret");
+    const planned = issuedBody && typeof issuedBody === "object" && "planned" in issuedBody
+      ? issuedBody.planned as Record<string, unknown>
+      : undefined;
+    expect(planned).toMatchObject({
+      providerName: "openrouter",
+      poolName: "work-pool",
+    });
+    expect(planned).not.toHaveProperty("effective");
+    expect(JSON.stringify(planned)).not.toContain(token);
+    expect(JSON.stringify(issuedBody)).not.toMatch(/"effective"/);
     const helper = await app.inject({
       method: "POST",
       url: "/v1/messages",

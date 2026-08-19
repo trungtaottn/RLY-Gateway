@@ -13,7 +13,8 @@ export { RLY_MODEL_PREFIX } from "../routing/model-projection/types.js";
  *
  * Claude Code's `CLAUDE_CONFIG_DIR` owns settings, agents, skills, commands,
  * plugins, and session/history state for the supported client baseline (pinned
- * through #24; the currently observed target is `2.1.229`). The historical
+ * through #24; supported baseline `claude-code-2.1.229`, observed `2.1.233`
+ * is not promoted). The historical
  * launcher pointed that variable at a fresh throwaway temp directory so RLY
  * never touched the user's real `~/.claude` — but it also threw away the
  * user's settings/agents/plugins and every RLY session/history on exit.

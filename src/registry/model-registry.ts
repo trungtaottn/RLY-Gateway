@@ -234,6 +234,7 @@ export const directProviderRegistry: RegistryDocument = Object.freeze({
       verifiedAt: "2026-08-19",
       fixtureVersion: "openai-chat-v1",
       capabilities: conservativeCapabilities(),
+      // Catalog model.context_length (2026-08-19). Not top_provider.context_length.
       limits: { contextWindow: 1_310_720, maxOutput: 393_216 },
       compatibility: { evidenceRef: "catalog:openrouter/2026-08-19/deepseek-v4-flash-0731" },
     }),

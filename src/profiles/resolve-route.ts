@@ -112,6 +112,7 @@ export async function resolveProfileRoute(
       request: canonical,
       error,
       attemptedLogicalId: `${provider.name}/${canonical.requestedModel}`,
+      intent: failureIntentTrace(canonical.requestedModel),
     });
     throw error;
   }
@@ -146,6 +147,7 @@ export async function resolveProfileRoute(
       request: canonical,
       error,
       attemptedLogicalId: `${provider.name}/${canonical.requestedModel}`,
+      intent: intentTraceFor(intent, {}),
     });
     throw error;
   }
@@ -552,6 +554,13 @@ function envCredentialName(handle: string): string | undefined {
 }
 
 /** Secret-free pre-account-selection failure evidence for `rly route-trace`. */
+function failureIntentTrace(selector: string): ModelIntentTrace {
+  if (selector.startsWith("rly-tier:")) {
+    return Object.freeze({ kind: "RLY_LOGICAL_TIER", sourceSelector: selector, source: "rly-tier-namespace" });
+  }
+  return Object.freeze({ kind: "EXACT_CLIENT_MODEL", sourceSelector: selector, source: "exact-model" });
+}
+
 function recordPreSelectionFailure(input: Readonly<{
   traces: RouteTraceRing;
   session: LaunchSession;
@@ -560,6 +569,7 @@ function recordPreSelectionFailure(input: Readonly<{
   request: CanonicalRequest;
   error: unknown;
   attemptedLogicalId: string;
+  intent?: ModelIntentTrace;
 }>): void {
   if (!(input.error instanceof ProfileActivationError)) return;
   const reason = input.error.modelFailure ?? input.error.tierFailure ?? input.error.intentFailure ?? input.error.code;
@@ -580,6 +590,11 @@ function recordPreSelectionFailure(input: Readonly<{
       reason,
       candidates: [],
     }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    input.intent,
   );
 }
 

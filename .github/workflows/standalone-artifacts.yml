@@ -138,6 +138,7 @@ jobs:
             node scripts/standalone/verify-artifact.mjs --artifact "$TMP/$target_dir" --expected-version "${VERSION}" --smoke
           done
       - name: Sign exact artifact bytes before qualification
+        if: ${{ matrix.publish == 'true' }}
         env:
           RLY_RELEASE_SIGNING_KEY: ${{ secrets.RLY_RELEASE_SIGNING_KEY }}
         run: |
