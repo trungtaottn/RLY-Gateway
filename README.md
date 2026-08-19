@@ -116,7 +116,9 @@ Fresh installations may show an empty model list because unreviewed models are
 classified as experimental. Enable experimental discovery explicitly in the
 gateway configuration or promote models through reviewed compatibility
 evidence. Exact configured model routes continue to work independently of
-picker visibility.
+picker visibility. The OpenRouter physical model
+`deepseek/deepseek-v4-flash-0731` is admitted as EXPERIMENTAL catalog evidence
+with declared context/output limits; it is not a reviewed live-canary path.
 
 ## Common commands
 
@@ -146,6 +148,9 @@ Headless control-plane examples:
 
 ```bash
 rly config providers list
+rly config providers create --name openrouter --mode direct
+rly config accounts create --provider-id <provider-id> --pseudonym acct-1 \
+  --credential-env OPENROUTER_API_KEY
 rly config providers create --name codex --mode oauth
 rly config accounts login --provider-id <provider-id> --pseudonym acct-1
 rly config pools create --name codex-pool --provider-id <provider-id> \

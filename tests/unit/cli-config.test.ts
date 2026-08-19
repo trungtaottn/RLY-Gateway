@@ -125,6 +125,9 @@ describe("rly config parsing", () => {
       focus: { kind: "providers", action: "create", fields: { name: "codex", mode: "oauth" } },
     });
     expect(parseConfigArgs(["config", "providers"], "/work")).toMatchObject({ focus: { kind: "providers", action: "list" } });
+    expect(parseConfigArgs(["config", "accounts", "create", "--provider-id", "p-1", "--pseudonym", "acct-1", "--credential-env", "OPENROUTER_API_KEY"], "/work")).toMatchObject({
+      focus: { kind: "accounts", action: "create", fields: { "provider-id": "p-1", pseudonym: "acct-1", "credential-env": "OPENROUTER_API_KEY" } },
+    });
     expect(parseConfigArgs(["config", "accounts", "login", "--provider-id", "p-1", "--pseudonym", "acct-1"], "/work")).toMatchObject({
       focus: { kind: "accounts", action: "login", fields: { "provider-id": "p-1", pseudonym: "acct-1" } },
     });
@@ -380,6 +383,12 @@ describe("rly config runtime recovery and headless behavior", () => {
     const printed = output.mock.calls.map((call) => String(call[0])).join("\n");
     expect(printed).toContain('"url":"http://127.0.0.1:17872/#t=bootstrap-token-fixture"');
     expect(printed).toContain('"headless":true');
+  });
+
+  it("requires credential-env for accounts create", async () => {
+    const command = parseConfigArgs(["config", "accounts", "create", "--provider-id", "p-1", "--pseudonym", "acct-1"], "/work");
+    if (!command) throw new Error("expected config command");
+    await expect(runConfig(command, deps())).rejects.toThrow("accounts create requires --provider-id, --pseudonym, and --credential-env");
   });
 
   it("propagates stale-version mutations explicitly and exits non-zero", async () => {

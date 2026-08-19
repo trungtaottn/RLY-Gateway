@@ -26,7 +26,7 @@ export type ConfigFocus =
   | Readonly<{ kind: "control-center" }>
   | Readonly<{ kind: "status" }>
   | Readonly<{ kind: "providers"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>
-  | Readonly<{ kind: "accounts"; action: "list" | "login" | "import" | "revoke" | "refresh" | "pause" | "resume"; fields: Readonly<Record<string, string>> }>
+  | Readonly<{ kind: "accounts"; action: "list" | "create" | "login" | "import" | "revoke" | "refresh" | "pause" | "resume"; fields: Readonly<Record<string, string>> }>
   | Readonly<{ kind: "pools"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>
   | Readonly<{ kind: "profiles"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>;
 
@@ -38,7 +38,7 @@ export type ConfigCommand = Readonly<{
 }>;
 
 const CONFIG_RESOURCES = ["providers", "accounts", "pools", "profiles"] as const;
-const ACCOUNT_ACTIONS = ["list", "login", "import", "revoke", "refresh", "pause", "resume"] as const;
+const ACCOUNT_ACTIONS = ["list", "create", "login", "import", "revoke", "refresh", "pause", "resume"] as const;
 const RESOURCE_ACTIONS = ["list", "create"] as const;
 
 export function parseConfigArgs(args: readonly string[], cwd: string): ConfigCommand | undefined {
@@ -341,6 +341,9 @@ async function runFocused(
   if (focus.action === "list") {
     return requestOk(request, baseUrl, token, origin, "GET", "/v1/accounts");
   }
+  if (focus.action === "create") {
+    return requestOk(request, baseUrl, token, origin, "POST", "/v1/accounts", accountCreateBody(fields));
+  }
   if (focus.action === "login") {
     const started = await request(baseUrl, token, origin, "POST", "/v1/credentials/login", accountLoginBody(fields));
     if (!started.ok) return 1;
@@ -417,6 +420,19 @@ function profileCreateBody(fields: Readonly<Record<string, string>>): Readonly<R
     throw new Error("profiles create requires --name, --harness (claude|codex), and --roles <json>");
   }
   return body;
+}
+
+function accountCreateBody(fields: Readonly<Record<string, string>>): Readonly<Record<string, unknown>> {
+  const providerId = fields["provider-id"];
+  const pseudonym = fields["pseudonym"];
+  const environmentName = fields["credential-env"];
+  if (providerId === undefined || pseudonym === undefined || environmentName === undefined) {
+    throw new Error("accounts create requires --provider-id, --pseudonym, and --credential-env");
+  }
+  if (!/^[A-Z][A-Z0-9_]{2,127}$/.test(environmentName)) {
+    throw new Error("--credential-env must be an environment variable name");
+  }
+  return { providerId, pseudonym, credentialRef: `env:${environmentName}` };
 }
 
 function accountLoginBody(fields: Readonly<Record<string, string>>): Readonly<Record<string, unknown>> {

@@ -112,7 +112,7 @@ export function createManagementServer(options: ManagementServerOptions): Fastif
     return reply.header("set-cookie", expiredSessionCookie(SESSION_COOKIE_NAME)).send({ loggedOut: true });
   });
 
-  registerManagementCollections(app, authorize, options.store);
+  registerManagementCollections(app, authorize, options.store, options.credentials);
   if (options.credentials) registerCredentialRoutes(app, authorize, options.credentials);
 
   app.get("/v1/policy", async (request, reply) => {

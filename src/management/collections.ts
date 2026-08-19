@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ControlPlaneStore } from "../control-plane/store.js";
 import type { ManagementActor } from "../control-plane/types.js";
+import { ValidationError } from "../control-plane/errors.js";
+import type { CredentialService } from "../credentials/service.js";
 import { reject, type ManagementAuthorizer } from "./auth.js";
 import { applyCatalogDefaults } from "../providers/catalog.js";
 import { providerCapabilityEvidenceSchema } from "../registry/model-registry.js";
@@ -28,6 +30,7 @@ const accountBody = z.object({
   pseudonym: z.string().min(1).optional(),
   providerId: z.uuid().optional(),
   credentialHandle: z.string().min(1).optional(),
+  credentialRef: z.string().min(1).optional(),
   state: z.enum(["ready", "paused", "unready", "revoked"]).optional(),
   pauseReason: z.string().min(1).optional(),
   quotaClass: z.string().min(1).optional(),
@@ -58,6 +61,7 @@ export function registerManagementCollections(
   app: FastifyInstance,
   authorize: ManagementAuthorizer,
   store: ControlPlaneStore,
+  credentials?: CredentialService,
 ): void {
   registerCollection(app, authorize, "providers", {
     list: () => store.listProviders().map(toProviderDto),
@@ -79,8 +83,25 @@ export function registerManagementCollections(
     },
   });
   registerCollection(app, authorize, "accounts", {
-    list: () => store.listAccounts().map((record) => toAccountDto(record)),
+    list: async () => {
+      const accounts = store.listAccounts();
+      if (!credentials) return accounts.map((record) => toAccountDto(record));
+      return Promise.all(accounts.map(async (record) => toAccountDto(record, await credentials.readiness(record))));
+    },
     create: (body, actor) => {
+      const envRef = envCredentialRefFrom(body);
+      if (envRef !== undefined) {
+        if (!credentials) throw new ValidationError("credential service is unavailable");
+        const parsed = accountBody.extend({
+          pseudonym: z.string().min(1),
+          providerId: z.uuid(),
+        }).parse(body);
+        return toAccountDto(credentials.createDirectEnvironmentAccount({
+          providerId: parsed.providerId,
+          pseudonym: parsed.pseudonym,
+          credentialRef: envRef,
+        }, actor), "ready");
+      }
       const parsed = accountBody.extend({
         pseudonym: z.string().min(1),
         providerId: z.uuid(),
@@ -128,6 +149,15 @@ export function registerManagementCollections(
   });
 }
 
+function envCredentialRefFrom(body: unknown): string | undefined {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const record = body as Record<string, unknown>;
+  if (typeof record["credentialRef"] === "string" && record["credentialRef"].startsWith("env:")) {
+    return record["credentialRef"];
+  }
+  return undefined;
+}
+
 function registerCollection(
   app: FastifyInstance,
   authorize: ManagementAuthorizer,
@@ -141,7 +171,7 @@ function registerCollection(
   app.get(`/v1/${name}`, async (request, reply) => {
     const principal = authorize(request, reply, false);
     if (!principal) return;
-    return { items: handlers.list() };
+    return { items: await handlers.list() };
   });
   app.post(`/v1/${name}`, async (request, reply) => {
     const principal = authorize(request, reply, true);

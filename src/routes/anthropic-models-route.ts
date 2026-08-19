@@ -104,6 +104,8 @@ export function registerAnthropicModelsRoute(app: FastifyInstance, dependencies:
         id: projection.id,
         display_name: projection.displayName,
         created_at: projectionCreatedAt(projection),
+        ...(projection.contextWindow === undefined ? {} : { max_input_tokens: projection.contextWindow }),
+        ...(projection.maxOutput === undefined ? {} : { max_tokens: projection.maxOutput }),
       })),
       has_more: window.length > limit,
       first_id: page[0]?.id ?? null,
