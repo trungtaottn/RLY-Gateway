@@ -228,6 +228,16 @@ export const directProviderRegistry: RegistryDocument = Object.freeze({
       compatibility: { evidenceRef: DIRECT_E2E_REF },
     }),
     reviewedModel({
+      accessProviderId: "openrouter",
+      upstreamModelId: "deepseek/deepseek-v4-flash-0731",
+      modelFamily: "deepseek",
+      verifiedAt: "2026-08-19",
+      fixtureVersion: "openai-chat-v1",
+      capabilities: conservativeCapabilities(),
+      limits: { contextWindow: 1_310_720, maxOutput: 393_216 },
+      compatibility: { evidenceRef: "catalog:openrouter/2026-08-19/deepseek-v4-flash-0731" },
+    }),
+    reviewedModel({
       accessProviderId: "deepseek", upstreamModelId: "deepseek-v4-flash", modelFamily: "deepseek",
       verifiedAt: "2026-08-13", fixtureVersion: "openai-chat-v1", capabilities: deepSeekFlashCapabilities,
       compatibility: { evidenceRef: DIRECT_E2E_REF },

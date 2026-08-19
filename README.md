@@ -116,7 +116,9 @@ Fresh installations may show an empty model list because unreviewed models are
 classified as experimental. Enable experimental discovery explicitly in the
 gateway configuration or promote models through reviewed compatibility
 evidence. Exact configured model routes continue to work independently of
-picker visibility.
+picker visibility. The OpenRouter physical model
+`deepseek/deepseek-v4-flash-0731` is admitted as EXPERIMENTAL catalog evidence
+with declared context/output limits; it is not a reviewed live-canary path.
 
 ## Common commands
 

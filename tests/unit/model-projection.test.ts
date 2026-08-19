@@ -3,6 +3,8 @@ import type { ProviderCapabilities } from "../../src/core/capabilities.js";
 import type { PolicyRevision, ProfileRecord, ProviderRecord } from "../../src/control-plane/types.js";
 import {
   MODEL_REGISTRY_REVISION,
+  directProviderRegistry,
+  findModelEvidence,
   reviewedModel,
   type RegistryDocument,
 } from "../../src/registry/model-registry.js";
@@ -11,6 +13,7 @@ import {
   createModelProjectionTrace,
   humanizeModelId,
   projectModelUniverse,
+  projectionFor,
   projectionIdFor,
   providerDisplayName,
   resolveProjection,
@@ -155,6 +158,24 @@ describe("model projection ids", () => {
     expect(humanizeModelId("deepseek-v4-pro")).toBe("Deepseek V4 Pro");
     expect(providerDisplayName("cline")).toBe("ClinePass");
     expect(providerDisplayName("codex")).toBe("Codex");
+  });
+});
+
+describe("projection limits", () => {
+  it("copies numeric registry limits onto the projection and omits empty limits", () => {
+    const evidence = findModelEvidence(directProviderRegistry, "openrouter", "deepseek/deepseek-v4-flash-0731");
+    if (evidence === undefined) throw new Error("missing OpenRouter DeepSeek V4 Flash 0731 evidence");
+    const binding = Object.freeze({ providerId: "p-or", providerName: "openrouter", poolId: "pool-or" });
+    const projection = projectionFor(binding, evidence);
+    expect(projection.contextWindow).toBe(1_310_720);
+    expect(projection.maxOutput).toBe(393_216);
+    expect(projection.displayName).toBe("DeepSeek V4 Flash 0731 (OpenRouter)");
+
+    const unlimited = findModelEvidence(directProviderRegistry, "openrouter", "nvidia/nemotron-3.5-lightning:free");
+    if (unlimited === undefined) throw new Error("missing OpenRouter Nemotron evidence");
+    const bare = projectionFor(binding, unlimited);
+    expect(bare).not.toHaveProperty("contextWindow");
+    expect(bare).not.toHaveProperty("maxOutput");
   });
 });
 

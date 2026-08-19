@@ -73,6 +73,7 @@ const MODEL_LABELS: Readonly<Record<string, string>> = Object.freeze({
   "nvidia/nemotron-3.5-lightning:free": "NVIDIA Nemotron 3.5 Lightning (Free)",
   "nvidia/nemotron-nano-12b-v2-vl:free": "NVIDIA Nemotron Nano 12B V2 VL (Free)",
   "openai/gpt-oss-20b:free": "OpenAI GPT-OSS 20B (Free)",
+  "deepseek/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
 });
 
 const ACRONYMS = new Set(["gpt", "api", "ai", "cli", "ui", "json", "oss", "vl", "id"]);
@@ -137,6 +138,8 @@ export function projectionFor(
     compatibilityState: evidence.compatibility.state,
     ...(label === undefined ? {} : { effectiveLabel: label }),
     verifiedAt: evidence.verifiedAt,
+    ...(typeof evidence.limits.contextWindow === "number" ? { contextWindow: evidence.limits.contextWindow } : {}),
+    ...(typeof evidence.limits.maxOutput === "number" ? { maxOutput: evidence.limits.maxOutput } : {}),
   });
 }
 
