@@ -277,6 +277,58 @@ describe("CLI parsing", () => {
     expect(childExitCode({ code: null, signal: "SIGINT" })).toBe(130);
   });
 
+  it("prints a secret-free planned receipt after issuing a launch session", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cli-planned-"));
+    const configPath = join(directory, "gateway.toml");
+    await writeFile(configPath, "schemaVersion = 1\n[gateway]\nport = 17871\n", "utf8");
+    const planned = {
+      providerId: "openrouter",
+      providerName: "openrouter",
+      poolId: "pool-1",
+      poolName: "default",
+      modelRoles: { primary: "deepseek/deepseek-v4-flash" },
+      policyRevision: 3,
+      launchPolicyModel: "primary",
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      profileName: "work",
+      profileId: "p-1",
+      harness: "claude",
+      launchPolicy: { model: "primary" },
+      planned,
+      token: "child-token-must-not-print",
+    }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const release = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const launch = vi.fn().mockResolvedValue({ code: 0, signal: null });
+    try {
+      await expect(runCli(
+        ["work", "--config", configPath],
+        {
+          environment: { PATH: "/bin" },
+          ...overlayDependency(),
+          acquireGateway: vi.fn().mockResolvedValue({
+            baseUrl: "http://127.0.0.1:17871",
+            authToken: "instance-secret",
+            instanceId: "00000000-0000-4000-8000-000000000001",
+            leaseId: "00000000-0000-4000-8000-000000000011",
+            reused: false,
+            release,
+          }),
+          launchClaude: launch,
+        },
+      )).resolves.toBe(0);
+      expect(output).toHaveBeenCalledWith(JSON.stringify({ planned }));
+      expect(output.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("child-token-must-not-print");
+      expect(launch).toHaveBeenCalledWith(expect.objectContaining({ authToken: "child-token-must-not-print" }));
+      expect(release).toHaveBeenCalledOnce();
+    } finally {
+      output.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("acquires and releases a gateway around the Claude child", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rly-gateway-cli-"));
     const configPath = join(directory, "gateway.toml");

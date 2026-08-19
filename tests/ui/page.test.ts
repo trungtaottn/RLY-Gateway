@@ -37,4 +37,17 @@ describe("management UI page", () => {
     expect(html).toContain("min-height:var(--target)");
     expect(html).toContain("@media (min-width:1024px)");
   });
+
+  it("shows provider/model identity columns on profiles and traces tables", () => {
+    const html = bootstrapPageHtml();
+    expect(html).toContain('["Name","Harness","Provider","Pool","Primary","Fast","Reasoning","Version",""]');
+    expect(html).toContain('["When","Request","Profile","Reason","Requested","Resolved","Provider","Adapter","Selected","Candidates"]');
+    expect(html).toContain("item.intent.sourceSelector");
+    expect(html).toContain("item.effectiveModelDecision.target");
+    expect(html).toContain("target.physicalModelId");
+    expect(html).toContain("target.accessProviderId");
+    expect(html).toContain("target.adapterId");
+    expect(html).not.toContain('["Name","Harness","Pool","Version",""]');
+    expect(html).not.toContain('["When","Request","Profile","Strategy","Reason","Selected","Candidates"]');
+  });
 });

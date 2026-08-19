@@ -413,8 +413,10 @@ export function managementUiScript(): string {
 
   function renderProfiles() {
     var items = cache.profiles || [];
-    $("panel").innerHTML = table(["Name","Harness","Pool","Version",""], items.map(function (item) {
-      return "<tr>" + cell(item.name) + cell(item.harness) + cell(item.poolId) + cell(item.version) +
+    $("panel").innerHTML = table(["Name","Harness","Provider","Pool","Primary","Fast","Reasoning","Version",""], items.map(function (item) {
+      var roles = item.modelRoles || {};
+      return "<tr>" + cell(item.name) + cell(item.harness) + cell(item.providerId) + cell(item.poolId) +
+        cell(roles.primary) + cell(roles.fast) + cell(roles.reasoning) + cell(item.version) +
         "<td><button type=\\"button\\" data-edit-profile=\\"" + escapeHtml(item.id) + "\\">Edit</button></td></tr>";
     }), "No profiles. Create a profile that references a pool.") +
       "<form class=\\"editor\\" id=\\"profile-form\\">" +
@@ -491,13 +493,17 @@ export function managementUiScript(): string {
   }
 
   function renderTraces() {
-    $("panel").innerHTML = table(["When","Request","Profile","Strategy","Reason","Selected","Candidates"], (cache.traces || []).map(function (item) {
+    $("panel").innerHTML = table(["When","Request","Profile","Reason","Requested","Resolved","Provider","Adapter","Selected","Candidates"], (cache.traces || []).map(function (item) {
       var selected = item.selected ? item.selected.accountPseudonym + " g" + item.selected.credentialGeneration : "";
       var reason = item.modelSelection && item.modelSelection.reason ? item.modelSelection.reason : (item.sourceRule || "");
+      var requested = (item.intent && item.intent.sourceSelector) || item.requestedModel;
+      var target = item.effectiveModelDecision && item.effectiveModelDecision.target;
       var candidates = (item.candidates || []).map(function (c) {
         return c.accountPseudonym + (c.eligible ? " eligible" : " " + (c.reasons || []).join(","));
       }).join("; ");
-      return "<tr>" + cell(item.decidedAt) + cell(item.requestId) + cell(item.profileName) + cell(item.strategy) + cell(reason) + cell(selected) + cell(candidates) + "</tr>";
+      return "<tr>" + cell(item.decidedAt) + cell(item.requestId) + cell(item.profileName) + cell(reason) +
+        cell(requested) + cell(target && target.physicalModelId) + cell(target && target.accessProviderId) +
+        cell(target && target.adapterId) + cell(selected) + cell(candidates) + "</tr>";
     }), "No route traces in this instance.");
   }
 
