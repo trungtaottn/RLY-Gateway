@@ -100,7 +100,21 @@ export async function resolveProfileRoute(
   // typed tier intent (`rly-tier:*` or a client-native alias mapped through
   // the explicit client-alias contract) — never by bare string equality with
   // a tier name.
-  const intent = classifyIntentForRequest(canonical.requestedModel);
+  let intent: ModelIntent;
+  try {
+    intent = classifyIntentForRequest(canonical.requestedModel);
+  } catch (error) {
+    recordPreSelectionFailure({
+      traces: dependencies.traces,
+      session,
+      policy,
+      pool,
+      request: canonical,
+      error,
+      attemptedLogicalId: `${provider.name}/${canonical.requestedModel}`,
+    });
+    throw error;
+  }
   // #124: the Effective Compatibility Registry is the compatibility authority —
   // feature-scoped effective trust/health/freshness/quarantine/enforcement,
   // never the static registry state alone. Resolved once per request and
@@ -112,15 +126,29 @@ export async function resolveProfileRoute(
     canonical,
     directProviderRegistry,
   );
-  const intentResolution = resolveModelIntent(
-    intent,
-    canonical,
-    provider.name,
-    inspected.profile,
-    dependencies.required ?? [],
-    parentReference?.context,
-    effectiveSnapshot,
-  );
+  let intentResolution: ReturnType<typeof resolveModelIntent>;
+  try {
+    intentResolution = resolveModelIntent(
+      intent,
+      canonical,
+      provider.name,
+      inspected.profile,
+      dependencies.required ?? [],
+      parentReference?.context,
+      effectiveSnapshot,
+    );
+  } catch (error) {
+    recordPreSelectionFailure({
+      traces: dependencies.traces,
+      session,
+      policy,
+      pool,
+      request: canonical,
+      error,
+      attemptedLogicalId: `${provider.name}/${canonical.requestedModel}`,
+    });
+    throw error;
+  }
   const resolvedModelId = intentResolution.modelId;
   const resolvedRole = intentResolution.role;
   const tierResolution = intentResolution.tierResolution;
