@@ -193,7 +193,8 @@ describe("management credential operations", () => {
     directories.push(directory);
     store = await ControlPlaneStore.open(directory);
     broker = await CredentialBroker.open(directory, { oauth: fakeOauth() });
-    const credentials = new CredentialService(store, broker);
+    const environment: NodeJS.ProcessEnv = {};
+    const credentials = new CredentialService(store, broker, environment);
     app = createManagementServer({
       host: "127.0.0.1",
       port: 17872,
@@ -219,18 +220,38 @@ describe("management credential operations", () => {
       payload: { pseudonym: "acct-or", providerId, credentialRef: "env:OPENROUTER_API_KEY" },
     });
     expect(created.statusCode).toBe(201);
-    expect(asRecord(created.json())).toMatchObject({
+    const createdBody = asRecord(created.json());
+    expect(createdBody).toMatchObject({
       pseudonym: "acct-or",
       credentialHandle: "env:OPENROUTER_API_KEY",
       generation: 1,
       state: "ready",
-      readiness: "ready",
+      readiness: "unready",
     });
     expect(JSON.stringify(created.json())).not.toMatch(/sk-|Bearer|secret-value/i);
     const listed = await app.inject({ method: "GET", url: "/v1/accounts", headers: auth });
     const items = asRecord(listed.json())["items"];
     expect(Array.isArray(items)).toBe(true);
-    expect(asRecord((items as unknown[])[0])).toMatchObject({ readiness: "ready", generation: 1 });
+    expect(asRecord((items as unknown[])[0])).toMatchObject({ readiness: "unready", generation: 1, state: "ready" });
+    const selectedUnready = await app.inject({
+      method: "POST",
+      url: `/v1/accounts/${String(createdBody["id"])}/select`,
+      headers: auth,
+      payload: { version: createdBody["version"] },
+    });
+    expect(selectedUnready.statusCode).toBe(409);
+    expect(asRecord(selectedUnready.json())).toMatchObject({ error: "credential-unready" });
+    environment.OPENROUTER_API_KEY = "fixture-key";
+    const listedReady = await app.inject({ method: "GET", url: "/v1/accounts", headers: auth });
+    expect(asRecord((asRecord(listedReady.json())["items"] as unknown[])[0])).toMatchObject({ readiness: "ready" });
+    const selectedReady = await app.inject({
+      method: "POST",
+      url: `/v1/accounts/${String(createdBody["id"])}/select`,
+      headers: auth,
+      payload: { version: createdBody["version"] },
+    });
+    expect(selectedReady.statusCode).toBe(200);
+    expect(asRecord(selectedReady.json())).toMatchObject({ readiness: "ready" });
     const rejected = await app.inject({
       method: "POST",
       url: "/v1/accounts",

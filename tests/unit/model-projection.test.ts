@@ -257,6 +257,47 @@ describe("model universe projection", () => {
     expect(disabledSnapshot.bindings.map((binding) => binding.providerName)).toEqual(["codex", "deepseek"]);
   });
 
+  it("excludes env accounts that are missing credentials or terms", () => {
+    const openrouter = Object.freeze({
+      ...provider("p-or", "openrouter"),
+      integrationMode: "direct" as const,
+      requiredTermsRevision: "terms-1",
+    });
+    const envAccount = Object.freeze({
+      ...account("a-or", "p-or"),
+      credentialHandle: "env:OPENROUTER_API_KEY",
+    });
+    const envPool = pool("pool-or", "p-or", ["a-or"]);
+    const envPolicy = policy({
+      providers: [codexProvider, openrouter],
+      pools: [codexPool, envPool],
+      accounts: [codexAccount, envAccount],
+      profiles: [profile({ name: "work", poolId: "pool-or", providerId: "p-or" })],
+    });
+    const missing = compileModelUniverseSnapshot(envPolicy, registry, {
+      profile: profile({ name: "work", poolId: "pool-or", providerId: "p-or" }),
+      environment: {},
+    });
+    expect(missing.bindings.map((binding) => binding.providerName)).toEqual(["codex"]);
+    const presentUnacked = compileModelUniverseSnapshot(envPolicy, registry, {
+      profile: profile({ name: "work", poolId: "pool-or", providerId: "p-or" }),
+      environment: { OPENROUTER_API_KEY: "fixture-key" },
+    });
+    expect(presentUnacked.bindings.map((binding) => binding.providerName)).toEqual(["codex"]);
+    const ackedAccount = Object.freeze({ ...envAccount, termsAcknowledgedRevision: "terms-1" });
+    const ackedPolicy = policy({
+      providers: [codexProvider, openrouter],
+      pools: [codexPool, envPool],
+      accounts: [codexAccount, ackedAccount],
+      profiles: [profile({ name: "work", poolId: "pool-or", providerId: "p-or" })],
+    });
+    const runnable = compileModelUniverseSnapshot(ackedPolicy, registry, {
+      profile: profile({ name: "work", poolId: "pool-or", providerId: "p-or" }),
+      environment: { OPENROUTER_API_KEY: "fixture-key" },
+    });
+    expect(runnable.bindings.map((binding) => binding.providerName)).toEqual(["codex", "openrouter"]);
+  });
+
   it("compiles the same universe without a profile (instance-token surface)", () => {
     const snapshot = compileModelUniverseSnapshot(multiProviderPolicy, registry);
     expect(snapshot.bindings.map((binding) => binding.providerName)).toEqual(["cline", "codex", "deepseek"]);

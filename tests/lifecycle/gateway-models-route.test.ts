@@ -138,7 +138,7 @@ async function openGateway(
     instanceId: "00000000-0000-4000-8000-000000000401",
     configFingerprint: "c".repeat(64),
     config,
-    environment: { DEEPSEEK_API_KEY: "fixture-key" },
+    environment: { DEEPSEEK_API_KEY: "fixture-key", OPENROUTER_API_KEY: "fixture-key" },
     controlPlane: store,
     broker,
     selector: new RouteSelector(store, new AffinityStore(directory)),

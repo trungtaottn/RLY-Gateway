@@ -108,7 +108,7 @@ const IDENTITY: IdentityMeta = {
   stateSchemaVersion: 2,
 };
 
-/** Minimal runtime root: package.json + LICENSE + notices + dist + node_modules (real files). */
+/** Minimal runtime root: package.json + LICENSE + dist + node_modules (real files). */
 async function fixtureRuntimeRoot(overrides: { extraFiles?: Array<[string, string]> } = {}): Promise<string> {
   const root = await directory();
   await writeFile(join(root, "package.json"), JSON.stringify({
@@ -120,7 +120,6 @@ async function fixtureRuntimeRoot(overrides: { extraFiles?: Array<[string, strin
     engines: { node: ">=24 <25" },
   }, null, 2));
   await writeFile(join(root, "LICENSE"), "MIT License\nCopyright (c) 2026 Trung Tao\n");
-  await writeFile(join(root, "THIRD_PARTY_NOTICES.md"), "# Third-party notices\n\nMIT License\n");
   await mkdir(join(root, "dist", "cli"), { recursive: true });
   await writeFile(join(root, "dist", "cli", "main.js"), [
     'import { readFileSync } from "node:fs";',
@@ -456,7 +455,6 @@ describe("pnpm dependency layout preservation (#35)", () => {
     await mkdir(join(root, "node_modules", ".pnpm", "avvio@9", "node_modules", "avvio"), { recursive: true });
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "rly-gateway", version: "1.2.3", type: "module" }));
     await writeFile(join(root, "LICENSE"), "MIT\n");
-    await writeFile(join(root, "THIRD_PARTY_NOTICES.md"), "notices\n");
     await writeFile(join(root, "dist", "cli", "main.js"), "export const x = 1;\n");
     await writeFile(join(root, "dist", "rly-build.json"), `${JSON.stringify(IDENTITY, null, 2)}\n`);
     await writeFile(join(root, "node_modules", ".pnpm", "fastify@5", "node_modules", "fastify", "package.json"), JSON.stringify({ name: "fastify", main: "index.js" }));

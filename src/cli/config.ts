@@ -128,6 +128,7 @@ type EnsuredRuntime = Readonly<{
 
 const READINESS_POLL_MS = 250;
 const READINESS_TIMEOUT_MS = 15_000;
+const FOREGROUND_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 async function defaultWaitForResident(config: GatewayConfig, timeoutMs = READINESS_TIMEOUT_MS): Promise<RuntimeInspection> {
   const deadline = Date.now() + timeoutMs;
@@ -195,20 +196,51 @@ export async function runConfig(command: ConfigCommand, dependencies: ConfigDepe
   });
   const config = resolved.config;
   const ensured = await ensureManagementRuntime(config, home, dependencies);
-  const token = await (dependencies.readManagementToken ?? readManagementToken)(config);
-  if (!token) {
-    console.log(JSON.stringify({ ok: false, error: "management is not running" }));
-    return 1;
+  // Interactive control-center keeps a session-scoped runtime alive; one-shot
+  // status/focused paths and the token-missing early exit must always release it.
+  let retainForeground = false;
+  try {
+    const token = await (dependencies.readManagementToken ?? readManagementToken)(config);
+    if (!token) {
+      console.log(JSON.stringify({ ok: false, error: "management is not running" }));
+      return 1;
+    }
+    const baseUrl = managementBaseUrl(config);
+    const origin = baseUrl;
+    if (command.focus.kind === "status") {
+      return await runStatusSummary(resolved, ensured, token, baseUrl, origin, dependencies);
+    }
+    if (command.focus.kind === "control-center") {
+      const code = await runControlCenter(resolved, ensured, token, baseUrl, origin, command.headless, dependencies);
+      retainForeground = true;
+      return code;
+    }
+    return await runFocused(command.focus, token, baseUrl, origin, dependencies);
+  } finally {
+    if (!retainForeground && ensured.foreground !== undefined) {
+      await shutdownForegroundBounded(ensured.foreground);
+    }
   }
-  const baseUrl = managementBaseUrl(config);
-  const origin = baseUrl;
-  if (command.focus.kind === "status") {
-    return runStatusSummary(resolved, ensured, token, baseUrl, origin, dependencies);
+}
+
+async function shutdownForegroundBounded(
+  foreground: ResidentRuntimeHandle,
+  timeoutMs = FOREGROUND_SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      foreground.shutdown(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error("session-scoped foreground runtime did not shut down within the bounded window"));
+        }, timeoutMs);
+        timer.unref();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
-  if (command.focus.kind === "control-center") {
-    return runControlCenter(resolved, ensured, token, baseUrl, origin, command.headless, dependencies);
-  }
-  return runFocused(command.focus, token, baseUrl, origin, dependencies);
 }
 
 function runtimeSummary(ensured: EnsuredRuntime): Readonly<Record<string, unknown>> {

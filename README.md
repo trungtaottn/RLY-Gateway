@@ -259,6 +259,5 @@ publication authority.
 
 ## License
 
-RLY Gateway is released under the [MIT License](./LICENSE). Required upstream
-notices and frozen source provenance are retained in
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) and [`provenance/`](./provenance/).
+RLY Gateway is released under the [MIT License](./LICENSE). Frozen source
+provenance is retained in [`provenance/`](./provenance/).

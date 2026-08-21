@@ -88,7 +88,7 @@ export function registerManagementCollections(
       if (!credentials) return accounts.map((record) => toAccountDto(record));
       return Promise.all(accounts.map(async (record) => toAccountDto(record, await credentials.readiness(record))));
     },
-    create: (body, actor) => {
+    create: async (body, actor) => {
       const envRef = envCredentialRefFrom(body);
       if (envRef !== undefined) {
         if (!credentials) throw new ValidationError("credential service is unavailable");
@@ -96,11 +96,12 @@ export function registerManagementCollections(
           pseudonym: z.string().min(1),
           providerId: z.uuid(),
         }).parse(body);
-        return toAccountDto(credentials.createDirectEnvironmentAccount({
+        const record = credentials.createDirectEnvironmentAccount({
           providerId: parsed.providerId,
           pseudonym: parsed.pseudonym,
           credentialRef: envRef,
-        }, actor), "ready");
+        }, actor);
+        return toAccountDto(record, await credentials.readiness(record));
       }
       const parsed = accountBody.extend({
         pseudonym: z.string().min(1),
@@ -176,7 +177,7 @@ function registerCollection(
   app.post(`/v1/${name}`, async (request, reply) => {
     const principal = authorize(request, reply, true);
     if (!principal) return;
-    return reply.code(201).send(handlers.create(request.body, principal.actor));
+    return reply.code(201).send(await handlers.create(request.body, principal.actor));
   });
   app.patch(`/v1/${name}/:id`, async (request, reply) => {
     const principal = authorize(request, reply, true);
