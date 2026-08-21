@@ -8,6 +8,7 @@ import type { CommitmentState } from "../../providers/commitment.js";
 import { commitmentOf } from "../../providers/provider-error.js";
 import { ProviderAdapterError } from "../../providers/provider-adapter.js";
 import { appendEntrySync } from "../../ledger/sqlite.js";
+import { updateAdaptiveHealth } from "./adaptive.js";
 import { parseAffinity } from "./affinity.js";
 import type { EffectiveRoute } from "../effective-route.js";
 import { markOutputStarted } from "../effective-route.js";
@@ -98,6 +99,7 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
     // now enforces the invariant itself so a future/regressed adapter can
     // never silently record success on a cut-off response.
     let terminal = false;
+    const attemptStart = Date.now();
     const flush = function* (): Generator<CanonicalEvent> {
       input.onRoute?.(route);
       yield* buffered;
@@ -127,7 +129,7 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
         if (event.type !== "response-failed") continue;
         const outcome = classifyProviderFailure(event.code);
         recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
-        // A provider-emitted failed event is a deterministic rejection only
+        try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, false); } catch { void 0; }
         // when no acceptance preceded it; after provider acceptance the
         // attempt is committed and must never rotate.
         const failedCommitment: CommitmentState = commitment === "provider-accepted" || commitment === "client-output-started" || commitment === "tool-boundary" ? "provider-accepted" : "not-sent";
@@ -146,6 +148,7 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
         const outcome: RouteOutcomeClass = "transient";
         const truncatedCommitment: CommitmentState = commitment === "provider-accepted" || commitment === "client-output-started" || commitment === "tool-boundary" ? "provider-accepted" : "not-sent";
         recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
+        try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, false); } catch { void 0; }
         lastError = new RouteFailure(outcome, "incomplete-stream", "Provider stream ended without a terminal response", truncatedCommitment);
         if (canRotate({ outputStarted: route.outputStarted, rotationsUsed, retryBudget, outcome, commitment: truncatedCommitment })) {
           tried.push(route.accountId);
@@ -154,6 +157,7 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
         throw route.outputStarted ? new RouteSealedError() : lastError;
       }
       recordOutcome(input.store, route, "success", affinity.cooldownSeconds);
+      try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, true); } catch { void 0; }
       try {
         appendEntrySync(input.store.directory, {
           eventId: ledgerEventId,
@@ -173,7 +177,7 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
       if (isAbortError(error)) throw error;
       const outcome = classifyThrown(error);
       recordOutcome(input.store, route, outcome, affinity.cooldownSeconds);
-      // #121: the adapter owns commitment evidence of the failure point;
+      try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, false, new Date(), error); } catch { void 0; }
       // anything without explicit `not-sent` evidence is conservatively
       // `unknown` (no replay).
       const thrownCommitment = commitmentOf(error);
