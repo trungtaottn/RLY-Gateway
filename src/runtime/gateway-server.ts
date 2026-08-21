@@ -226,6 +226,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
         registry: options.modelRegistry ?? directProviderRegistry,
         experimentalModels: options.config.gateway.modelDiscovery?.experimentalModels ?? false,
         ...(options.compatibility === undefined ? {} : { compatibility: options.compatibility }),
+        ...(options.environment === undefined ? {} : { environment: options.environment }),
         resolveSession: (token) => token === undefined ? undefined : launchSessions.resolve(token),
         extractToken: headerToken,
       });
@@ -267,6 +268,7 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
           universe: compileModelUniverseSnapshot(policy, registry, {
             profile,
             experimentalModels: options.config?.gateway.modelDiscovery?.experimentalModels ?? false,
+            ...(options.environment === undefined ? {} : { environment: options.environment }),
           }),
           policy: sessionPolicySnapshot(policy, profile),
         };

@@ -267,26 +267,42 @@ export function createModelProjectionTrace(
  * Compiles a session's model-universe snapshot from the control-plane policy
  * (issue #72 scope 5). Bindings, deterministically:
  * 1. the profile's own explicit pool -> provider binding (when its provider is
- *    enabled and the pool has at least one `ready` account);
- * 2. every other enabled provider with exactly one eligible pool (>=1 `ready`
+ *    enabled and the pool has at least one runnable account);
+ * 2. every other enabled provider with exactly one eligible pool (>=1 runnable
  *    account) — the #66 "one default pool per configured provider" convention.
  * A provider with multiple pools and no explicit profile binding is excluded:
  * RLY never chooses an arbitrary pool at discovery or request time.
+ *
+ * Runnable means persisted `ready` AND live-present (env handles probe the
+ * injected environment) AND terms-acknowledged when the provider requires it.
+ * Discovery therefore uses the same eligibility snapshot as routing: a pool
+ * without a runnable account is not advertised.
  */
 export function compileModelUniverseSnapshot(
   policy: PolicyRevision,
   registry: RegistryDocument,
-  input: Readonly<{ profile?: ProfileRecord; experimentalModels?: boolean }> = {},
+  input: Readonly<{
+    profile?: ProfileRecord;
+    experimentalModels?: boolean;
+    environment?: NodeJS.ProcessEnv;
+  }> = {},
 ): ModelUniverseSnapshot {
   const pools = policy.snapshot.pools;
   const providers = policy.snapshot.providers;
-  const readyAccountIds = new Set(
-    policy.snapshot.accounts.filter((account) => account.state === "ready").map((account) => account.id),
+  const environment = input.environment ?? process.env;
+  const runnableAccountIds = new Set(
+    policy.snapshot.accounts
+      .filter((account) => accountIsRunnable(
+        account,
+        providers.find((item) => item.id === account.providerId),
+        environment,
+      ))
+      .map((account) => account.id),
   );
   const poolIsEligible = (poolId: string): boolean => {
     const pool = pools.find((item) => item.id === poolId);
     if (pool === undefined) return false;
-    return pool.memberships.some((membership) => readyAccountIds.has(membership.accountId));
+    return pool.memberships.some((membership) => runnableAccountIds.has(membership.accountId));
   };
   const bindings = new Map<string, ProviderPoolBinding>();
   const addBinding = (poolId: string, provider: PolicyRevision["snapshot"]["providers"][number]): void => {
@@ -321,4 +337,21 @@ export function compileModelUniverseSnapshot(
     ),
     experimentalModels: input.experimentalModels ?? false,
   });
+}
+
+/** Secret-free discovery eligibility: persisted ready + env presence + terms. */
+function accountIsRunnable(
+  account: PolicyRevision["snapshot"]["accounts"][number],
+  provider: PolicyRevision["snapshot"]["providers"][number] | undefined,
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  if (account.state !== "ready") return false;
+  if (provider?.requiredTermsRevision && provider.requiredTermsRevision !== account.termsAcknowledgedRevision) {
+    return false;
+  }
+  if (account.credentialHandle.startsWith("env:")) {
+    const name = account.credentialHandle.slice(4);
+    if (!environment[name]) return false;
+  }
+  return true;
 }

@@ -18,6 +18,7 @@ export class CredentialService {
   public constructor(
     private readonly store: ControlPlaneStore,
     private readonly broker: CredentialBroker,
+    private readonly environment: NodeJS.ProcessEnv = process.env,
   ) {}
 
   public async previewImport(sourcePath: string, providerId?: string): Promise<unknown> {
@@ -166,10 +167,16 @@ export class CredentialService {
     }
   }
 
-  public async readiness(account: AccountRecord): Promise<AccountReadiness> {
+  public async readiness(account: AccountRecord, environment: NodeJS.ProcessEnv = this.environment): Promise<AccountReadiness> {
     if (account.state === "paused") return "paused";
     if (account.state === "revoked") return "revoked";
     if (account.credentialHandle.startsWith("env:")) {
+      const name = account.credentialHandle.slice(4);
+      if (!environment[name]) return "unready";
+      const provider = this.store.listProviders().find((item) => item.id === account.providerId);
+      if (provider?.requiredTermsRevision && provider.requiredTermsRevision !== account.termsAcknowledgedRevision) {
+        return "unready";
+      }
       return account.credentialGeneration >= 1 && account.state === "ready" ? "ready" : "unready";
     }
     const metadata = await this.broker.metadata(account.credentialHandle);
