@@ -9,6 +9,7 @@ import type { PolicyRevision, ProfileRecord } from "../control-plane/types.js";
 import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
 import type { CredentialBroker } from "../credentials/broker.js";
 import { registerLaunchSessionRoutes } from "../profiles/http.js";
+import { verifyGovernanceKey as verifyGovKey } from "../management/keys.js";
 import { resolveProfileRoute, resolveProjectedModelRoute } from "../profiles/resolve-route.js";
 import type { AgentExecutionContextRegistry } from "../profiles/agent-contexts.js";
 import type { LaunchSessionRegistry } from "../profiles/sessions.js";
@@ -236,6 +237,10 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       const token = headerToken(request.headers);
       if (isGatewayRequestAuthorized(request.headers, options.authToken)) return;
       if (token && launchSessions?.resolve(token)) return;
+      if (token?.startsWith("rly_") && controlPlane) {
+        const key = verifyGovKey(controlPlane, token);
+        if (key) return;
+      }
       await reply.code(401).send({ type: "error", error: { type: "authentication_error", message: "Gateway request is unauthorized" } });
     });
   }

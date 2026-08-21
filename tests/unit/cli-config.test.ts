@@ -147,7 +147,7 @@ describe("rly config parsing", () => {
   });
 
   it("rejects unknown resources and invalid actions", () => {
-    expect(() => parseConfigArgs(["config", "bogus"], "/work")).toThrow("config requires status, ui, providers, accounts, pools, or profiles");
+    expect(() => parseConfigArgs(["config", "bogus"], "/work")).toThrow("config requires status, ui, providers, accounts, pools, profiles, or keys");
     expect(() => parseConfigArgs(["config", "accounts", "bogus"], "/work")).toThrow("config accounts action is not valid");
     expect(() => parseConfigArgs(["config", "providers", "bogus"], "/work")).toThrow("config providers action is not valid");
     expect(() => parseConfigArgs(["config", "--config"], "/work")).toThrow("--config requires a path");
