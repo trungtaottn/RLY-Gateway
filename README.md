@@ -130,6 +130,8 @@ rly status
 rly doctor
 rly quota
 rly route-trace
+rly cost --since 7d --group-by model --json
+rly cost --prune 90d
 
 rly <profile>
 rly run claude --profile <profile> --
