@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { CanonicalEvent } from "../../core/canonical-event.js";
 import type { CanonicalRequest } from "../../core/canonical-request.js";
 import { classifyProviderFailure, cooldownUntilFor, nextQuotaClass } from "../../control-plane/health/outcomes.js";
@@ -6,6 +7,7 @@ import type { ControlPlaneStore } from "../../control-plane/store.js";
 import type { CommitmentState } from "../../providers/commitment.js";
 import { commitmentOf } from "../../providers/provider-error.js";
 import { ProviderAdapterError } from "../../providers/provider-adapter.js";
+import { appendEntrySync } from "../../ledger/sqlite.js";
 import { parseAffinity } from "./affinity.js";
 import type { EffectiveRoute } from "../effective-route.js";
 import { markOutputStarted } from "../effective-route.js";
@@ -64,6 +66,9 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
   const affinity = parseAffinity(pool?.affinity);
   const tried: string[] = [];
   let lastError: Error | undefined;
+  const ledgerEventId = randomUUID();
+  let pendingInputTokens: number | undefined;
+  let pendingOutputTokens: number | undefined;
 
   attempt: for (let rotationsUsed = 0; rotationsUsed < retryBudget + 1; rotationsUsed += 1) {
     let selected;
@@ -113,6 +118,11 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
             buffered.length = 0;
           }
         }
+        if (event.type === "usage-updated") {
+          if (event.inputTokens !== undefined) pendingInputTokens = event.inputTokens;
+          if (event.outputTokens !== undefined) pendingOutputTokens = event.outputTokens;
+          continue;
+        }
         if (event.type === "response-completed") terminal = true;
         if (event.type !== "response-failed") continue;
         const outcome = classifyProviderFailure(event.code);
@@ -144,6 +154,15 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
         throw route.outputStarted ? new RouteSealedError() : lastError;
       }
       recordOutcome(input.store, route, "success", affinity.cooldownSeconds);
+      try {
+        appendEntrySync(input.store.directory, {
+          eventId: ledgerEventId,
+          provider: route.providerId,
+          model: route.modelId,
+          inputTokens: pendingInputTokens ?? 0,
+          outputTokens: pendingOutputTokens ?? 0,
+        });
+      } catch { void 0; }
       yield* flush();
       return;
     } catch (error) {
