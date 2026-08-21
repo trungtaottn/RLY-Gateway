@@ -39,6 +39,7 @@ const ACTIVATION_CODES = [
   "role-unmapped",
   "capability-rejected",
   "invalid-launch-policy",
+  "context_window_exceeded",
 ] as const satisfies readonly ProfileActivationError["code"][];
 const ROUTE_ROLES = ["primary", "fast", "reasoning"] as const;
 

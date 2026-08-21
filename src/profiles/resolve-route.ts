@@ -12,6 +12,7 @@ import { parseCredentialRef } from "../credentials/credential-ref.js";
 import type { CanonicalUpstream } from "../protocols/anthropic/fake-upstream.js";
 import { adapterIdFor, createProviderAdapter } from "../providers/dispatch.js";
 import { ReasoningTranslationError, resolveReasoning } from "../providers/reasoning.js";
+import { preflightContextWindow } from "../registry/tokenizer-registry.js";
 import { directProviderRegistry, modelsForProvider, type RegistryDocument } from "../registry/model-registry.js";
 import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.js";
 import type { EffectiveCompatibilityLabel, EffectiveEnforcement } from "../compatibility/types.js";
@@ -312,6 +313,23 @@ export async function resolveProfileRoute(
     requestedModel: activated.modelId,
     modelRole: activated.role,
   });
+  {
+    const gate = preflightContextWindow(effectiveRequest, modelEvidence, `${provider.name}/${activated.modelId}`);
+    if (gate.exceeded) {
+      const error = new ProfileActivationError("context_window_exceeded", `context_window_exceeded: ${String(gate.count)} > ${String(gate.limit ?? 0)}`);
+      recordPreSelectionFailure({
+        traces: dependencies.traces,
+        session,
+        policy,
+        pool,
+        request: canonical,
+        error,
+        attemptedLogicalId: `${provider.name}/${activated.modelId}`,
+        intent: intentTrace,
+      });
+      throw error;
+    }
+  }
   return {
     route,
     decision,
