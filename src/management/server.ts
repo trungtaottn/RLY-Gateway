@@ -13,6 +13,7 @@ import {
 } from "./auth.js";
 import { bootstrapPageHtml, SESSION_COOKIE_NAME } from "./bootstrap-page.js";
 import { registerManagementCollections } from "./collections.js";
+import { createGovernanceKey, listGovernanceKeys, revokeGovernanceKey } from "./keys.js";
 import { registerCredentialRoutes } from "./credentials.js";
 import type { RouteTraceRing } from "../profiles/traces.js";
 import { toAuditDto, toHealthDto, toPolicyDto, toTraceDto } from "./dtos.js";
@@ -113,6 +114,33 @@ export function createManagementServer(options: ManagementServerOptions): Fastif
   });
 
   registerManagementCollections(app, authorize, options.store, options.credentials);
+  // Governance keys CRUD (managementToken auth)
+  app.post("/v1/keys", async (request, reply) => {
+    const auth = authorize(request, reply, false);
+    if (!auth) return;
+    const body = request.body as { name?: string; profileId?: string; poolId?: string; budgetUsd?: number; allowedModels?: string[] };
+    if (!body.name) return reply.code(400).send({ error: "name required" });
+    const { key, secret } = createGovernanceKey(options.store, {
+      name: body.name,
+      ...(body.profileId ? { profileId: body.profileId } : {}),
+      ...(body.poolId ? { poolId: body.poolId } : {}),
+      ...(body.budgetUsd !== undefined ? { budgetUsd: body.budgetUsd } : {}),
+      ...(body.allowedModels ? { allowedModels: body.allowedModels } : {}),
+    });
+    return reply.send({ id: key.id, name: key.name, secret, prefix: key.prefix });
+  });
+  app.get("/v1/keys", async (request, reply) => {
+    const auth = authorize(request, reply, false);
+    if (!auth) return;
+    return reply.send({ keys: listGovernanceKeys(options.store) });
+  });
+  app.post("/v1/keys/:id/revoke", async (request, reply) => {
+    const auth = authorize(request, reply, false);
+    if (!auth) return;
+    const { id } = request.params as { id: string };
+    revokeGovernanceKey(options.store, id);
+    return reply.send({ ok: true });
+  });
   if (options.credentials) registerCredentialRoutes(app, authorize, options.credentials);
 
   app.get("/v1/policy", async (request, reply) => {

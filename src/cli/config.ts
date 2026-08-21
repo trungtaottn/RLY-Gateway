@@ -28,7 +28,8 @@ export type ConfigFocus =
   | Readonly<{ kind: "providers"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>
   | Readonly<{ kind: "accounts"; action: "list" | "create" | "login" | "import" | "revoke" | "refresh" | "pause" | "resume"; fields: Readonly<Record<string, string>> }>
   | Readonly<{ kind: "pools"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>
-  | Readonly<{ kind: "profiles"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>;
+  | Readonly<{ kind: "profiles"; action: "list" | "create"; fields: Readonly<Record<string, string>> }>
+  | Readonly<{ kind: "keys"; action: "list" | "create" | "revoke"; fields: Readonly<Record<string, string>> }>;
 
 export type ConfigCommand = Readonly<{
   command: "config";
@@ -37,9 +38,10 @@ export type ConfigCommand = Readonly<{
   focus: ConfigFocus;
 }>;
 
-const CONFIG_RESOURCES = ["providers", "accounts", "pools", "profiles"] as const;
+const CONFIG_RESOURCES = ["providers", "accounts", "pools", "profiles", "keys"] as const;
 const ACCOUNT_ACTIONS = ["list", "create", "login", "import", "revoke", "refresh", "pause", "resume"] as const;
 const RESOURCE_ACTIONS = ["list", "create"] as const;
+const KEYS_ACTIONS = ["list", "create", "revoke"] as const;
 
 export function parseConfigArgs(args: readonly string[], cwd: string): ConfigCommand | undefined {
   if (args[0] !== "config") return undefined;
@@ -65,10 +67,10 @@ export function parseConfigArgs(args: readonly string[], cwd: string): ConfigCom
     return { command: "config", configPath, headless, focus: { kind: "status" } };
   }
   if (!(CONFIG_RESOURCES as readonly string[]).includes(domain)) {
-    throw new Error("config requires status, ui, providers, accounts, pools, or profiles");
+    throw new Error("config requires status, ui, providers, accounts, pools, profiles, or keys");
   }
-  const resource = domain as "providers" | "accounts" | "pools" | "profiles";
-  const allowed: readonly string[] = resource === "accounts" ? ACCOUNT_ACTIONS : RESOURCE_ACTIONS;
+  const resource = domain as "providers" | "accounts" | "pools" | "profiles" | "keys";
+  const allowed: readonly string[] = resource === "accounts" ? ACCOUNT_ACTIONS : resource === "keys" ? KEYS_ACTIONS : RESOURCE_ACTIONS;
   const selected = action === undefined ? "list" : action;
   if (!allowed.includes(selected)) {
     throw new Error(`config ${resource} action is not valid for ${resource}`);
@@ -96,6 +98,14 @@ export function parseConfigArgs(args: readonly string[], cwd: string): ConfigCom
       configPath,
       headless,
       focus: { kind: "pools", action: selected as "list" | "create", fields },
+    };
+  }
+  if (resource === "keys") {
+    return {
+      command: "config",
+      configPath,
+      headless,
+      focus: { kind: "keys", action: selected as "list" | "create" | "revoke", fields },
     };
   }
   return {
@@ -344,7 +354,7 @@ async function runControlCenter(
 }
 
 async function runFocused(
-  focus: Extract<ConfigFocus, { kind: "providers" | "accounts" | "pools" | "profiles" }>,
+  focus: Extract<ConfigFocus, { kind: "providers" | "accounts" | "pools" | "profiles" | "keys" }>,
   token: string,
   baseUrl: string,
   origin: string,
@@ -369,6 +379,17 @@ async function runFocused(
       return requestOk(request, baseUrl, token, origin, "POST", "/v1/profiles", profileCreateBody(fields));
     }
     return requestOk(request, baseUrl, token, origin, "GET", "/v1/profiles");
+  }
+  if (focus.kind === "keys") {
+    if (focus.action === "create") {
+      return requestOk(request, baseUrl, token, origin, "POST", "/v1/keys", fields);
+    }
+    if (focus.action === "list") {
+      return requestOk(request, baseUrl, token, origin, "GET", "/v1/keys");
+    }
+    const keyId = fields["id"];
+    if (keyId === undefined) throw new Error("keys revoke requires --id");
+    return requestOk(request, baseUrl, token, origin, "POST", `/v1/keys/${keyId}/revoke`);
   }
   if (focus.action === "list") {
     return requestOk(request, baseUrl, token, origin, "GET", "/v1/accounts");
