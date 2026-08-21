@@ -19,7 +19,6 @@
       "npmShasum": "f24ecf1c49b71051c1115a49c2b035447605b5bd",
       "license": "MIT",
       "copyright": "Copyright (c) 2025 CCS Contributors",
-      "noticeFile": "THIRD_PARTY_NOTICES.md#ccs",
       "copyAllowed": true,
       "authority": "Use the npm tarball SHA-256 as the copy source. The research revision is later main and is not the installed package."
     },
@@ -40,7 +39,6 @@
       "npmShasum": "7ec3f709fccb18b3c70408866d5bdcb91a7ec3f4",
       "license": "MIT",
       "copyright": "Copyright (c) 2026 opencodex contributors",
-      "noticeFile": "THIRD_PARTY_NOTICES.md#opencodex",
       "copyAllowed": true,
       "authority": "Use the npm tarball SHA-256 as the copy source. The research revision is later main and is not the installed package."
     },
@@ -58,7 +56,6 @@
       "sha256": "38435879bbc769d0a22e071c1c4413f209403ecdcdea71941b8419effbf7a4e6",
       "license": "MIT",
       "copyright": "Copyright (c) 2025 Joseph Stephenson-Mouzo",
-      "noticeFile": "THIRD_PARTY_NOTICES.md#claude-proxy",
       "copyAllowed": true,
       "authority": "Pin the clean upstream commit only. Local uncommitted patches are not a source artifact."
     },
@@ -77,7 +74,6 @@
       "goModule": "github.com/router-for-me/CLIProxyAPI/v7 v7.2.127-3+dirty",
       "license": "MIT",
       "copyright": "Copyright (c) 2025-2005.9 Luis Pater; Copyright (c) 2025.9-present Router-For.ME",
-      "noticeFile": "THIRD_PARTY_NOTICES.md#cliproxy-plus",
       "copyAllowed": false,
       "authority": "License is independently proven MIT. The published Go module is marked +dirty, so the release binary is not a clean source tree. Do not copy Go source or vendor the binary. Oracle-only / attested managed-bridge use only."
     },
@@ -95,7 +91,6 @@
       "goModule": "github.com/router-for-me/CLIProxyAPI/v7 v7.2.129+dirty",
       "license": "MIT",
       "copyright": "Copyright (c) 2025-2005.9 Luis Pater; Copyright (c) 2025.9-present Router-For.ME",
-      "noticeFile": "THIRD_PARTY_NOTICES.md#cliproxy-api",
       "copyAllowed": false,
       "authority": "Independently licensed MIT. Same +dirty release caveat as Plus. Do not copy Go source or vendor the binary."
     }

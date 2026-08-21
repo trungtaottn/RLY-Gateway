@@ -39,7 +39,6 @@ function readJson(relative: string): unknown {
 describe("upstream fixtures stay synthetic", () => {
   const fixtureFiles = collectFiles(join(root, "tests/fixtures/upstream"));
   const provenanceFiles = [
-    "THIRD_PARTY_NOTICES.md",
     "provenance/artifacts.json",
     "provenance/adaptation-matrix.json",
   ].map((relative) => join(root, relative));

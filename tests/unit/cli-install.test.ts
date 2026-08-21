@@ -10,14 +10,15 @@ import { RUNTIME_VERSION } from "../../src/runtime/gateway-attestation.js";
 import type { VerifiedCandidate } from "../../src/installer/types.js";
 import type { ServiceManagerAdapter } from "../../src/service-manager/types.js";
 
-const plantForeignLauncher: { path?: string } = {};
+const plantForeignLauncher: { path: string | undefined } = { path: undefined };
 
 vi.mock("node:fs/promises", async (importOriginal) => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
     symlink: async (target: string, path: string, type?: string) => {
-      if (plantForeignLauncher.path !== undefined && String(path).includes(".tmp")) {
+      if (plantForeignLauncher.path !== undefined && path.includes(".tmp")) {
         await actual.writeFile(plantForeignLauncher.path, "foreign-race\n", { mode: 0o755 });
       }
       if (type === undefined) return actual.symlink(target, path);
