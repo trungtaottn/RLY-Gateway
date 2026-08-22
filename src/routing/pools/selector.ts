@@ -20,7 +20,7 @@ export type { SelectInput, SelectResult };
 
 export class RouteSelector {
   private readonly cursors = new Map<string, number>();
-  private tail: Promise<void> = Promise.resolve();
+  private readonly tails = new Map<string, Promise<void>>();
 
   public constructor(
     private readonly store: ControlPlaneStore,
@@ -37,9 +37,8 @@ export class RouteSelector {
   }
 
   public select(input: SelectInput): Promise<SelectResult> {
-    return this.serialize(() => this.selectLocked(input));
+    return this.serialize(input.poolId, () => this.selectLocked(input));
   }
-
   public revalidate(route: EffectiveRoute, input: Omit<SelectInput, "requestId" | "modelId" | "adapterId" | "role">): void {
     const now = this.clock();
     const pool = requirePool(input.policy, input.poolId);
@@ -145,9 +144,10 @@ export class RouteSelector {
     return undefined;
   }
 
-  private serialize<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.tail.then(work, work);
-    this.tail = run.then(() => undefined, () => undefined);
+  private serialize<T>(poolId: string, work: () => Promise<T>): Promise<T> {
+    const tail = this.tails.get(poolId) ?? Promise.resolve();
+    const run = tail.then(work, work);
+    this.tails.set(poolId, run.then(() => undefined, () => undefined));
     return run;
   }
 }
