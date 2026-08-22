@@ -265,7 +265,7 @@ describe("CLI parsing", () => {
       expect(payload.releaseChannel).toBe("dev");
       expect(payload.controlProtocolVersion).toBe(1);
       expect(payload.dataProtocolVersion).toBe(1);
-      expect(payload.stateSchemaVersion).toBe(2);
+      expect(payload.stateSchemaVersion).toBe(4);
       expect(payload.identitySchemaVersion).toBe(1);
     } finally {
       output.mockRestore();

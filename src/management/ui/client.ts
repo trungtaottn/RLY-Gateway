@@ -380,7 +380,8 @@ export function managementUiScript(): string {
       "<h2>Pool</h2><input type=\\"hidden\\" id=\\"o-id\\"><input type=\\"hidden\\" id=\\"o-version\\">" +
       field("o-name", "Name", "required") +
       selectField("o-provider", "Provider", optionList(cache.providers || [], "id", "name")) +
-      selectField("o-strategy", "Strategy", "<option value=\\"manual\\">manual</option><option value=\\"round-robin\\">round-robin</option><option value=\\"fill-first\\">fill-first</option>") +
+      // eslint-disable-next-line no-useless-escape
+      selectField("o-strategy", "Strategy", "<option value=\\"manual\\">manual</option><option value=\\"round-robin\\">round-robin</option><option value=\\"fill-first\\">fill-first</option><option value=\\"adaptive\\">adaptive</option>") +
       field("o-retry", "Retry budget", "type=\\"number\\" min=\\"0\\" value=\\"0\\"") +
       "<label for=\\"o-accounts\\"><span>Account IDs (comma, pin order)</span><input id=\\"o-accounts\\"></label>" +
       "<button type=\\"submit\\" class=\\"primary\\" id=\\"o-save\\">Save</button></form>";

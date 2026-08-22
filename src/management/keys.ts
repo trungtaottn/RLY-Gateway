@@ -142,6 +142,7 @@ export function checkBudget(store: ControlPlaneStore, key: GovernanceKey, costUs
   return spent + costUsd <= key.budgetUsd;
 }
 
+// P0-4: ledger terminal cost should be recorded via this with actual costUsd (gateway onResponse will call with ledger cost)
 export function recordKeyUsage(store: ControlPlaneStore, keyId: string, costUsd: number): void {
   ensureKeysTable(store);
   store.database.prepare("UPDATE key_usage SET spent_usd = spent_usd + ?, request_count = request_count + 1 WHERE key_id = ?").run(costUsd, keyId);
@@ -155,7 +156,7 @@ export function checkRpm(store: ControlPlaneStore, key: GovernanceKey): boolean 
   const windowStart = new Date(row.windowStart).getTime();
   const now = Date.now();
   if (now - windowStart > 60_000) {
-    store.database.prepare("UPDATE key_usage SET request_count = 1, window_start = ? WHERE key_id = ?").run(new Date().toISOString(), key.id);
+    store.database.prepare("UPDATE key_usage SET request_count = 0, window_start = ? WHERE key_id = ?").run(new Date().toISOString(), key.id);
     return true;
   }
   return row.count < key.rpmLimit;

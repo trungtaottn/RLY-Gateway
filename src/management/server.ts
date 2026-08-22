@@ -118,21 +118,33 @@ export function createManagementServer(options: ManagementServerOptions): Fastif
   app.post("/v1/keys", async (request, reply) => {
     const auth = authorize(request, reply, false);
     if (!auth) return;
-    const body = request.body as { name?: string; profileId?: string; poolId?: string; budgetUsd?: number; allowedModels?: string[] };
-    if (!body.name) return reply.code(400).send({ error: "name required" });
+    const parsed = z.object({
+      name: z.string().min(1),
+      profileId: z.uuid().optional(),
+      poolId: z.uuid().optional(),
+      budgetUsd: z.number().positive().optional(),
+      rpmLimit: z.number().int().positive().optional(),
+      allowedModels: z.array(z.string().min(1)).optional(),
+    }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid-body", details: parsed.error.issues });
     const { key, secret } = createGovernanceKey(options.store, {
-      name: body.name,
-      ...(body.profileId ? { profileId: body.profileId } : {}),
-      ...(body.poolId ? { poolId: body.poolId } : {}),
-      ...(body.budgetUsd !== undefined ? { budgetUsd: body.budgetUsd } : {}),
-      ...(body.allowedModels ? { allowedModels: body.allowedModels } : {}),
+      name: parsed.data.name,
+      ...(parsed.data.profileId ? { profileId: parsed.data.profileId } : {}),
+      ...(parsed.data.poolId ? { poolId: parsed.data.poolId } : {}),
+      ...(parsed.data.budgetUsd !== undefined ? { budgetUsd: parsed.data.budgetUsd } : {}),
+      ...(parsed.data.rpmLimit !== undefined ? { rpmLimit: parsed.data.rpmLimit } : {}),
+      ...(parsed.data.allowedModels ? { allowedModels: parsed.data.allowedModels } : {}),
     });
     return reply.send({ id: key.id, name: key.name, secret, prefix: key.prefix });
   });
   app.get("/v1/keys", async (request, reply) => {
     const auth = authorize(request, reply, false);
     if (!auth) return;
-    return reply.send({ keys: listGovernanceKeys(options.store) });
+    const keys = listGovernanceKeys(options.store).map(({ hash: _hash, ...rest }) => {
+      void _hash;
+      return rest;
+    });
+    return reply.send({ keys });
   });
   app.post("/v1/keys/:id/revoke", async (request, reply) => {
     const auth = authorize(request, reply, false);

@@ -13,11 +13,10 @@ const CODEX_CAPABILITIES = Object.freeze({
   parallelTools: false,
   images: false,
   reasoning: true,
-  redactedReasoning: false,
+  redactedReasoning: true,
   structuredOutput: false,
   tokenCounting: "conservative-estimate" as const,
 });
-
 export type ResolvedOauthRoute = Readonly<{ route: RouteRecord; upstream: CanonicalUpstream }>;
 
 export function createCodexOauthRouteResolver(

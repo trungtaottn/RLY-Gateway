@@ -10,6 +10,7 @@ import type { EffectiveCompatibilityRegistry } from "../compatibility/registry.j
 import type { CredentialBroker } from "../credentials/broker.js";
 import { registerLaunchSessionRoutes } from "../profiles/http.js";
 import { verifyGovernanceKey as verifyGovKey } from "../management/keys.js";
+// checkRpm/checkBudget/recordKeyUsage imported lazily inside hook to avoid cycle
 import { resolveProfileRoute, resolveProjectedModelRoute } from "../profiles/resolve-route.js";
 import type { AgentExecutionContextRegistry } from "../profiles/agent-contexts.js";
 import type { LaunchSessionRegistry } from "../profiles/sessions.js";
@@ -172,6 +173,12 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       headers?: RequestHeaders,
       required?: readonly CapabilityRequirement[],
     ) => {
+      // Propagate governance key id into CanonicalRequest for ledger budget wiring (P0-2)
+      const bearerForGov = headerToken(headers ?? {});
+      if (bearerForGov?.startsWith("rly_") && controlPlane) {
+        const gov = verifyGovKey(controlPlane, bearerForGov);
+        if (gov) (request as unknown as Record<string, unknown>).__governanceKeyId = gov.id;
+      }
       const token = headerToken(headers ?? {});
       const session = token === undefined ? undefined : launchSessions?.resolve(token);
       // #72: an RLY projection id routes through the session's pinned model
@@ -239,9 +246,37 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       if (token && launchSessions?.resolve(token)) return;
       if (token?.startsWith("rly_") && controlPlane) {
         const key = verifyGovKey(controlPlane, token);
-        if (key) return;
+        if (key) {
+          // Enforce RPM and budget; budget check with 0 cost is only over-budget gate
+          const { checkRpm, checkBudget } = await import("../management/keys.js");
+          if (!checkRpm(controlPlane, key)) {
+            await reply.code(429).send({ type: "error", error: { type: "rate_limit_error", message: "Governance key rate limit exceeded" } });
+            return;
+          }
+          if (!checkBudget(controlPlane, key, 0)) {
+            await reply.code(429).send({ type: "error", error: { type: "rate_limit_error", message: "Governance key budget exceeded" } });
+            return;
+          }
+          // Record usage (0 cost at auth; actual cost recorded via ledger on terminal)
+          const { recordKeyUsage } = await import("../management/keys.js");
+          recordKeyUsage(controlPlane, key.id, 0);
+          (request as unknown as Record<string, unknown>).__govKey = key;
+          return;
+        }
       }
       await reply.code(401).send({ type: "error", error: { type: "authentication_error", message: "Gateway request is unauthorized" } });
+    });
+    // P0-3: enforce allowedModels after body is parsed (preHandler has access to request.body)
+    app.addHook("preHandler", async (request, reply) => {
+      if (!request.url.startsWith("/v1/")) return;
+      const govKey = (request as unknown as Record<string, unknown>).__govKey as { allowedModels?: readonly string[] } | undefined;
+      if (!govKey?.allowedModels || govKey.allowedModels.length === 0) return;
+      const body = request.body as { model?: string } | undefined;
+      const requested = body?.model;
+      if (typeof requested === "string" && !govKey.allowedModels.includes(requested)) {
+        await reply.code(403).send({ type: "error", error: { type: "forbidden", message: `model ${requested} not allowed for this key` } });
+        return;
+      }
     });
   }
   if (controlPlane && launchSessions && traces) {

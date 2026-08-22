@@ -114,8 +114,8 @@ export type AppendInput = Readonly<{
 export async function appendEntry(directory: string, input: AppendInput): Promise<void> {
   await ensurePrivateDirectory(directory);
   const occurredAt = input.occurredAt ?? new Date().toISOString();
-  const snapshot = input.priceSnapshotId ?? snapshotIdFor(`${input.provider}/${input.model}`, new Date(occurredAt));
-  const cost = input.provider && input.model ? estimateCost({ model: `${input.provider}/${input.model}`, inputTokens: input.inputTokens, outputTokens: input.outputTokens, at: new Date(occurredAt) }) : 0;
+  const snapshot = input.priceSnapshotId ?? snapshotIdFor(`${input.provider}/${input.model}`, new Date(occurredAt), directory);
+  const cost = input.provider && input.model ? estimateCost({ model: `${input.provider}/${input.model}`, inputTokens: input.inputTokens, outputTokens: input.outputTokens, at: new Date(occurredAt), directory }) : 0;
   const row: LedgerRow = {
     eventId: input.eventId,
     provider: input.provider,
@@ -133,8 +133,8 @@ export async function appendEntry(directory: string, input: AppendInput): Promis
 /** Synchronous variant for tests and terminal UPSERT without async queue delay. */
 export function appendEntrySync(directory: string, input: AppendInput): void {
   const occurredAt = input.occurredAt ?? new Date().toISOString();
-  const snapshot = input.priceSnapshotId ?? snapshotIdFor(`${input.provider}/${input.model}`, new Date(occurredAt));
-  const cost = estimateCost({ model: `${input.provider}/${input.model}`, inputTokens: input.inputTokens, outputTokens: input.outputTokens, at: new Date(occurredAt) });
+  const snapshot = input.priceSnapshotId ?? snapshotIdFor(`${input.provider}/${input.model}`, new Date(occurredAt), directory);
+  const cost = estimateCost({ model: `${input.provider}/${input.model}`, inputTokens: input.inputTokens, outputTokens: input.outputTokens, at: new Date(occurredAt), directory });
   const db = openDatabase(directory);
   const stmt = db.prepare(
     `INSERT INTO ledger_entries(event_id, provider, model, input_tokens, output_tokens, cost_usd, price_snapshot_id, occurred_at)
