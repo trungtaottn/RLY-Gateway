@@ -30,13 +30,13 @@ Claude Code / Codex CLI
 - Discover Claude-compatible `claude-rly-*` model projections through the
   authenticated `/v1/models` gateway surface.
 - Inspect the actual request-time provider and physical model with
-  `rly route-trace`.
+  `rly route-trace` and billing cost with `rly cost --since 7d --group-by model`.
 - Manage providers, accounts, pools, profiles, quota, and traces through a
-  loopback-only Config UI.
+  loopback-only Config UI; govern access via `rly_…` keys with budget/RPM/allowedModels.
+- Adaptive per-pool routing (EWMA + quota-aware), token-limit preflight, and 90d ledger retention on top of the local SQLite control plane.
 - Install a self-contained per-user runtime. Released artifacts bundle their
   own pinned Node.js runtime and do not require sudo, npm, or pnpm.
 
-## Release availability
 
 Current development is on `v0.2.0-beta.8` (`dev@90ab106`) after hardening follow-up #168 (per-pool lock, prepare cache, affinity in-memory, ledger retention 90d, governance hash index). `v0.1.0` remains the last Stable release with a qualified Linux x86-64 artifact.
 
