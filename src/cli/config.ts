@@ -457,7 +457,7 @@ function poolCreateBody(fields: Readonly<Record<string, string>>): Readonly<Reco
     body["accountIds"] = fields["accounts"].split(",").filter(Boolean);
   }
   if (body["name"] === undefined || body["providerId"] === undefined || body["strategy"] === undefined) {
-    throw new Error("pools create requires --name, --provider-id, and --strategy (manual|round-robin|fill-first)");
+    throw new Error("pools create requires --name, --provider-id, and --strategy (manual|round-robin|fill-first|adaptive)");
   }
   return body;
 }

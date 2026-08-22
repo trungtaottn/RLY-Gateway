@@ -17,6 +17,13 @@ CREATE TABLE pools_new (
 INSERT INTO pools_new SELECT * FROM pools;
 DROP TABLE pools;
 ALTER TABLE pools_new RENAME TO pools;
+CREATE TABLE IF NOT EXISTS pool_health (
+  account_id TEXT PRIMARY KEY,
+  ewma REAL NOT NULL,
+  errors INTEGER NOT NULL,
+  total INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+) STRICT;
 `;
 
 export const SCHEMA_V4_CHECKSUM = createHash("sha256").update(SCHEMA_V4_SQL).digest("hex");

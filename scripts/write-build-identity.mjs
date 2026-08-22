@@ -43,7 +43,7 @@ const meta = {
   releaseChannel,
   controlProtocolVersion: 1,
   dataProtocolVersion: 1,
-  stateSchemaVersion: 2,
+  stateSchemaVersion: 4, // SCHEMA_V4_VERSION — keep in sync with src/storage/schema-v4.ts
 };
 
 await mkdir(join(root, "dist"), { recursive: true });

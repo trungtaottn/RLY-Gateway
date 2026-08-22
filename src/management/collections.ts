@@ -40,7 +40,7 @@ const accountBody = z.object({
 const poolBody = z.object({
   name: z.string().min(1).optional(),
   providerId: z.uuid().optional(),
-  strategy: z.enum(["manual", "round-robin", "fill-first"]).optional(),
+  strategy: z.enum(["manual", "round-robin", "fill-first", "adaptive"]).optional(),
   affinity: z.unknown().optional(),
   retryBudget: z.number().int().nonnegative().optional(),
   accountIds: z.array(z.uuid()).optional(),
@@ -124,7 +124,7 @@ export function registerManagementCollections(
       const parsed = poolBody.extend({
         name: z.string().min(1),
         providerId: z.uuid(),
-        strategy: z.enum(["manual", "round-robin", "fill-first"]),
+        strategy: z.enum(["manual", "round-robin", "fill-first", "adaptive"]),
       }).parse(body);
       return toPoolDto(store.createPool(parsed, actor));
     },

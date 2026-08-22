@@ -496,6 +496,23 @@ export async function resolveProjectedModelRoute(
     modelId: modelEvidence.identity.upstreamModelId,
     role: "unknown",
   });
+  {
+    const gate = preflightContextWindow(effectiveRequest, modelEvidence, `${provider.name}/${modelEvidence.identity.upstreamModelId}`);
+    if (gate.exceeded) {
+      const error = new ProfileActivationError("context_window_exceeded", `context_window_exceeded: ${String(gate.count)} > ${String(gate.limit ?? 0)}`);
+      recordPreSelectionFailure({
+        traces: dependencies.traces,
+        session,
+        policy,
+        pool,
+        request: canonical,
+        error,
+        attemptedLogicalId: modelEvidence.logicalId,
+        intent: intentTrace,
+      });
+      throw error;
+    }
+  }
   // #127: assemble the FINAL model-control output BEFORE account selection for
   // the exact projected target. The projection reverse-mapping is the only
   // bridge from the selection handle to the frozen physical target (#72); a
