@@ -159,9 +159,11 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
       recordOutcome(input.store, route, "success", affinity.cooldownSeconds);
       try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, true); } catch { void 0; }
       try {
+        const policy = input.store.currentPolicy();
+        const providerName = policy?.snapshot.providers.find((item) => item.id === route.providerId)?.name ?? route.providerId;
         appendEntrySync(input.store.directory, {
           eventId: ledgerEventId,
-          provider: route.providerId,
+          provider: providerName,
           model: route.modelId,
           inputTokens: pendingInputTokens ?? 0,
           outputTokens: pendingOutputTokens ?? 0,
