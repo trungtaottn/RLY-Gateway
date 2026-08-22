@@ -254,10 +254,23 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
           // Record usage (0 cost at auth; actual cost recorded via ledger on terminal)
           const { recordKeyUsage } = await import("../management/keys.js");
           recordKeyUsage(controlPlane, key.id, 0);
+          (request as unknown as Record<string, unknown>).__govKey = key;
           return;
         }
       }
       await reply.code(401).send({ type: "error", error: { type: "authentication_error", message: "Gateway request is unauthorized" } });
+    });
+    // P0-3: enforce allowedModels after body is parsed (preHandler has access to request.body)
+    app.addHook("preHandler", async (request, reply) => {
+      if (!request.url.startsWith("/v1/")) return;
+      const govKey = (request as unknown as Record<string, unknown>).__govKey as { allowedModels?: readonly string[] } | undefined;
+      if (!govKey?.allowedModels || govKey.allowedModels.length === 0) return;
+      const body = request.body as { model?: string } | undefined;
+      const requested = body?.model;
+      if (typeof requested === "string" && !govKey.allowedModels.includes(requested)) {
+        await reply.code(403).send({ type: "error", error: { type: "forbidden", message: `model ${requested} not allowed for this key` } });
+        return;
+      }
     });
   }
   if (controlPlane && launchSessions && traces) {
