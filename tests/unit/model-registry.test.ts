@@ -89,6 +89,7 @@ describe("model registry", () => {
     expect(codex?.capabilities.streaming).toBe(true);
     expect(codex?.capabilities.tools).toBe(true);
     expect(codex?.capabilities.images).toBe(false);
+    expect(codex?.capabilities.redactedReasoning).toBe(true);
     const cline = directProviderRegistry.models.find((model) => model.logicalId === "cline/claude-sonnet-4-5");
     expect(cline?.capabilities.streaming).toBe(true);
     expect(cline?.capabilities.tools).toBe(true);

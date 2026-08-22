@@ -41,6 +41,7 @@ export function ensureKeysTable(store: ControlPlaneStore): void {
       created_at TEXT NOT NULL,
       revoked_at TEXT
     ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_governance_keys_hash ON governance_keys(hash);
     CREATE TABLE IF NOT EXISTS key_usage (
       key_id TEXT PRIMARY KEY REFERENCES governance_keys(id),
       spent_usd REAL NOT NULL DEFAULT 0,
@@ -104,11 +105,11 @@ export function verifyGovernanceKey(store: ControlPlaneStore, bearer: string): G
   if (!bearer.startsWith("rly_")) return undefined;
   const hash = hashSecret(bearer);
   ensureKeysTable(store);
-  const rows = store.database.prepare("SELECT id, name, prefix, hash, profile_id as profileId, pool_id as poolId, budget_usd as budgetUsd, rpm_limit as rpmLimit, allowed_models as allowedModels, created_at as createdAt, revoked_at as revokedAt FROM governance_keys").all() as Array<{
+  const row = store.database.prepare("SELECT id, name, prefix, hash, profile_id as profileId, pool_id as poolId, budget_usd as budgetUsd, rpm_limit as rpmLimit, allowed_models as allowedModels, created_at as createdAt, revoked_at as revokedAt FROM governance_keys WHERE hash = ?").get(hash) as {
     id: string; name: string; prefix: string; hash: string; profileId: string | null; poolId: string | null; budgetUsd: number | null; rpmLimit: number | null; allowedModels: string | null; createdAt: string; revokedAt: string | null;
-  }>;
-  for (const r of rows) {
-    if (secureEqual(r.hash, hash)) {
+  } | undefined;
+  if (row !== undefined && secureEqual(row.hash, hash)) {
+    const r = row;
       if (r.revokedAt) return undefined;
       return {
         id: r.id,
@@ -124,7 +125,6 @@ export function verifyGovernanceKey(store: ControlPlaneStore, bearer: string): G
         ...(r.revokedAt ? { revokedAt: r.revokedAt } : {}),
       };
     }
-  }
   return undefined;
 }
 

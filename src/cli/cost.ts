@@ -1,10 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { loadConfig } from "../config/load-config.js";
-import { RLY_STATE_DIRECTORY_NAME } from "../storage/paths.js";
+import { resolve } from "node:path";
 import type { LedgerQuery } from "../ledger/sqlite.js";
 import { queryLedger, pruneLedger } from "../ledger/sqlite.js";
-
+import { resolveControlPlaneDirectory } from "../storage/installation.js";
 const ALLOWED_GROUP_BY: Record<string, true> = { model: true, provider: true };
 
 function parseSince(value: string | undefined): string | undefined {
@@ -22,7 +21,7 @@ function parseSince(value: string | undefined): string | undefined {
   throw new Error(`invalid --since value: ${value}`);
 }
 
-export async function runCost(configPath: string, args: readonly string[]): Promise<number> {
+export async function runCost(_configPath: string, args: readonly string[]): Promise<number> {
   let since: string | undefined;
   let groupBy: "model" | "provider" | undefined;
   let json = false;
@@ -56,21 +55,29 @@ export async function runCost(configPath: string, args: readonly string[]): Prom
       return 0;
     }
   }
-
-  const config = await loadConfig(configPath).catch(() => undefined);
-  const directory = config?.controlPlane.dataDirectory ?? join(homedir(), RLY_STATE_DIRECTORY_NAME);
+  let directory: string | undefined;
+  if (_configPath) {
+    try {
+      const raw = await readFile(_configPath, "utf8");
+      const m = raw.match(/dataDirectory\s*=\s*"([^"]+)"/);
+      if (m?.[1]) {
+        const dir = m[1].replace("~", homedir());
+        directory = dir.startsWith("/") ? dir : resolve(homedir(), dir);
+      }
+    } catch { /* fallback to pointer */ }
+  }
+  directory ??= await resolveControlPlaneDirectory(homedir());
 
   if (prune !== undefined) {
     const deleted = await pruneLedger(directory, prune);
     console.log(JSON.stringify({ pruned: deleted, before: prune }));
     return 0;
   }
-
-  const query: Record<string, string> = {};
-  if (since !== undefined) query["since"] = since;
-  if (groupBy !== undefined) query["groupBy"] = groupBy;
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- exactOptionalPropertyTypes needs narrowed record
-  const groups = await queryLedger(directory, query as unknown as LedgerQuery);
+  const query: LedgerQuery = {
+    ...(since === undefined ? {} : { since }),
+    ...(groupBy === undefined ? {} : { groupBy }),
+  };
+  const groups = await queryLedger(directory, query);
   // Secret-free assertion already in sqlite layer; double-check serialized output
   const payload = JSON.stringify(groups);
   if (/\bBearer\b/.test(payload)) throw new Error("cost output must be secret-free");

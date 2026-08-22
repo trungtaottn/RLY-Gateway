@@ -44,6 +44,23 @@ describe("adaptive", () => {
     expect(computeScore(ready, "healthy")).toBeGreaterThan(0);
   });
 
+  it("records failures inside the success rate-limit window", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rly-adaptive-fail-"));
+    try {
+      const store = await ControlPlaneStore.open(dir);
+      resetRateLimit();
+      updateAdaptiveHealth(store, "acct-1", 100, true, new Date("2026-01-01T00:00:00.000Z"));
+      updateAdaptiveHealth(store, "acct-1", 200, false, new Date("2026-01-01T00:00:01.000Z"));
+      const h = getAdaptiveHealth(store, "acct-1");
+      expect(h?.total).toBe(2);
+      expect(h?.errors).toBe(1);
+      store.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      resetRateLimit();
+    }
+  });
+
   it("skips abort errors", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rly-adaptive-abort-"));
     try {

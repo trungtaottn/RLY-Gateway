@@ -81,6 +81,7 @@ export function registerManagementCollections(
       const parsed = providerBody.partial().extend({ version: versionSchema }).parse(body);
       return toProviderDto(store.updateProvider(id, parsed.version, parsed, actor));
     },
+    delete: (id, version, actor) => store.deleteProvider(id, version, actor),
   });
   registerCollection(app, authorize, "accounts", {
     list: async () => {
@@ -117,6 +118,7 @@ export function registerManagementCollections(
       }
       return toAccountDto(store.updateAccount(id, parsed.version, parsed, actor));
     },
+    delete: (id, version, actor) => store.deleteAccount(id, version, actor),
   });
   registerCollection(app, authorize, "pools", {
     list: () => store.listPools().map(toPoolDto),
@@ -132,6 +134,7 @@ export function registerManagementCollections(
       const parsed = poolBody.extend({ version: versionSchema }).parse(body);
       return toPoolDto(store.updatePool(id, parsed.version, parsed, actor));
     },
+    delete: (id, version, actor) => store.deletePool(id, version, actor),
   });
   registerCollection(app, authorize, "profiles", {
     list: () => store.listProfiles().map(toProfileDto),
@@ -159,6 +162,8 @@ function envCredentialRefFrom(body: unknown): string | undefined {
   return undefined;
 }
 
+const deleteVersionSchema = z.object({ version: z.coerce.number().int().positive() });
+
 function registerCollection(
   app: FastifyInstance,
   authorize: ManagementAuthorizer,
@@ -167,6 +172,7 @@ function registerCollection(
     list: () => unknown;
     create: (body: unknown, actor: ManagementActor) => unknown;
     update: (id: string, body: unknown, actor: ManagementActor) => unknown;
+    delete?: (id: string, version: number, actor: ManagementActor) => unknown;
   }>,
 ): void {
   app.get(`/v1/${name}`, async (request, reply) => {
@@ -185,5 +191,17 @@ function registerCollection(
     const parsed = z.object({ id: idSchema }).safeParse(request.params);
     if (!parsed.success) return reject(reply, 400, "invalid");
     return handlers.update(parsed.data.id, request.body, principal.actor);
+  });
+  if (handlers.delete === undefined) return;
+  const remove = handlers.delete;
+  app.delete(`/v1/${name}/:id`, async (request, reply) => {
+    const principal = authorize(request, reply, true);
+    if (!principal) return;
+    const parsed = z.object({ id: idSchema }).safeParse(request.params);
+    if (!parsed.success) return reject(reply, 400, "invalid");
+    const fromQuery = deleteVersionSchema.safeParse(request.query);
+    const version = fromQuery.success ? fromQuery : deleteVersionSchema.safeParse(request.body);
+    if (!version.success) return reject(reply, 400, "invalid");
+    return reply.code(200).send(await remove(parsed.data.id, version.data.version, principal.actor));
   });
 }

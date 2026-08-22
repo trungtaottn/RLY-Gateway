@@ -1,7 +1,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { z } from "zod";
+import { ValidationError } from "../control-plane/errors.js";
 import { ensurePrivateDirectory } from "../storage/private-files.js";
 import { estimateCost, snapshotIdFor } from "./price-registry.js";
+
+const ledgerGroupBySchema = z.enum(["model", "provider"]);
+const ledgerQuerySchema = z.object({
+  since: z.string().min(1).optional(),
+  groupBy: ledgerGroupBySchema.optional(),
+});
+
+export type LedgerQuery = z.infer<typeof ledgerQuerySchema>;
 
 export type LedgerRow = Readonly<{
   eventId: string;
@@ -12,11 +22,6 @@ export type LedgerRow = Readonly<{
   costUsd: number;
   priceSnapshotId: string;
   occurredAt: string;
-}>;
-
-export type LedgerQuery = Readonly<{
-  since?: string;
-  groupBy?: "model" | "provider";
 }>;
 
 export type LedgerGroup = Readonly<{
@@ -150,16 +155,14 @@ export function appendEntrySync(directory: string, input: AppendInput): void {
 }
 
 export async function queryLedger(directory: string, query: LedgerQuery = {}): Promise<readonly LedgerGroup[]> {
+  const parsed = ledgerQuerySchema.safeParse(query);
+  if (!parsed.success) throw new ValidationError("invalid ledger groupBy");
   await ensurePrivateDirectory(directory);
   const db = openDatabase(directory);
-  const since = query.since;
+  const since = parsed.data.since;
   const where = since ? "WHERE occurred_at >= ?" : "";
   const params: string[] = since ? [since] : [];
-  const groupBy = query.groupBy;
-  if (groupBy === "model") {
-    const stmt = db.prepare(`SELECT provider, model, SUM(cost_usd) as totalCost, COUNT(*) as count, SUM(input_tokens) as inputTokens, SUM(output_tokens) as outputTokens FROM ledger_entries ${where} GROUP BY provider, model`);
-    return stmt.all(...params) as LedgerGroup[];
-  }
+  const groupBy = parsed.data.groupBy;
   if (groupBy === "provider") {
     const stmt = db.prepare(`SELECT provider, model, SUM(cost_usd) as totalCost, COUNT(*) as count, SUM(input_tokens) as inputTokens, SUM(output_tokens) as outputTokens FROM ledger_entries ${where} GROUP BY provider`);
     return stmt.all(...params) as LedgerGroup[];

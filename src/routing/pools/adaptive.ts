@@ -83,9 +83,11 @@ export function updateAdaptiveHealth(
 ): void {
   if (error !== undefined && isAbortError(error)) return;
   const nowMs = now.getTime();
-  const last = lastWriteAt.get(accountId) ?? 0;
-  if (nowMs - last < ADAPTIVE_RATE_LIMIT_MS) return;
-  lastWriteAt.set(accountId, nowMs);
+  if (success) {
+    const last = lastWriteAt.get(accountId) ?? 0;
+    if (nowMs - last < ADAPTIVE_RATE_LIMIT_MS) return;
+    lastWriteAt.set(accountId, nowMs);
+  }
 
   ensureAdaptiveTable(store);
   const current = getAdaptiveHealth(store, accountId);

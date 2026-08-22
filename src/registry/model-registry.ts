@@ -152,7 +152,7 @@ const nvidiaNemotronCapabilities = conservativeCapabilities();
 const deepSeekFlashCapabilities = conservativeCapabilities({ tools: false });
 const nvidiaNemotronNanoCapabilities = conservativeCapabilities({ images: true });
 const openAiGptOssCapabilities = conservativeCapabilities({ structuredOutput: true });
-const codexGpt54Capabilities = conservativeCapabilities();
+const codexGpt54Capabilities = conservativeCapabilities({ redactedReasoning: true });
 const clineSonnet45Capabilities = conservativeCapabilities();
 
 /** Fake-upstream Claude Code E2E evidence path for direct providers. */
