@@ -1,8 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { resolve } from "node:path";
 import type { LedgerQuery } from "../ledger/sqlite.js";
 import { queryLedger, pruneLedger } from "../ledger/sqlite.js";
 import { resolveControlPlaneDirectory } from "../storage/installation.js";
-
 const ALLOWED_GROUP_BY: Record<string, true> = { model: true, provider: true };
 
 function parseSince(value: string | undefined): string | undefined {
@@ -54,15 +55,24 @@ export async function runCost(_configPath: string, args: readonly string[]): Pro
       return 0;
     }
   }
-
-  const directory = await resolveControlPlaneDirectory(homedir());
+  let directory: string | undefined;
+  if (_configPath) {
+    try {
+      const raw = await readFile(_configPath, "utf8");
+      const m = raw.match(/dataDirectory\s*=\s*"([^"]+)"/);
+      if (m?.[1]) {
+        const dir = m[1].replace("~", homedir());
+        directory = dir.startsWith("/") ? dir : resolve(homedir(), dir);
+      }
+    } catch { /* fallback to pointer */ }
+  }
+  directory ??= await resolveControlPlaneDirectory(homedir());
 
   if (prune !== undefined) {
     const deleted = await pruneLedger(directory, prune);
     console.log(JSON.stringify({ pruned: deleted, before: prune }));
     return 0;
   }
-
   const query: LedgerQuery = {
     ...(since === undefined ? {} : { since }),
     ...(groupBy === undefined ? {} : { groupBy }),

@@ -1,6 +1,9 @@
+import { unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { openMigratedDatabase, type Migration } from "../storage/migrations.js";
+import { CREDENTIAL_DIRECTORY } from "../storage/paths.js";
 import { LOGICAL_TIERS } from "../routing/model-tiers/types.js";
 import { ValidationError } from "./errors.js";
 import type { HealthRecord, RouteOutcomeInput } from "./health/types.js";
@@ -195,6 +198,11 @@ export class ControlPlaneStore {
     return this.mutate(actor, "account.delete", "account", () => {
       const current = this.repo.accountById(id);
       this.repo.deleteAccount(current);
+      const stillUsed = this.repo.listAccounts().some((a) => a.credentialHandle === current.credentialHandle);
+      if (!stillUsed) {
+        try { unlinkSync(join(this.directory, CREDENTIAL_DIRECTORY, `${current.credentialHandle}.json`)); } catch { void 0; }
+        try { unlinkSync(join(this.directory, CREDENTIAL_DIRECTORY, `${current.credentialHandle}.bak`)); } catch { void 0; }
+      }
       return { id };
     }, id, version);
   }
@@ -445,7 +453,7 @@ export class ControlPlaneStore {
       return { revision, hash, createdAt, snapshot };
     } catch (error) {
       const text = error instanceof Error ? error.message : "";
-      if (!text.includes("UNIQUE")) throw error;
+      if (!text.includes("policy_revisions.hash") || !text.includes("UNIQUE")) throw error;
       const distinguished = createHash("sha256").update(`${encoded}\n${String(revision)}`).digest("hex");
       this.repo.insertPolicyRevision(revision, encoded, distinguished, createdAt);
       return { revision, hash: distinguished, createdAt, snapshot };

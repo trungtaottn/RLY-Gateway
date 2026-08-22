@@ -161,16 +161,22 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
       recordOutcome(input.store, route, "success", affinity.cooldownSeconds);
       try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, true); } catch { void 0; }
       try {
-        if (pendingInputTokens !== undefined || pendingOutputTokens !== undefined) {
+        const hasUsage = pendingInputTokens !== undefined || pendingOutputTokens !== undefined;
+        if (hasUsage) {
           const policy = input.store.currentPolicy();
           const providerName = policy?.snapshot.providers.find((item) => item.id === route.providerId)?.name ?? route.providerId;
-          appendEntrySync(input.store.directory, {
-            eventId: ledgerEventId,
-            provider: providerName,
-            model: route.modelId,
-            inputTokens: pendingInputTokens ?? 0,
-            outputTokens: pendingOutputTokens ?? 0,
-          });
+          const inputTokens = pendingInputTokens ?? 0;
+          const outputTokens = pendingOutputTokens ?? 0;
+          const cost = estimateCost({ model: route.modelId, inputTokens, outputTokens });
+          if (inputTokens > 0 || outputTokens > 0 || cost > 0) {
+            appendEntrySync(input.store.directory, {
+              eventId: ledgerEventId,
+              provider: providerName,
+              model: route.modelId,
+              inputTokens,
+              outputTokens,
+            });
+          }
         }
         const govKeyId = (input.request as unknown as Record<string, unknown>).__governanceKeyId as string | undefined;
         if (typeof govKeyId === "string" && govKeyId.length > 0) {
