@@ -55,17 +55,20 @@ Do not force-push `dev` or `main`. Stable promotion is `dev → main` via a dedi
 
 ## Verification
 
+Run the narrowest relevant suite first, then the full gate for shared changes:
+
 ```bash
-pnpm test:unit
-pnpm test:contract
-pnpm test:integration
-pnpm test:lifecycle
-pnpm test:privacy
-pnpm test:standalone
+pnpm test:unit              # unit, registry, installer
+pnpm test:contract           # protocol fidelity + provider contracts
+pnpm test:integration        # fake upstream chaos
+pnpm test:lifecycle          # Fastify inject wiring
+pnpm test:privacy            # secret-free invariants + repo scan (13 suites)
+pnpm test:browser            # AT-031 keyboard/a11y/secret-free DOM
+pnpm test:release            # supply-chain + package inventory + clean-install smoke
 pnpm lint
 pnpm typecheck
 pnpm build
-pnpm verify
+pnpm verify                  # lint → typecheck → test → test:browser → build → test:privacy → test:release
 ```
 
 A skipped or unavailable check is not a pass. Explain the gap in the PR.
