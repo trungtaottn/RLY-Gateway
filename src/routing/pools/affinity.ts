@@ -77,7 +77,7 @@ export class AffinityStore {
     current: readonly AffinityBinding[],
     binding: AffinityBinding,
   ): Promise<AffinityBinding[]> {
-    const next = [...current.filter((item) => item.sessionKeyHash !== binding.sessionKeyHash), binding];
+    const next = [...current.filter((item) => item.sessionKeyHash !== binding.sessionKeyHash || item.poolId !== binding.poolId), binding];
     await this.save(next);
     return next;
   }
