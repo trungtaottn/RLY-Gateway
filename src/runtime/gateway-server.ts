@@ -173,6 +173,12 @@ export function createGatewayServer(options: GatewayServerOptions): FastifyInsta
       headers?: RequestHeaders,
       required?: readonly CapabilityRequirement[],
     ) => {
+      // Propagate governance key id into CanonicalRequest for ledger budget wiring (P0-2)
+      const bearerForGov = headerToken(headers ?? {});
+      if (bearerForGov?.startsWith("rly_") && controlPlane) {
+        const gov = verifyGovKey(controlPlane, bearerForGov);
+        if (gov) (request as unknown as Record<string, unknown>).__governanceKeyId = gov.id;
+      }
       const token = headerToken(headers ?? {});
       const session = token === undefined ? undefined : launchSessions?.resolve(token);
       // #72: an RLY projection id routes through the session's pinned model

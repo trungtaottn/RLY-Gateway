@@ -8,6 +8,8 @@ import type { CommitmentState } from "../../providers/commitment.js";
 import { commitmentOf } from "../../providers/provider-error.js";
 import { ProviderAdapterError } from "../../providers/provider-adapter.js";
 import { appendEntrySync } from "../../ledger/sqlite.js";
+import { estimateCost } from "../../ledger/price-registry.js";
+import { recordKeyUsage } from "../../management/keys.js";
 import { updateAdaptiveHealth } from "./adaptive.js";
 import { parseAffinity } from "./affinity.js";
 import type { EffectiveRoute } from "../effective-route.js";
@@ -168,6 +170,11 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
           inputTokens: pendingInputTokens ?? 0,
           outputTokens: pendingOutputTokens ?? 0,
         });
+        const govKeyId = (input.request as unknown as Record<string, unknown>).__governanceKeyId as string | undefined;
+        if (typeof govKeyId === "string" && govKeyId.length > 0) {
+          const cost = estimateCost({ model: route.modelId, inputTokens: pendingInputTokens ?? 0, outputTokens: pendingOutputTokens ?? 0 });
+          if (cost > 0) recordKeyUsage(input.store, govKeyId, cost);
+        }
       } catch { void 0; }
       yield* flush();
       return;

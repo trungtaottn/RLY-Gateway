@@ -330,6 +330,18 @@ export async function resolveProfileRoute(
       throw error;
     }
   }
+  // P1: enforce governance allowedModels on resolved physical model (not just requested alias)
+  {
+    const govKeyId = (canonical as unknown as Record<string, unknown>).__governanceKeyId as string | undefined
+      ?? (effectiveRequest as unknown as Record<string, unknown>).__governanceKeyId as string | undefined;
+    if (typeof govKeyId === "string" && govKeyId.length > 0) {
+      const row = dependencies.store.database.prepare("SELECT allowed_models as allowed FROM governance_keys WHERE id = ?").get(govKeyId) as { allowed: string | null } | undefined;
+      const allowed = row?.allowed === null || row?.allowed === undefined ? undefined : JSON.parse(row.allowed) as readonly string[] | undefined;
+      if (allowed !== undefined && allowed.length > 0 && !allowed.includes(activated.modelId) && !allowed.includes(`${provider.name}/${activated.modelId}`)) {
+        throw new ProfileActivationError("capability-rejected", `model ${activated.modelId} not allowed for this key`);
+      }
+    }
+  }
   return {
     route,
     decision,

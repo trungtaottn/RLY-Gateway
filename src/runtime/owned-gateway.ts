@@ -89,15 +89,10 @@ export async function startOwnedGateway(input: Readonly<{
     try {
       if (input.stillIdle !== undefined && !input.stillIdle()) return;
       sessions.revokeAll();
-      const managementShutdown = appHolder.management
-        ? await closeGatewayBounded(appHolder.management)
-        : { forced: false };
-      const gatewayShutdown = appHolder.app
-        ? await closeGatewayBounded(appHolder.app)
-        : { forced: false };
+      await (appHolder.management ? closeGatewayBounded(appHolder.management) : Promise.resolve({ forced: false }));
+      await (appHolder.app ? closeGatewayBounded(appHolder.app) : Promise.resolve({ forced: false }));
       await appHolder.broker?.close();
       appHolder.controlPlane?.close();
-      if (gatewayShutdown.forced || managementShutdown.forced) return;
       await store.removeInstanceArtifacts(instanceId);
       leases.dispose();
     } finally {
