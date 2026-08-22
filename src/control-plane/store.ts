@@ -104,6 +104,24 @@ export class ControlPlaneStore {
     }, id, version);
   }
 
+  public deleteProvider(id: string, version: number, actor: ManagementActor): { id: string } {
+    return this.mutate(actor, "provider.delete", "provider", () => {
+      this.repo.providerById(id);
+      if (this.repo.listAccounts().some((account) => account.providerId === id)) {
+        throw new ValidationError("provider still has accounts");
+      }
+      if (this.repo.listPools().some((pool) => pool.providerId === id)) {
+        throw new ValidationError("provider still has pools");
+      }
+      if (this.repo.listProfiles().some((profile) => profile.providerId === id)) {
+        throw new ValidationError("provider still has profiles");
+      }
+      this.repo.deleteProvider(id, version);
+      return { id };
+    }, id, version);
+  }
+
+
   public listAccounts(): AccountRecord[] {
     return this.repo.listAccounts();
   }
@@ -173,6 +191,15 @@ export class ControlPlaneStore {
     }, id, version);
   }
 
+  public deleteAccount(id: string, version: number, actor: ManagementActor): { id: string } {
+    return this.mutate(actor, "account.delete", "account", () => {
+      const current = this.repo.accountById(id);
+      this.repo.deleteAccount(current);
+      return { id };
+    }, id, version);
+  }
+
+
   public acknowledgeTerms(id: string, version: number, termsRevision: string, actor: ManagementActor): AccountRecord {
     return this.mutate(actor, "account.acknowledge-terms", "account", () => {
       const current = this.repo.accountById(id);
@@ -239,6 +266,18 @@ export class ControlPlaneStore {
       return this.repo.poolById(current.id);
     }, id, version);
   }
+
+  public deletePool(id: string, version: number, actor: ManagementActor): { id: string } {
+    return this.mutate(actor, "pool.delete", "pool", () => {
+      const current = this.repo.poolById(id);
+      if (this.repo.listProfiles().some((profile) => profile.poolId === id)) {
+        throw new ValidationError("pool is referenced by profiles");
+      }
+      this.repo.deletePool(current);
+      return { id };
+    }, id, version);
+  }
+
 
   public listProfiles(): ProfileRecord[] {
     return this.repo.listProfiles();
@@ -401,8 +440,16 @@ export class ControlPlaneStore {
     const hash = createHash("sha256").update(encoded).digest("hex");
     const revision = this.repo.nextPolicyRevision();
     const createdAt = this.now();
-    this.repo.insertPolicyRevision(revision, encoded, hash, createdAt);
-    return { revision, hash, createdAt, snapshot };
+    try {
+      this.repo.insertPolicyRevision(revision, encoded, hash, createdAt);
+      return { revision, hash, createdAt, snapshot };
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "";
+      if (!text.includes("UNIQUE")) throw error;
+      const distinguished = createHash("sha256").update(`${encoded}\n${String(revision)}`).digest("hex");
+      this.repo.insertPolicyRevision(revision, encoded, distinguished, createdAt);
+      return { revision, hash: distinguished, createdAt, snapshot };
+    }
   }
 
   private assertProfileRefs(providerId: string | undefined, poolId: string | undefined): void {

@@ -161,15 +161,17 @@ export async function* streamPoolRequest(input: PoolRequestInput & {
       recordOutcome(input.store, route, "success", affinity.cooldownSeconds);
       try { updateAdaptiveHealth(input.store, route.accountId, Date.now() - attemptStart, true); } catch { void 0; }
       try {
-        const policy = input.store.currentPolicy();
-        const providerName = policy?.snapshot.providers.find((item) => item.id === route.providerId)?.name ?? route.providerId;
-        appendEntrySync(input.store.directory, {
-          eventId: ledgerEventId,
-          provider: providerName,
-          model: route.modelId,
-          inputTokens: pendingInputTokens ?? 0,
-          outputTokens: pendingOutputTokens ?? 0,
-        });
+        if (pendingInputTokens !== undefined || pendingOutputTokens !== undefined) {
+          const policy = input.store.currentPolicy();
+          const providerName = policy?.snapshot.providers.find((item) => item.id === route.providerId)?.name ?? route.providerId;
+          appendEntrySync(input.store.directory, {
+            eventId: ledgerEventId,
+            provider: providerName,
+            model: route.modelId,
+            inputTokens: pendingInputTokens ?? 0,
+            outputTokens: pendingOutputTokens ?? 0,
+          });
+        }
         const govKeyId = (input.request as unknown as Record<string, unknown>).__governanceKeyId as string | undefined;
         if (typeof govKeyId === "string" && govKeyId.length > 0) {
           const cost = estimateCost({ model: route.modelId, inputTokens: pendingInputTokens ?? 0, outputTokens: pendingOutputTokens ?? 0 });
@@ -221,9 +223,11 @@ function recordOutcome(
 ): void {
   const cooldown = outcome === "success" ? null : cooldownUntilFor(outcome, store.currentTime(), cooldownSeconds);
   const current = store.getAccount(route.accountId);
+  const consecutiveFailures = store.getHealth(route.accountId)?.consecutiveFailures ?? 0;
+  const nextFailures = outcome === "success" ? 0 : consecutiveFailures + 1;
   store.recordRouteOutcome(route.accountId, {
     outcome,
-    quotaClass: nextQuotaClass(outcome, current.quotaClass),
+    quotaClass: nextQuotaClass(outcome, current.quotaClass, nextFailures),
     cooldownUntil: cooldown ?? null,
   });
 }

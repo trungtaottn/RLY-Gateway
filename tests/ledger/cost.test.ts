@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, afterEach } from "vitest";
 import { appendEntrySync, queryLedger, pruneLedger, closeLedger } from "../../src/ledger/sqlite.js";
+import { ValidationError } from "../../src/control-plane/errors.js";
 import { estimateCost } from "../../src/ledger/price-registry.js";
 
 let dir: string | undefined;
@@ -44,6 +45,13 @@ describe("ledger", () => {
     const groups = await queryLedger(d, { groupBy: "model" });
     expect(groups.length).toBe(2);
   });
+
+  it("rejects an invalid groupBy instead of falling back", async () => {
+    const d = await freshDir();
+    appendEntrySync(d, { eventId: "e4b", provider: "openrouter", model: "nvidia-nemotron-nano-9b-v2", inputTokens: 10, outputTokens: 5 });
+    await expect(queryLedger(d, { groupBy: "account" } as unknown as { groupBy: "model" })).rejects.toBeInstanceOf(ValidationError);
+  });
+
 
   it("prune before", async () => {
     const d = await freshDir();

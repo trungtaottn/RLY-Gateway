@@ -17,6 +17,11 @@ describe("quota class transitions", () => {
     expect(nextQuotaClass("auth", "healthy")).toBe("healthy");
     expect(nextQuotaClass("transient", "warning")).toBe("warning");
     expect(nextQuotaClass("quota", "exhausted")).toBe("exhausted");
+    expect(nextQuotaClass("transient", "healthy", 2)).toBe("healthy");
+    expect(nextQuotaClass("transient", "healthy", 3)).toBe("warning");
+    expect(nextQuotaClass("transient", "warning", 3)).toBe("unknown");
+    expect(nextQuotaClass("transient", "unknown", 3)).toBe("unknown");
+    expect(nextQuotaClass("transient", "exhausted", 3)).toBe("exhausted");
   });
 });
 

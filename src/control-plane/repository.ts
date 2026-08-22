@@ -75,6 +75,12 @@ export class ControlPlaneRepository {
     }
   }
 
+  public deleteProvider(id: string, version: number): void {
+    const result = this.prepare("DELETE FROM providers WHERE id = ? AND version = ?").run(id, version);
+    if (result.changes === 0) throw new VersionConflictError("provider");
+  }
+
+
   public listAccounts(): AccountRecord[] {
     return this.prepare("SELECT * FROM accounts ORDER BY pseudonym").all().map((row) => mapAccount(row as SqlRow));
   }
@@ -109,6 +115,16 @@ export class ControlPlaneRepository {
     );
     if (result.changes === 0) throw new VersionConflictError("account");
   }
+
+  public deleteAccount(current: AccountRecord): void {
+    this.prepare("DELETE FROM memberships WHERE account_id = ?").run(current.id);
+    this.prepare("DELETE FROM health WHERE account_id = ?").run(current.id);
+    this.prepare("DELETE FROM terms_acknowledgements WHERE account_id = ?").run(current.id);
+    this.prepare("DELETE FROM pool_health WHERE account_id = ?").run(current.id);
+    const result = this.prepare("DELETE FROM accounts WHERE id = ? AND version = ?").run(current.id, current.version);
+    if (result.changes === 0) throw new VersionConflictError("account");
+  }
+
 
   public insertAccountHealth(accountId: string): void {
     this.prepare(
@@ -192,6 +208,13 @@ export class ControlPlaneRepository {
       rethrowConstraint(error, "pool name already exists");
     }
   }
+
+  public deletePool(current: PoolRecord): void {
+    this.prepare("DELETE FROM memberships WHERE pool_id = ?").run(current.id);
+    const result = this.prepare("DELETE FROM pools WHERE id = ? AND version = ?").run(current.id, current.version);
+    if (result.changes === 0) throw new VersionConflictError("pool");
+  }
+
 
   public replaceMemberships(poolId: string, providerId: string, accountIds: readonly string[]): void {
     const unique = new Set(accountIds);
